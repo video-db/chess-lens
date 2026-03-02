@@ -101,10 +101,5 @@ export {
   getSummaryGenerator,
   resetSummaryGenerator,
   type CallSummary,
-  type ActionItem,
-  type Concern,
-  type Objection,
-  type Commitment,
-  type Evidence,
   type FullCallReport,
 } from './summary-generator.service';

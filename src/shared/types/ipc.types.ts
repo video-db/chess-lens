@@ -134,14 +134,7 @@ export interface CopilotPlaybookSnapshot {
 }
 
 export interface CopilotCallSummary {
-  bullets: string[];
-  customerPain: string[]; // Challenges discussed (field name kept for backwards compat)
-  customerGoals: string[]; // Objectives identified (field name kept for backwards compat)
-  objections: Array<{ type: string; text: string; response?: string; resolved: boolean; timestamp: number }>; // Concerns raised
-  commitments: Array<{ who: 'me' | 'them'; commitment: string; timestamp: number }>;
-  nextSteps: Array<{ action: string; owner: 'me' | 'them' | 'both'; priority: string; deadline?: string }>;
-  keyDecisions: string[];
-  riskFlags: string[];
+  summary: string;
   generatedAt: number;
 }
 

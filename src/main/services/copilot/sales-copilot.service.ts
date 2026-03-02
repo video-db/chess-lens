@@ -666,31 +666,20 @@ export class MeetingCopilotService extends EventEmitter {
       log.info({
         recordingId,
         elapsedMs: summaryElapsed,
-        bullets: summary.bullets.length,
-        concerns: summary.concerns?.length || 0,
-        nextSteps: summary.nextSteps.length,
+        summaryLength: summary.summary.length,
       }, 'Summary generation completed');
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : 'Unknown error';
       log.error({ err: error, errorMessage: errMsg, recordingId }, 'Failed to generate summary');
       summary = {
-        bullets: [],
-        customerPain: [],
-        customerGoals: [],
-        concerns: [],
-        objections: [],
-        commitments: [],
-        nextSteps: [],
-        keyDecisions: [],
-        openQuestions: [],
-        riskFlags: ['Summary generation failed: ' + errMsg],
+        summary: `## Meeting Summary\n\nSummary generation failed: ${errMsg}`,
         generatedAt: Date.now(),
       };
     }
 
     // Save to database
     try {
-      log.info({ recordingId, hasSummary: summary.bullets.length > 0 }, 'Saving call data to database');
+      log.info({ recordingId, hasSummary: summary.summary.length > 0 }, 'Saving call data to database');
       updateRecording(recordingId, {
         callSummary: JSON.stringify(summary),
         playbookSnapshot: playbookSnapshot ? JSON.stringify(playbookSnapshot) : undefined,
@@ -704,7 +693,7 @@ export class MeetingCopilotService extends EventEmitter {
     }
 
     // Emit end event
-    log.info({ recordingId, hasSummary: summary.bullets.length > 0 }, 'Emitting call-ended event');
+    log.info({ recordingId, hasSummary: summary.summary.length > 0 }, 'Emitting call-ended event');
     this.emit('call-ended', {
       summary,
       playbook: playbookSnapshot || undefined,

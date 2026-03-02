@@ -3,29 +3,8 @@ import { z } from 'zod';
 export const RecordingStatusSchema = z.enum(['recording', 'processing', 'available', 'failed']);
 export const InsightsStatusSchema = z.enum(['pending', 'processing', 'ready', 'failed']);
 
-// Copilot data schemas
 export const CallSummarySchema = z.object({
-  bullets: z.array(z.string()).optional(),
-  customerPain: z.array(z.string()).optional(),
-  customerGoals: z.array(z.string()).optional(),
-  objections: z.array(z.object({
-    type: z.string(),
-    text: z.string(),
-    response: z.string().optional(),
-    resolved: z.boolean().optional(),
-  })).optional(),
-  commitments: z.array(z.object({
-    who: z.enum(['me', 'them']),
-    commitment: z.string(),
-  })).optional(),
-  nextSteps: z.array(z.object({
-    action: z.string(),
-    owner: z.enum(['me', 'them', 'both']),
-    priority: z.enum(['high', 'medium', 'low']),
-    deadline: z.string().optional(),
-  })).optional(),
-  keyDecisions: z.array(z.string()).optional(),
-  riskFlags: z.array(z.string()).optional(),
+  summary: z.string(), // The complete meeting summary as markdown
   generatedAt: z.number().optional(),
 }).nullable();
 

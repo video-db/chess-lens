@@ -12,7 +12,6 @@ import {
   Target,
   ChevronDown,
   ChevronUp,
-  AlertTriangle,
   CheckCircle2,
   MessageSquare,
 } from 'lucide-react';
@@ -310,88 +309,34 @@ export function RecordingDetailsModal({
               </CollapsibleSection>
             )}
 
-            {/* Call Summary (Real-time) - Primary section */}
-            {callSummary && (
+            {/* Meeting Summary */}
+            {callSummary && callSummary.summary && (
               <CollapsibleSection
-                title="Call Summary"
+                title="Meeting Summary"
                 icon={<MessageSquare className="h-4 w-4" />}
                 defaultOpen={true}
-                badge={`${callSummary.bullets?.length || 0} points`}
               >
-                <div className="space-y-3 pt-2">
-                  {/* Risk Flags */}
-                  {callSummary.riskFlags && callSummary.riskFlags.length > 0 && (
-                    <div className="p-2 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-800">
-                      <p className="text-xs font-medium text-red-700 dark:text-red-400 flex items-center gap-1 mb-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        Risk Flags
-                      </p>
-                      <ul className="space-y-0.5">
-                        {callSummary.riskFlags.map((flag, i) => (
-                          <li key={i} className="text-xs text-red-600 dark:text-red-300">• {flag}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Summary Bullets */}
-                  {callSummary.bullets && callSummary.bullets.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-1">Key Points</p>
-                      <ul className="space-y-0.5">
-                        {callSummary.bullets.map((bullet, i) => (
-                          <li key={i} className="text-sm">• {bullet}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Challenges Discussed */}
-                  {callSummary.customerPain && callSummary.customerPain.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-1">Challenges Discussed</p>
-                      <ul className="space-y-0.5">
-                        {callSummary.customerPain.map((pain, i) => (
-                          <li key={i} className="text-sm">• {pain}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Next Steps */}
-                  {callSummary.nextSteps && callSummary.nextSteps.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-1">Next Steps</p>
-                      <div className="space-y-1">
-                        {callSummary.nextSteps.map((step, i) => (
-                          <div key={i} className="flex items-center gap-2 text-sm">
-                            <Badge variant="outline" className="text-xs">
-                              {step.owner === 'me' ? 'You' : step.owner === 'them' ? 'Them' : 'Both'}
-                            </Badge>
-                            <span>{step.action}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Concerns */}
-                  {callSummary.objections && callSummary.objections.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-1">Concerns Raised</p>
-                      <div className="space-y-1">
-                        {callSummary.objections.map((obj, i) => (
-                          <div key={i} className="p-2 bg-muted/30 rounded text-sm">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <Badge variant="outline" className="text-xs">{obj.type}</Badge>
-                              {obj.resolved && <Badge className="text-xs bg-green-500">Resolved</Badge>}
-                            </div>
-                            <p className="text-sm">{obj.text}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                <div className="prose prose-sm dark:prose-invert max-w-none pt-2">
+                  <ReactMarkdown
+                    components={{
+                      h2: ({ children }) => (
+                        <h2 className="text-base font-semibold mt-4 mb-2 first:mt-0 border-b pb-1">{children}</h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="text-sm font-semibold mt-3 mb-1">{children}</h3>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="list-disc list-inside space-y-1 my-2 ml-2">{children}</ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="list-decimal list-inside space-y-1 my-2 ml-2">{children}</ol>
+                      ),
+                      li: ({ children }) => <li className="text-sm">{children}</li>,
+                      p: ({ children }) => <p className="text-sm my-2">{children}</p>,
+                    }}
+                  >
+                    {callSummary.summary}
+                  </ReactMarkdown>
                 </div>
               </CollapsibleSection>
             )}
