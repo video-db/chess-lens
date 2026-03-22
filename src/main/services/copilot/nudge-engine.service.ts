@@ -2,13 +2,12 @@
  * Live Nudge Engine Service
  *
  * Generates gentle, rate-limited coaching nudges based on conversation
- * metrics and sentiment. Maximum 1 nudge per 2 minutes to avoid distraction.
+ * metrics. Maximum 1 nudge per 2 minutes to avoid distraction.
  */
 
 import { v4 as uuid } from 'uuid';
 import { logger } from '../../lib/logger';
 import type { ConversationMetrics } from './conversation-metrics.service';
-import type { SentimentTrend } from './sentiment-analyzer.service';
 
 const log = logger.child({ module: 'nudge-engine' });
 
@@ -16,11 +15,8 @@ const log = logger.child({ module: 'nudge-engine' });
 
 export type NudgeType =
   | 'monologue'
-  | 'sentiment'
   | 'talk_ratio'
   | 'next_steps'
-  | 'pricing'
-  | 'playbook'
   | 'questions'
   | 'pace';
 
@@ -59,27 +55,14 @@ const NUDGE_TEMPLATES: Record<NudgeType, Array<{
       actionType: 'ask_question',
     },
     {
-      message: 'Consider pausing to let the customer respond',
+      message: 'Consider pausing to let the other person respond',
       severity: 'low',
       actionType: 'pause',
     },
   ],
-  sentiment: [
-    {
-      message: 'Customer sentiment seems to be dipping — consider clarifying',
-      severity: 'high',
-      actionLabel: 'Address concern',
-      actionType: 'clarify',
-    },
-    {
-      message: 'The customer may have concerns — check in with them',
-      severity: 'medium',
-      actionType: 'clarify',
-    },
-  ],
   talk_ratio: [
     {
-      message: 'Talk ratio is high — let the customer speak more',
+      message: 'Talk ratio is high — let the other person speak more',
       severity: 'low',
     },
     {
@@ -99,18 +82,6 @@ const NUDGE_TEMPLATES: Record<NudgeType, Array<{
       message: 'Good time to discuss action items and timeline',
       severity: 'low',
       actionType: 'confirm',
-    },
-  ],
-  pricing: [
-    {
-      message: 'Pricing came up — make sure to address value before discussing cost',
-      severity: 'medium',
-    },
-  ],
-  playbook: [
-    {
-      message: 'Some playbook items haven\'t been covered yet',
-      severity: 'low',
     },
   ],
   questions: [
@@ -150,9 +121,7 @@ export class NudgeEngineService {
    */
   evaluate(
     metrics: ConversationMetrics,
-    sentiment: SentimentTrend,
-    callDuration: number,
-    playbookCoverage?: number // 0-100
+    callDuration: number
   ): Nudge | null {
     if (!this.config.enabled) return null;
 
@@ -165,12 +134,10 @@ export class NudgeEngineService {
     // Priority-ordered checks
     const nudge =
       this.checkMonologue(metrics) ||
-      this.checkSentimentDip(sentiment) ||
       this.checkTalkRatio(metrics) ||
       this.checkQuestions(metrics, callDuration) ||
       this.checkPace(metrics) ||
-      this.checkNextSteps(callDuration) ||
-      this.checkPlaybook(playbookCoverage, callDuration);
+      this.checkNextSteps(callDuration);
 
     if (nudge && !this.config.suppressedTypes.includes(nudge.type)) {
       this.lastNudgeTime = now;
@@ -190,24 +157,6 @@ export class NudgeEngineService {
     if (metrics.monologueDetected || metrics.longestMonologue > 60) {
       return this.createNudge('monologue');
     }
-    return null;
-  }
-
-  /**
-   * Check for sentiment dip
-   */
-  private checkSentimentDip(sentiment: SentimentTrend): Nudge | null {
-    if (
-      sentiment.trend === 'declining' &&
-      sentiment.current === 'negative'
-    ) {
-      return this.createNudge('sentiment', 0); // High severity
-    }
-
-    if (sentiment.trend === 'declining' && sentiment.averageScore < -0.2) {
-      return this.createNudge('sentiment', 1); // Medium severity
-    }
-
     return null;
   }
 
@@ -268,20 +217,6 @@ export class NudgeEngineService {
     // Also nudge at 30 minutes
     if (callDuration > 1800 && callDuration < 1830) {
       return this.createNudge('next_steps', 1);
-    }
-
-    return null;
-  }
-
-  /**
-   * Check playbook coverage
-   */
-  private checkPlaybook(coverage?: number, callDuration?: number): Nudge | null {
-    if (coverage === undefined || callDuration === undefined) return null;
-
-    // After 15 minutes, if coverage is low
-    if (callDuration > 900 && coverage < 30) {
-      return this.createNudge('playbook');
     }
 
     return null;

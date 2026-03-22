@@ -165,39 +165,38 @@ export class ConversationMetricsService {
 
   /**
    * Calculate words per minute
-   * Falls back to call duration if segment durations are not available
+   * Uses the time span from first to last segment for accurate calculation
    */
   private calculatePace(segments: TranscriptSegmentData[], callDurationSeconds?: number): number {
     if (segments.length === 0) return 0;
 
     const totalWords = this.countWords(segments);
+    if (totalWords === 0) return 0;
 
-    // First try to use actual speaking duration from segments
-    const speakingDuration = this.calculateDuration(segments);
+    // Calculate the time span from first to last segment
+    // This represents the period over which the user was speaking
+    const firstSegment = segments[0];
+    const lastSegment = segments[segments.length - 1];
+    const timeSpanSeconds = lastSegment.endTime - firstSegment.startTime;
 
-    // If we have valid speaking duration, use it
-    if (speakingDuration > 0) {
-      const speakingMinutes = speakingDuration / 60;
-      return speakingMinutes > 0 ? Math.round(totalWords / speakingMinutes) : 0;
+    // Use the time span if it's reasonable (> 5 seconds)
+    if (timeSpanSeconds > 5) {
+      const timeSpanMinutes = timeSpanSeconds / 60;
+      const rawWpm = Math.round(totalWords / timeSpanMinutes);
+
+      // Clamp to realistic range (50-250 WPM)
+      // Normal speech is 120-150 WPM, fast is 150-180, very fast is 180+
+      return Math.min(250, Math.max(50, rawWpm));
     }
 
-    // Fallback: estimate based on call duration (assume ~40% speaking time)
-    if (callDurationSeconds && callDurationSeconds > 0 && totalWords > 0) {
-      // Estimate speaking time as 40% of call duration for "me" channel
-      const estimatedSpeakingMinutes = (callDurationSeconds * 0.4) / 60;
-      if (estimatedSpeakingMinutes > 0) {
-        return Math.round(totalWords / estimatedSpeakingMinutes);
-      }
+    // Fallback: use call duration if available
+    if (callDurationSeconds && callDurationSeconds > 10) {
+      const callMinutes = callDurationSeconds / 60;
+      const rawWpm = Math.round(totalWords / callMinutes);
+      return Math.min(250, Math.max(0, rawWpm));
     }
 
-    // Last fallback: if we have words but no duration info, estimate based on average WPM
-    // Average speaking rate is ~130 WPM, so we can reverse-estimate
-    if (totalWords > 0 && segments.length > 0) {
-      // Assume each segment represents ~3 seconds of speech on average
-      const estimatedMinutes = (segments.length * 3) / 60;
-      return estimatedMinutes > 0 ? Math.round(totalWords / estimatedMinutes) : 130; // Default to average
-    }
-
+    // For very short calls, return 0 (not enough data)
     return 0;
   }
 

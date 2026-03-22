@@ -2,7 +2,7 @@
  * Meeting Co-Pilot Agent Orchestrator
  *
  * Central coordinator that receives transcript segments, manages context,
- * and triggers all agent processing pipelines. Emits events for UI updates.
+ * and triggers agent processing pipelines. Emits events for UI updates.
  */
 
 import { EventEmitter } from 'events';
@@ -34,29 +34,10 @@ import {
 } from './conversation-metrics.service';
 
 import {
-  SentimentAnalyzerService,
-  getSentimentAnalyzer,
-  type SentimentTrend,
-} from './sentiment-analyzer.service';
-
-import {
   NudgeEngineService,
   getNudgeEngine,
   type Nudge,
 } from './nudge-engine.service';
-
-import {
-  CueCardEngineService,
-  getCueCardEngine,
-  type CueCardTriggerData,
-} from './cue-card-engine.service';
-
-import {
-  PlaybookTrackerService,
-  getPlaybookTracker,
-  type PlaybookSnapshot,
-  type PlaybookItem,
-} from './playbook-tracker.service';
 
 import {
   SummaryGeneratorService,
@@ -83,12 +64,7 @@ const log = logger.child({ module: 'meeting-copilot' });
 export interface CopilotConfig {
   enableTranscription: boolean;
   enableMetrics: boolean;
-  enableSentiment: boolean;
   enableNudges: boolean;
-  enableCueCards: boolean;
-  enablePlaybook: boolean;
-  playbookId?: string;
-  useLLMForDetection: boolean;
   metricsUpdateInterval: number; // ms
   compressionInterval: number; // ms
   // MCP Configuration
@@ -100,13 +76,9 @@ export interface CopilotEvents {
   'call-started': { recordingId: number; sessionId: string };
   'transcript-segment': TranscriptSegmentData;
   'metrics-update': { metrics: ConversationMetrics; health: number };
-  'sentiment-update': { sentiment: SentimentTrend };
   'nudge': { nudge: Nudge };
-  'cue-card': { cueCard: CueCardTriggerData };
-  'playbook-update': { item: PlaybookItem; snapshot: PlaybookSnapshot };
   'call-ended': {
     summary: CallSummary;
-    playbook?: PlaybookSnapshot;
     metrics: ConversationMetrics;
     duration: number;
   };
@@ -129,10 +101,7 @@ export class MeetingCopilotService extends EventEmitter {
   private transcriptBuffer: TranscriptBufferService;
   private contextManager: ContextManagerService;
   private metricsService: ConversationMetricsService;
-  private sentimentAnalyzer: SentimentAnalyzerService;
   private nudgeEngine: NudgeEngineService;
-  private cueCardEngine: CueCardEngineService;
-  private playbookTracker: PlaybookTrackerService;
   private summaryGenerator: SummaryGeneratorService;
 
   private config: CopilotConfig;
@@ -145,11 +114,7 @@ export class MeetingCopilotService extends EventEmitter {
   private readonly DEFAULT_CONFIG: CopilotConfig = {
     enableTranscription: true,
     enableMetrics: true,
-    enableSentiment: true,
     enableNudges: true,
-    enableCueCards: true,
-    enablePlaybook: true,
-    useLLMForDetection: false, // Start with fast detection
     metricsUpdateInterval: 10000, // 10 seconds
     compressionInterval: 300000, // 5 minutes
     // MCP defaults
@@ -165,10 +130,7 @@ export class MeetingCopilotService extends EventEmitter {
     this.transcriptBuffer = getTranscriptBuffer();
     this.contextManager = getContextManager();
     this.metricsService = getMetricsService();
-    this.sentimentAnalyzer = getSentimentAnalyzer();
     this.nudgeEngine = getNudgeEngine();
-    this.cueCardEngine = getCueCardEngine();
-    this.playbookTracker = getPlaybookTracker();
     this.summaryGenerator = getSummaryGenerator();
 
     // Listen for transcript segments ready for processing
@@ -202,14 +164,7 @@ export class MeetingCopilotService extends EventEmitter {
     // Initialize services
     this.transcriptBuffer.startCall(sessionId, recordingId);
     this.nudgeEngine.reset();
-    this.cueCardEngine.reset();
-    this.sentimentAnalyzer.clear();
     this.metricsService.clear(sessionId);
-
-    // Initialize playbook if enabled
-    if (this.config.enablePlaybook) {
-      await this.playbookTracker.initialize(this.config.playbookId || null, recordingId);
-    }
 
     // Reset MCP Agent conversation for the new call
     getMCPAgent().resetConversation();
@@ -304,21 +259,6 @@ export class MeetingCopilotService extends EventEmitter {
     // Run processing in parallel where possible
     const promises: Promise<void>[] = [];
 
-    // Cue card detection (only for customer statements)
-    if (this.config.enableCueCards && segment.channel === 'them') {
-      promises.push(this.processCueCards(segment, context));
-    }
-
-    // Playbook tracking
-    if (this.config.enablePlaybook) {
-      promises.push(this.processPlaybook(segment, context));
-    }
-
-    // Sentiment update (only for customer statements)
-    if (this.config.enableSentiment && segment.channel === 'them') {
-      this.processSentiment();
-    }
-
     // MCP intent detection (for both channels - user may ask for info too)
     if (this.config.enableMCP && this.config.mcpAutoTrigger) {
       log.debug({
@@ -339,57 +279,6 @@ export class MeetingCopilotService extends EventEmitter {
 
     // Mark segment as processed
     this.transcriptBuffer.markProcessed(segment.id, this.callState.sessionId);
-  }
-
-  /**
-   * Process cue card detection
-   */
-  private async processCueCards(segment: TranscriptSegmentData, context: string): Promise<void> {
-    if (!this.callState) return;
-
-    const cueCard = await this.cueCardEngine.processSegment(
-      segment,
-      context,
-      this.callState.recordingId,
-      this.config.useLLMForDetection
-    );
-
-    if (cueCard) {
-      this.emit('cue-card', { cueCard });
-    }
-  }
-
-  /**
-   * Process playbook tracking
-   */
-  private async processPlaybook(segment: TranscriptSegmentData, context: string): Promise<void> {
-    let updatedItem: PlaybookItem | null = null;
-
-    if (this.config.useLLMForDetection) {
-      updatedItem = await this.playbookTracker.checkCoverageWithLLM(segment, context);
-    } else {
-      updatedItem = this.playbookTracker.checkCoverageFast(segment);
-    }
-
-    if (updatedItem) {
-      const snapshot = this.playbookTracker.getSnapshot();
-      if (snapshot) {
-        this.emit('playbook-update', { item: updatedItem, snapshot });
-      }
-    }
-  }
-
-  /**
-   * Process sentiment update (LLM-driven)
-   */
-  private async processSentiment(): Promise<void> {
-    if (!this.callState) return;
-
-    const recentSegments = this.transcriptBuffer.getFinalSegments(this.callState.sessionId);
-    const sentiment = await this.sentimentAnalyzer.getSentimentTrend(recentSegments);
-
-
-    this.emit('sentiment-update', { sentiment });
   }
 
   /**
@@ -538,8 +427,6 @@ export class MeetingCopilotService extends EventEmitter {
     const callDuration = (Date.now() - this.callState.startTime) / 1000;
     const metrics = this.metricsService.calculate(segments, callDuration);
     const health = this.metricsService.getConversationHealthScore(metrics);
-    const sentiment = await this.sentimentAnalyzer.getSentimentTrend(segments);
-    const playbookSnapshot = this.playbookTracker.getSnapshot();
 
     // Emit metrics update
     this.emit('metrics-update', { metrics, health });
@@ -548,9 +435,7 @@ export class MeetingCopilotService extends EventEmitter {
     if (this.config.enableNudges) {
       const nudge = this.nudgeEngine.evaluate(
         metrics,
-        sentiment,
-        callDuration,
-        playbookSnapshot?.coveragePercentage
+        callDuration
       );
 
       if (nudge) {
@@ -584,7 +469,6 @@ export class MeetingCopilotService extends EventEmitter {
           paceWpm: metrics.pace,
           questionsAsked: metrics.questionsAsked,
           monologueDetected: metrics.monologueDetected,
-          sentimentTrend: sentiment.trend,
         });
       } catch (error) {
         log.error({ error }, 'Failed to save metrics snapshot');
@@ -653,9 +537,6 @@ export class MeetingCopilotService extends EventEmitter {
     // Calculate final metrics
     const metrics = this.metricsService.calculate(segments, duration);
 
-    // Finalize playbook
-    const playbookSnapshot = await this.playbookTracker.finalize();
-
     // Generate summary
     let summary: CallSummary;
     try {
@@ -682,7 +563,6 @@ export class MeetingCopilotService extends EventEmitter {
       log.info({ recordingId, hasSummary: summary.summary.length > 0 }, 'Saving call data to database');
       updateRecording(recordingId, {
         callSummary: JSON.stringify(summary),
-        playbookSnapshot: playbookSnapshot ? JSON.stringify(playbookSnapshot) : undefined,
         metricsSnapshot: JSON.stringify(metrics),
         duration: Math.round(duration),
       });
@@ -696,7 +576,6 @@ export class MeetingCopilotService extends EventEmitter {
     log.info({ recordingId, hasSummary: summary.summary.length > 0 }, 'Emitting call-ended event');
     this.emit('call-ended', {
       summary,
-      playbook: playbookSnapshot || undefined,
       metrics,
       duration,
     });
@@ -704,7 +583,6 @@ export class MeetingCopilotService extends EventEmitter {
     // Cleanup
     this.transcriptBuffer.clear(sessionId);
     this.contextManager.clear(sessionId);
-    this.playbookTracker.reset();
     this.callState = null;
 
     return summary;
@@ -743,44 +621,6 @@ export class MeetingCopilotService extends EventEmitter {
     const segments = this.transcriptBuffer.getFinalSegments(this.callState.sessionId);
     const callDuration = (Date.now() - this.callState.startTime) / 1000;
     return this.metricsService.calculate(segments, callDuration);
-  }
-
-  /**
-   * Get current playbook snapshot
-   */
-  getPlaybookSnapshot(): PlaybookSnapshot | null {
-    return this.playbookTracker.getSnapshot();
-  }
-
-  /**
-   * Get current sentiment
-   */
-  async getCurrentSentiment(): Promise<SentimentTrend | null> {
-    if (!this.callState?.isActive) return null;
-
-    const segments = this.transcriptBuffer.getFinalSegments(this.callState.sessionId);
-    return this.sentimentAnalyzer.getSentimentTrend(segments);
-  }
-
-  /**
-   * Dismiss a cue card
-   */
-  dismissCueCard(triggerId: string): void {
-    this.cueCardEngine.updateTriggerStatus(triggerId, 'dismissed');
-  }
-
-  /**
-   * Pin a cue card
-   */
-  pinCueCard(triggerId: string): void {
-    this.cueCardEngine.updateTriggerStatus(triggerId, 'pinned');
-  }
-
-  /**
-   * Submit cue card feedback
-   */
-  submitCueCardFeedback(triggerId: string, feedback: 'helpful' | 'wrong' | 'irrelevant'): void {
-    this.cueCardEngine.submitFeedback(triggerId, feedback);
   }
 
   /**

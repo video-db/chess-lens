@@ -4,13 +4,12 @@
  * Compact status bar showing recording info:
  * - Recording time with indicator
  * - Talk ratio visualization
- * - Sentiment indicator
- * - Playbook progress
+ * - Health score
  * - Stop recording button
  */
 
 import React from 'react';
-import { Circle, Square, Smile, Meh, Frown, BookOpen, Mic, Users, Loader2 } from 'lucide-react';
+import { Circle, Square, Mic, Users, Loader2, Gauge } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useSession } from '../../hooks/useSession';
@@ -20,34 +19,10 @@ import { formatDuration, cn } from '../../lib/utils';
 export function TopStatusBar() {
   const { status, elapsedTime, isRecording, isStopping, stopRecording, startRecording, isStarting } =
     useSession();
-  const { metrics, healthScore, sentiment, playbook, isCallActive } = useCopilotStore();
+  const { metrics, healthScore, isCallActive } = useCopilotStore();
 
   const mePercent = metrics ? Math.round(metrics.talkRatio.me * 100) : 0;
   const themPercent = metrics ? Math.round(metrics.talkRatio.them * 100) : 0;
-
-  const getSentimentIcon = () => {
-    if (!sentiment) return <Meh className="w-5 h-5 text-slate-400" />;
-    switch (sentiment.current) {
-      case 'positive':
-        return <Smile className="w-5 h-5 text-green-500" />;
-      case 'negative':
-        return <Frown className="w-5 h-5 text-red-500" />;
-      default:
-        return <Meh className="w-5 h-5 text-amber-500" />;
-    }
-  };
-
-  const getSentimentLabel = () => {
-    if (!sentiment) return 'Neutral';
-    switch (sentiment.current) {
-      case 'positive':
-        return 'Positive';
-      case 'negative':
-        return 'Concerned';
-      default:
-        return 'Neutral';
-    }
-  };
 
   if (!isRecording && status === 'idle') {
     return (
@@ -167,26 +142,19 @@ export function TopStatusBar() {
         </div>
       </div>
 
-      <div className="h-8 w-px bg-slate-200 dark:bg-slate-700" />
-
-      {/* Sentiment */}
-      <div className="flex items-center gap-2">
-        {getSentimentIcon()}
-        <span className="text-sm font-medium">{getSentimentLabel()}</span>
-      </div>
-
-      {playbook && (
+      {/* Speaking Pace */}
+      {metrics && (
         <>
           <div className="h-8 w-px bg-slate-200 dark:bg-slate-700" />
           <div className="flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-slate-500" />
-            <span className="text-sm font-medium">{playbook.playbookName}</span>
-            <Badge
-              variant={playbook.coveragePercentage >= 70 ? 'default' : 'outline'}
-              className="ml-1"
-            >
-              {playbook.covered}/{playbook.total}
-            </Badge>
+            <Gauge className="w-4 h-4 text-slate-500" />
+            <span className={cn(
+              'text-lg font-bold',
+              metrics.pace > 180 ? 'text-amber-500' : 'text-slate-600 dark:text-slate-400'
+            )}>
+              {metrics.pace}
+            </span>
+            <span className="text-sm text-slate-500">WPM</span>
           </div>
         </>
       )}

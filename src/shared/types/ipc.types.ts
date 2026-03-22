@@ -141,12 +141,7 @@ export interface CopilotCallSummary {
 export interface CopilotConfig {
   enableTranscription: boolean;
   enableMetrics: boolean;
-  enableSentiment: boolean;
   enableNudges: boolean;
-  enableCueCards: boolean;
-  enablePlaybook: boolean;
-  playbookId?: string;
-  useLLMForDetection: boolean;
 }
 
 export interface IpcApi {
@@ -190,23 +185,13 @@ export interface IpcApi {
     sendTranscript: (channel: 'me' | 'them', data: { text: string; is_final: boolean; start: number; end: number }) => Promise<{ success: boolean; error?: string }>;
     updateConfig: (config: Partial<CopilotConfig>) => Promise<{ success: boolean; error?: string }>;
     getState: () => Promise<{ success: boolean; data?: any; error?: string }>;
-    dismissCueCard: (triggerId: string) => Promise<{ success: boolean; error?: string }>;
-    pinCueCard: (triggerId: string) => Promise<{ success: boolean; error?: string }>;
-    cueCardFeedback: (triggerId: string, feedback: 'helpful' | 'wrong' | 'irrelevant') => Promise<{ success: boolean; error?: string }>;
     dismissNudge: (nudgeId: string) => Promise<{ success: boolean; error?: string }>;
-    getPlaybooks: () => Promise<{ success: boolean; playbooks?: any[]; error?: string }>;
-    getCueCards: () => Promise<{ success: boolean; cueCards?: any[]; error?: string }>;
-    createBookmark: (data: { recordingId: number; timestamp: number; category: string; note?: string }) => Promise<{ success: boolean; bookmark?: any; error?: string }>;
-    getBookmarks: (recordingId: number) => Promise<{ success: boolean; bookmarks?: any[]; error?: string }>;
   };
   copilotOn: {
     onTranscript: (callback: (segment: CopilotTranscriptSegment) => void) => () => void;
     onMetrics: (callback: (data: { metrics: CopilotMetrics; health: number }) => void) => () => void;
-    onSentiment: (callback: (data: { sentiment: CopilotSentiment }) => void) => () => void;
     onNudge: (callback: (data: { nudge: CopilotNudge }) => void) => () => void;
-    onCueCard: (callback: (data: { cueCard: CopilotCueCard }) => void) => () => void;
-    onPlaybook: (callback: (data: { item: CopilotPlaybookItem; snapshot: CopilotPlaybookSnapshot }) => void) => () => void;
-    onCallEnded: (callback: (data: { summary: CopilotCallSummary; playbook?: CopilotPlaybookSnapshot; metrics: CopilotMetrics; duration: number }) => void) => () => void;
+    onCallEnded: (callback: (data: { summary: CopilotCallSummary; metrics: CopilotMetrics; duration: number }) => void) => () => void;
     onError: (callback: (data: { error: string; context?: string }) => void) => () => void;
   };
   mcp: {

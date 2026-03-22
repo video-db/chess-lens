@@ -1,11 +1,8 @@
 /**
  * Meeting Co-Pilot Store
  *
- * Centralized state management for all Meeting Co-Pilot features:
+ * Centralized state management for Meeting Co-Pilot features:
  * - Conversation metrics
- * - Sentiment tracking
- * - Cue cards
- * - Playbook progress
  * - Nudges
  * - Call summary
  */
@@ -13,11 +10,7 @@
 import { create } from 'zustand';
 import type {
   CopilotMetrics,
-  CopilotSentiment,
   CopilotNudge,
-  CopilotCueCard,
-  CopilotPlaybookItem,
-  CopilotPlaybookSnapshot,
   CopilotCallSummary,
   CopilotConfig,
   CopilotTranscriptSegment,
@@ -35,18 +28,6 @@ export interface CopilotState {
   // Metrics
   metrics: CopilotMetrics | null;
   healthScore: number;
-
-  // Sentiment
-  sentiment: CopilotSentiment | null;
-
-  // Cue Cards
-  activeCueCards: CopilotCueCard[];
-  pinnedCueCards: CopilotCueCard[];
-  dismissedCueCardIds: Set<string>;
-
-  // Playbook
-  playbook: CopilotPlaybookSnapshot | null;
-  selectedPlaybookId: string | null;
 
   // Nudges
   activeNudge: CopilotNudge | null;
@@ -68,20 +49,6 @@ export interface CopilotState {
   // Metrics actions
   setMetrics: (metrics: CopilotMetrics, health: number) => void;
 
-  // Sentiment actions
-  setSentiment: (sentiment: CopilotSentiment) => void;
-
-  // Cue card actions
-  addCueCard: (cueCard: CopilotCueCard) => void;
-  dismissCueCard: (triggerId: string) => void;
-  pinCueCard: (triggerId: string) => void;
-  clearCueCards: () => void;
-
-  // Playbook actions
-  setPlaybook: (playbook: CopilotPlaybookSnapshot) => void;
-  updatePlaybookItem: (item: CopilotPlaybookItem) => void;
-  setSelectedPlaybook: (id: string | null) => void;
-
   // Nudge actions
   setNudge: (nudge: CopilotNudge) => void;
   dismissNudge: () => void;
@@ -102,11 +69,7 @@ export interface CopilotState {
 const initialConfig: CopilotConfig = {
   enableTranscription: true,
   enableMetrics: true,
-  enableSentiment: true,
   enableNudges: true,
-  enableCueCards: true,
-  enablePlaybook: true,
-  useLLMForDetection: false,
 };
 
 const initialState = {
@@ -116,12 +79,6 @@ const initialState = {
   recordingId: null,
   metrics: null,
   healthScore: 100,
-  sentiment: null,
-  activeCueCards: [],
-  pinnedCueCards: [],
-  dismissedCueCardIds: new Set<string>(),
-  playbook: null,
-  selectedPlaybookId: null,
   activeNudge: null,
   nudgeHistory: [],
   callSummary: null,
@@ -149,11 +106,6 @@ export const useCopilotStore = create<CopilotState>((set, get) => ({
       recordingId,
       metrics: null,
       healthScore: 100,
-      sentiment: null,
-      activeCueCards: [],
-      pinnedCueCards: [],
-      dismissedCueCardIds: new Set(),
-      playbook: null,
       activeNudge: null,
       nudgeHistory: [],
       callSummary: null,
@@ -172,101 +124,6 @@ export const useCopilotStore = create<CopilotState>((set, get) => ({
   // Metrics
   setMetrics: (metrics, health) => {
     set({ metrics, healthScore: health });
-  },
-
-  // Sentiment
-  setSentiment: (sentiment) => {
-    set({ sentiment });
-  },
-
-  // Cue Cards
-  addCueCard: (cueCard) => {
-    const { dismissedCueCardIds, activeCueCards } = get();
-
-    // Don't add if already dismissed
-    if (dismissedCueCardIds.has(cueCard.triggerId)) {
-      return;
-    }
-
-    // Check if already exists
-    const exists = activeCueCards.some(c => c.triggerId === cueCard.triggerId);
-    if (exists) {
-      return;
-    }
-
-    set((state) => ({
-      activeCueCards: [...state.activeCueCards, cueCard],
-    }));
-  },
-
-  dismissCueCard: (triggerId) => {
-    set((state) => {
-      const newDismissed = new Set(state.dismissedCueCardIds);
-      newDismissed.add(triggerId);
-
-      return {
-        activeCueCards: state.activeCueCards.filter(c => c.triggerId !== triggerId),
-        pinnedCueCards: state.pinnedCueCards.filter(c => c.triggerId !== triggerId),
-        dismissedCueCardIds: newDismissed,
-      };
-    });
-  },
-
-  pinCueCard: (triggerId) => {
-    set((state) => {
-      const card = state.activeCueCards.find(c => c.triggerId === triggerId);
-      if (!card) return state;
-
-      const pinnedCard = { ...card, status: 'pinned' as const };
-
-      return {
-        activeCueCards: state.activeCueCards.filter(c => c.triggerId !== triggerId),
-        pinnedCueCards: [...state.pinnedCueCards, pinnedCard],
-      };
-    });
-  },
-
-  clearCueCards: () => {
-    set({
-      activeCueCards: [],
-      pinnedCueCards: [],
-      dismissedCueCardIds: new Set(),
-    });
-  },
-
-  // Playbook
-  setPlaybook: (playbook) => {
-    set({ playbook });
-  },
-
-  updatePlaybookItem: (item) => {
-    set((state) => {
-      if (!state.playbook) return state;
-
-      const updatedItems = state.playbook.items.map(i =>
-        i.id === item.id ? item : i
-      );
-
-      const covered = updatedItems.filter(i => i.status === 'covered').length;
-      const partial = updatedItems.filter(i => i.status === 'partial').length;
-      const missing = updatedItems.filter(i => i.status === 'missing').length;
-      const total = updatedItems.length;
-
-      return {
-        playbook: {
-          ...state.playbook,
-          items: updatedItems,
-          covered,
-          partial,
-          missing,
-          coveragePercentage: total > 0 ? Math.round(((covered + partial * 0.5) / total) * 100) : 0,
-        },
-      };
-    });
-  },
-
-  setSelectedPlaybook: (id) => {
-    set({ selectedPlaybookId: id });
   },
 
   // Nudges
@@ -301,7 +158,6 @@ export const useCopilotStore = create<CopilotState>((set, get) => ({
   reset: () => {
     set({
       ...initialState,
-      dismissedCueCardIds: new Set(),
     });
   },
 }));
@@ -309,10 +165,6 @@ export const useCopilotStore = create<CopilotState>((set, get) => ({
 // Selectors (for optimized re-renders)
 
 export const selectMetrics = (state: CopilotState) => state.metrics;
-export const selectSentiment = (state: CopilotState) => state.sentiment;
-export const selectActiveCueCards = (state: CopilotState) => state.activeCueCards;
-export const selectPinnedCueCards = (state: CopilotState) => state.pinnedCueCards;
-export const selectPlaybook = (state: CopilotState) => state.playbook;
 export const selectActiveNudge = (state: CopilotState) => state.activeNudge;
 export const selectCallSummary = (state: CopilotState) => state.callSummary;
 export const selectIsCallActive = (state: CopilotState) => state.isCallActive;

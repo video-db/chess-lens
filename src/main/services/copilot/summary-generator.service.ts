@@ -8,7 +8,6 @@
 import { logger } from '../../lib/logger';
 import { getLLMService } from '../llm.service';
 import type { TranscriptSegmentData } from './transcript-buffer.service';
-import type { PlaybookSnapshot } from './playbook-tracker.service';
 import type { ConversationMetrics } from './conversation-metrics.service';
 
 const log = logger.child({ module: 'summary-generator' });
@@ -24,7 +23,6 @@ export interface CallSummary {
 
 export interface FullCallReport {
   summary: CallSummary;
-  playbook?: PlaybookSnapshot;
   metrics?: ConversationMetrics;
   callDuration: number;
   segmentCount: number;

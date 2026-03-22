@@ -5,31 +5,25 @@
  * - Avatar indicators (Me/Them)
  * - Timestamp badges
  * - Styled message bubbles
- * - Trigger detection highlighting
  * - Auto-scroll to latest
- * - Bookmarking support
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Mic, Volume2, Bookmark, BookmarkCheck } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { Mic, Volume2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { ScrollArea } from '../ui/scroll-area';
 import { Switch } from '../ui/switch';
 import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
 import { useTranscriptionStore, TranscriptItem } from '../../stores/transcription.store';
 import { useSessionStore } from '../../stores/session.store';
-import { useCopilot } from '../../hooks/useCopilot';
 import { cn } from '../../lib/utils';
-import { BookmarkDialog, BookmarkCategory } from './BookmarkDialog';
 
 interface TranscriptMessageProps {
   item: TranscriptItem;
   isLive?: boolean;
-  onBookmark?: (item: TranscriptItem) => void;
 }
 
-function TranscriptMessage({ item, isLive, onBookmark }: TranscriptMessageProps) {
+function TranscriptMessage({ item, isLive }: TranscriptMessageProps) {
   const isMe = item.source === 'mic';
 
   // Format timestamp from epoch to MM:SS relative to recording start
@@ -42,7 +36,7 @@ function TranscriptMessage({ item, isLive, onBookmark }: TranscriptMessageProps)
   return (
     <div
       className={cn(
-        'group relative animate-in slide-in-from-bottom-2 duration-300',
+        'animate-in slide-in-from-bottom-2 duration-300',
         isLive && 'opacity-90'
       )}
     >
@@ -94,21 +88,6 @@ function TranscriptMessage({ item, isLive, onBookmark }: TranscriptMessageProps)
             {item.text}
           </div>
         </div>
-
-        {/* Quick Actions (on hover) */}
-        {onBookmark && (
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 pt-6">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 hover:text-primary"
-              title="Bookmark this moment"
-              onClick={() => onBookmark(item)}
-            >
-              <Bookmark className="w-4 h-4" />
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -160,41 +139,10 @@ function PendingMessage({ text, source }: { text: string; source: 'mic' | 'syste
 
 export function TranscriptionPanel() {
   const { items, enabled, pendingMic, pendingSystemAudio, setEnabled } = useTranscriptionStore();
-  const { status, elapsedTime } = useSessionStore();
-  const { createBookmark, recordingId } = useCopilot();
+  const { status } = useSessionStore();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const [bookmarkDialogOpen, setBookmarkDialogOpen] = useState(false);
-  const [bookmarkItem, setBookmarkItem] = useState<TranscriptItem | null>(null);
-
   const isRecording = status === 'recording';
-
-  // Handle bookmark button click on a specific transcript item
-  const handleBookmarkItem = useCallback((item: TranscriptItem) => {
-    setBookmarkItem(item);
-    setBookmarkDialogOpen(true);
-  }, []);
-
-  // Handle bookmark button in header (bookmark current moment)
-  const handleBookmarkNow = useCallback(() => {
-    setBookmarkItem(null); // No specific item, just the current moment
-    setBookmarkDialogOpen(true);
-  }, []);
-
-  // Handle bookmark submission
-  const handleBookmarkSubmit = useCallback(async (category: BookmarkCategory, note?: string) => {
-    // Calculate timestamp - use item timestamp or current elapsed time
-    const timestamp = bookmarkItem
-      ? (bookmarkItem.timestamp - (items[0]?.timestamp || bookmarkItem.timestamp)) / 1000
-      : elapsedTime;
-
-    const success = await createBookmark(timestamp, category, note);
-    if (success) {
-      console.log('Bookmark created successfully');
-    } else {
-      console.error('Failed to create bookmark');
-    }
-  }, [bookmarkItem, items, elapsedTime, createBookmark]);
 
   // Auto-scroll to bottom when new items arrive
   useEffect(() => {
@@ -214,24 +162,11 @@ export function TranscriptionPanel() {
             <CardTitle className="text-base font-semibold">Live Transcription</CardTitle>
             <p className="text-xs text-slate-500 mt-0.5">Real-time conversation feed</p>
           </div>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 h-8"
-              onClick={handleBookmarkNow}
-              disabled={!isRecording || !recordingId}
-              title={!isRecording ? 'Start recording to bookmark' : 'Bookmark this moment'}
-            >
-              <Bookmark className="w-3 h-3" />
-              Bookmark
-            </Button>
-            <div className="flex items-center gap-2 pl-3 border-l">
-              <span className="text-xs text-muted-foreground">
-                {enabled ? 'Enabled' : 'Disabled'}
-              </span>
-              <Switch checked={enabled} onCheckedChange={setEnabled} disabled={isRecording} />
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {enabled ? 'Enabled' : 'Disabled'}
+            </span>
+            <Switch checked={enabled} onCheckedChange={setEnabled} disabled={isRecording} />
           </div>
         </div>
       </CardHeader>
@@ -261,7 +196,6 @@ export function TranscriptionPanel() {
                   <TranscriptMessage
                     key={item.id}
                     item={item}
-                    onBookmark={recordingId ? handleBookmarkItem : undefined}
                   />
                 ))}
 
@@ -273,14 +207,6 @@ export function TranscriptionPanel() {
           </div>
         </ScrollArea>
       </CardContent>
-
-      {/* Bookmark Dialog */}
-      <BookmarkDialog
-        open={bookmarkDialogOpen}
-        onOpenChange={setBookmarkDialogOpen}
-        onSubmit={handleBookmarkSubmit}
-        transcriptText={bookmarkItem?.text}
-      />
     </Card>
   );
 }

@@ -43,16 +43,6 @@ export {
   type MetricsTrend,
 } from './conversation-metrics.service';
 
-// Sentiment analysis
-export {
-  SentimentAnalyzerService,
-  getSentimentAnalyzer,
-  resetSentimentAnalyzer,
-  type Sentiment,
-  type SentimentResult,
-  type SentimentTrend,
-} from './sentiment-analyzer.service';
-
 // Nudge engine
 export {
   NudgeEngineService,
@@ -63,37 +53,6 @@ export {
   type NudgeSeverity,
   type NudgeConfig,
 } from './nudge-engine.service';
-
-// Smart card engine (formerly cue card engine)
-export {
-  SmartCardEngineService,
-  getSmartCardEngine,
-  resetSmartCardEngine,
-  type TriggerCategory,
-  type SmartCardContent,
-  type SmartCardTriggerData,
-  type TriggerDetectionResult,
-  // Backwards compatibility aliases
-  CueCardEngineService,
-  getCueCardEngine,
-  resetCueCardEngine,
-  type ObjectionType,
-  type CueCardContent,
-  type CueCardTriggerData,
-  type ObjectionDetectionResult,
-} from './smart-card-engine.service';
-
-// Playbook tracker
-export {
-  PlaybookTrackerService,
-  getPlaybookTracker,
-  resetPlaybookTracker,
-  type Playbook,
-  type PlaybookItem,
-  type PlaybookItemStatus,
-  type PlaybookItemEvidence,
-  type PlaybookSnapshot,
-} from './playbook-tracker.service';
 
 // Summary generator
 export {

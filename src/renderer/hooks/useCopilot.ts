@@ -19,10 +19,6 @@ export function useCopilot() {
     recordingId,
     metrics,
     healthScore,
-    sentiment,
-    activeCueCards,
-    pinnedCueCards,
-    playbook,
     activeNudge,
     callSummary,
     callDuration,
@@ -31,12 +27,6 @@ export function useCopilot() {
     startCall,
     endCall,
     setMetrics,
-    setSentiment,
-    addCueCard,
-    dismissCueCard,
-    pinCueCard,
-    setPlaybook,
-    updatePlaybookItem,
     setNudge,
     dismissNudge,
     setCallSummary,
@@ -114,44 +104,6 @@ export function useCopilot() {
   }, [setConfig]);
 
   /**
-   * Dismiss a cue card
-   */
-  const handleDismissCueCard = useCallback(async (triggerId: string) => {
-    dismissCueCard(triggerId);
-    try {
-      await window.electronAPI.copilot.dismissCueCard(triggerId);
-    } catch (error) {
-      console.error('Error dismissing cue card:', error);
-    }
-  }, [dismissCueCard]);
-
-  /**
-   * Pin a cue card
-   */
-  const handlePinCueCard = useCallback(async (triggerId: string) => {
-    pinCueCard(triggerId);
-    try {
-      await window.electronAPI.copilot.pinCueCard(triggerId);
-    } catch (error) {
-      console.error('Error pinning cue card:', error);
-    }
-  }, [pinCueCard]);
-
-  /**
-   * Submit cue card feedback
-   */
-  const submitCueCardFeedback = useCallback(async (
-    triggerId: string,
-    feedback: 'helpful' | 'wrong' | 'irrelevant'
-  ) => {
-    try {
-      await window.electronAPI.copilot.cueCardFeedback(triggerId, feedback);
-    } catch (error) {
-      console.error('Error submitting feedback:', error);
-    }
-  }, []);
-
-  /**
    * Dismiss active nudge
    */
   const handleDismissNudge = useCallback(async () => {
@@ -164,30 +116,6 @@ export function useCopilot() {
       }
     }
   }, [activeNudge, dismissNudge]);
-
-  /**
-   * Create a bookmark
-   */
-  const createBookmark = useCallback(async (
-    timestamp: number,
-    category: string,
-    note?: string
-  ) => {
-    if (!recordingId) return;
-
-    try {
-      const result = await window.electronAPI.copilot.createBookmark({
-        recordingId,
-        timestamp,
-        category,
-        note,
-      });
-      return result.success;
-    } catch (error) {
-      console.error('Error creating bookmark:', error);
-      return false;
-    }
-  }, [recordingId]);
 
   /**
    * Setup IPC event listeners
@@ -206,28 +134,12 @@ export function useCopilot() {
       setMetrics(metrics, health);
     });
 
-    const unsubSentiment = window.electronAPI.copilotOn.onSentiment(({ sentiment }) => {
-      setSentiment(sentiment);
-    });
-
     const unsubNudge = window.electronAPI.copilotOn.onNudge(({ nudge }) => {
       setNudge(nudge);
     });
 
-    const unsubCueCard = window.electronAPI.copilotOn.onCueCard(({ cueCard }) => {
-      addCueCard(cueCard);
-    });
-
-    const unsubPlaybook = window.electronAPI.copilotOn.onPlaybook(({ item, snapshot }) => {
-      setPlaybook(snapshot);
-      updatePlaybookItem(item);
-    });
-
-    const unsubCallEnded = window.electronAPI.copilotOn.onCallEnded(({ summary, playbook, metrics, duration }) => {
+    const unsubCallEnded = window.electronAPI.copilotOn.onCallEnded(({ summary, metrics, duration }) => {
       setCallSummary(summary, duration);
-      if (playbook) {
-        setPlaybook(playbook);
-      }
       setMetrics(metrics, 0);
     });
 
@@ -238,10 +150,7 @@ export function useCopilot() {
     unsubscribersRef.current = [
       unsubTranscript,
       unsubMetrics,
-      unsubSentiment,
       unsubNudge,
-      unsubCueCard,
-      unsubPlaybook,
       unsubCallEnded,
       unsubError,
     ];
@@ -252,11 +161,7 @@ export function useCopilot() {
   }, [
     addTranscriptSegment,
     setMetrics,
-    setSentiment,
     setNudge,
-    addCueCard,
-    setPlaybook,
-    updatePlaybookItem,
     setCallSummary,
   ]);
 
@@ -277,10 +182,6 @@ export function useCopilot() {
     recordingId,
     metrics,
     healthScore,
-    sentiment,
-    activeCueCards,
-    pinnedCueCards,
-    playbook,
     activeNudge,
     callSummary,
     callDuration,
@@ -290,11 +191,7 @@ export function useCopilot() {
     startCopilot,
     stopCopilot,
     updateConfig,
-    dismissCueCard: handleDismissCueCard,
-    pinCueCard: handlePinCueCard,
-    submitCueCardFeedback,
     dismissNudge: handleDismissNudge,
-    createBookmark,
     reset,
   };
 }

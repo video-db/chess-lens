@@ -42,7 +42,7 @@ export function RecordingCard({ recording, onViewDetails }: RecordingCardProps) 
 
   const getSummaryBadge = () => {
     // Prioritize call summary over insights
-    if (recording.callSummary?.bullets && recording.callSummary.bullets.length > 0) {
+    if (recording.callSummary?.summary && recording.callSummary.summary.length > 0) {
       return <Badge variant="default">Summary ready</Badge>;
     }
 
@@ -109,19 +109,15 @@ export function RecordingCard({ recording, onViewDetails }: RecordingCardProps) 
         </div>
 
         {/* Call Summary preview (prioritized) */}
-        {recording.callSummary?.bullets && recording.callSummary.bullets.length > 0 && (
+        {recording.callSummary?.summary && recording.callSummary.summary.length > 0 && (
           <div className="mt-3 pt-3 border-t">
             <p className="text-xs font-medium text-muted-foreground mb-1">Call Summary</p>
-            <ul className="text-sm space-y-0.5">
-              {recording.callSummary.bullets.slice(0, 2).map((bullet, i) => (
-                <li key={i} className="line-clamp-1">• {bullet}</li>
-              ))}
-            </ul>
+            <p className="text-sm line-clamp-2">{stripMarkdown(recording.callSummary.summary)}</p>
           </div>
         )}
 
         {/* Fallback to insights if no call summary */}
-        {!recording.callSummary?.bullets?.length && recording.insightsStatus === 'ready' && recording.insights && (
+        {!recording.callSummary?.summary?.length && recording.insightsStatus === 'ready' && recording.insights && (
           <div className="mt-3 pt-3 border-t">
             <p className="text-xs font-medium text-muted-foreground mb-1">AI Summary</p>
             <p className="text-sm line-clamp-2">{stripMarkdown(recording.insights)}</p>

@@ -16,21 +16,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './com
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { ErrorToast } from './components/ui/error-toast';
-import { AlertCircle, Shield, BookOpen, X, Mic, Users, Gauge, Loader2 } from 'lucide-react';
+import { AlertCircle, Shield, Loader2 } from 'lucide-react';
 import {
-  CueCardOverlay,
-  PlaybookPanel,
   NudgeToast,
-  SentimentIndicator,
   CallSummaryView,
 } from './components/copilot';
 import { MCPResultsOverlay } from './components/mcp';
 import { useCopilotStore } from './stores/copilot.store';
-import { CueCardEditor } from './components/settings/CueCardEditor';
-import { PlaybookEditor } from './components/settings/PlaybookEditor';
-import { PromptsEditor } from './components/settings/PromptsEditor';
 import { MCPServersPanel } from './components/settings/MCPServersPanel';
-import { cn } from './lib/utils';
 
 type Tab = 'recording' | 'history' | 'settings';
 
@@ -93,135 +86,8 @@ function PermissionsView() {
   );
 }
 
-function PlaybookModal({
-  isOpen,
-  onClose,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-}) {
-  if (!isOpen) return null;
-
-  return (
-    <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200 p-8"
-      onClick={onClose}
-    >
-      <Card
-        className="w-full max-w-2xl max-h-full overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <CardHeader className="border-b flex flex-row items-center justify-between shrink-0">
-          <div>
-            <CardTitle>Playbook Progress</CardTitle>
-            <CardDescription>Track your discovery progress</CardDescription>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-5 w-5" />
-          </Button>
-        </CardHeader>
-        <CardContent className="p-4 flex-1 overflow-hidden min-h-0">
-          <PlaybookPanel className="h-full" />
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function MetricsSidebar() {
-  const { metrics, healthScore, isCallActive } = useCopilotStore();
-
-  if (!isCallActive || !metrics) {
-    return null;
-  }
-
-  const mePercent = Math.round(metrics.talkRatio.me * 100);
-  const themPercent = Math.round(metrics.talkRatio.them * 100);
-
-  const getHealthColor = () => {
-    if (healthScore >= 80) return 'text-green-500';
-    if (healthScore >= 60) return 'text-amber-500';
-    return 'text-red-500';
-  };
-
-  const getHealthLabel = () => {
-    if (healthScore >= 80) return 'Great';
-    if (healthScore >= 60) return 'Good';
-    if (healthScore >= 40) return 'Fair';
-    return 'Needs Work';
-  };
-
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Gauge className="h-4 w-4" />
-            Conversation Metrics
-          </CardTitle>
-          <Badge variant="outline" className="text-xs">
-            {Math.floor(metrics.callDuration / 60)}:{String(Math.floor(metrics.callDuration % 60)).padStart(2, '0')}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Health Score */}
-        <div className="flex items-center justify-between p-3 bg-gradient-to-r from-muted/50 to-muted rounded-lg">
-          <div>
-            <p className="text-sm font-medium">Conversation Health</p>
-            <p className="text-xs text-muted-foreground">{getHealthLabel()}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className={cn('text-3xl font-bold', getHealthColor())}>{healthScore}</div>
-            <span className="text-sm text-muted-foreground">/100</span>
-          </div>
-        </div>
-
-        {/* Talk Ratio */}
-        <div>
-          <p className="text-xs font-medium text-muted-foreground mb-2">Talk Ratio</p>
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Mic className="h-3 w-3" />
-                You: {mePercent}%
-              </span>
-              <span className="flex items-center gap-1">
-                <Users className="h-3 w-3" />
-                Them: {themPercent}%
-              </span>
-            </div>
-            <div className="h-3 flex rounded-full overflow-hidden bg-muted">
-              <div
-                className={cn(
-                  'transition-all duration-500',
-                  mePercent > 65 ? 'bg-amber-500' : mePercent >= 35 ? 'bg-green-500' : 'bg-blue-500'
-                )}
-                style={{ width: `${mePercent}%` }}
-              />
-              <div className="bg-slate-400 transition-all duration-500" style={{ width: `${themPercent}%` }} />
-            </div>
-          </div>
-        </div>
-
-        {/* Speaking Pace */}
-        <div className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
-          <div className="flex items-center gap-2">
-            <Gauge className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm">Speaking Pace</span>
-          </div>
-          <span className={cn('text-lg font-semibold', metrics.pace > 180 ? 'text-amber-500' : '')}>
-            {metrics.pace} WPM
-          </span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function RecordingView() {
-  const [showPlaybookModal, setShowPlaybookModal] = useState(false);
-  const { isCallActive, callSummary, playbook } = useCopilotStore();
+  const { isCallActive, callSummary } = useCopilotStore();
   const { status, streams, toggleStream, isStarting, isStopping } = useSession();
 
   const isRecording = status === 'recording';
@@ -304,58 +170,27 @@ function RecordingView() {
           </div>
         </div>
 
-        {/* Right Column - Assistance + Metrics */}
+        {/* Right Column - MCP Results */}
         <div className="w-96 flex flex-col gap-4 shrink-0 overflow-hidden">
-          {/* Scrollable container for right panel */}
-          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+          <div className="flex-1 overflow-y-auto pr-1">
             {/* MCP Results Overlay - Shows tool call results */}
             <MCPResultsOverlay />
-
-            {/* Cue Card Overlay */}
-            <CueCardOverlay />
-
-            {/* Sentiment Indicator */}
-            <SentimentIndicator />
-
-            {/* Metrics Sidebar */}
-            <MetricsSidebar />
           </div>
         </div>
       </div>
 
-      {/* Floating Playbook Button */}
-      {isCallActive && playbook && (
-        <button
-          onClick={() => setShowPlaybookModal(true)}
-          className="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-110 flex items-center justify-center text-white z-40"
-          title="View Playbook Progress"
-        >
-          <BookOpen className="w-6 h-6" />
-          {playbook.coveragePercentage < 70 && (
-            <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-xs flex items-center justify-center font-bold">
-              {playbook.missing}
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* Playbook Modal */}
-      <PlaybookModal isOpen={showPlaybookModal} onClose={() => setShowPlaybookModal(false)} />
     </div>
   );
 }
 
 function SettingsView() {
   const [activeSettingsTab, setActiveSettingsTab] = useState<
-    'account' | 'cueCards' | 'playbooks' | 'prompts' | 'mcpServers'
+    'account' | 'mcpServers'
   >('account');
   const configStore = useConfigStore();
 
   const settingsTabs = [
     { id: 'account' as const, label: 'Account' },
-    { id: 'cueCards' as const, label: 'Cue Cards' },
-    { id: 'playbooks' as const, label: 'Playbooks' },
-    { id: 'prompts' as const, label: 'AI Settings' },
     { id: 'mcpServers' as const, label: 'MCP Servers' },
   ];
 
@@ -414,9 +249,6 @@ function SettingsView() {
           </div>
         )}
 
-        {activeSettingsTab === 'cueCards' && <CueCardEditor />}
-        {activeSettingsTab === 'playbooks' && <PlaybookEditor />}
-        {activeSettingsTab === 'prompts' && <PromptsEditor />}
         {activeSettingsTab === 'mcpServers' && <MCPServersPanel />}
       </div>
     </div>
