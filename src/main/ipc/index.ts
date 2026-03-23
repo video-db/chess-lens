@@ -4,6 +4,7 @@ import { setupPermissionHandlers } from './permissions';
 import { setupAppHandlers } from './app';
 import { setupCopilotHandlers, removeCopilotHandlers, setCopilotMainWindow } from './copilot';
 import { setupMCPHandlers, removeMCPHandlers, setMCPMainWindow } from './mcp';
+import { setupCalendarHandlers, removeCalendarHandlers, setCalendarMainWindow } from './calendar';
 import { createChildLogger } from '../lib/logger';
 
 const logger = createChildLogger('ipc');
@@ -16,6 +17,7 @@ export function setupIpcHandlers(): void {
   setupAppHandlers();
   setupCopilotHandlers();
   setupMCPHandlers();
+  setupCalendarHandlers();
 
   logger.info('IPC handlers registered');
 }
@@ -51,9 +53,13 @@ export function removeIpcHandlers(): void {
   // MCP handlers
   removeMCPHandlers();
 
+  // Calendar handlers
+  removeCalendarHandlers();
+
   logger.info('IPC handlers removed');
 }
 
 export { sendToRenderer, getMainWindow, setMainWindow, shutdownCaptureClient, isCaptureActive } from './capture';
 export { setCopilotMainWindow } from './copilot';
 export { setMCPMainWindow } from './mcp';
+export { setCalendarMainWindow } from './calendar';

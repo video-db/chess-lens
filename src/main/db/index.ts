@@ -168,6 +168,7 @@ export function initDatabase(): ReturnType<typeof drizzle<typeof schema>> {
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      description TEXT,
       transport TEXT NOT NULL CHECK(transport IN ('stdio', 'http')),
       command TEXT,
       args TEXT,
@@ -198,6 +199,18 @@ export function initDatabase(): ReturnType<typeof drizzle<typeof schema>> {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS mcp_oauth_tokens (
+      server_id TEXT PRIMARY KEY,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT,
+      token_type TEXT NOT NULL DEFAULT 'Bearer',
+      scope TEXT,
+      expires_at TEXT,
+      auth_server_url TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_users_access_token ON users(access_token);
     CREATE INDEX IF NOT EXISTS idx_recordings_session_id ON recordings(session_id);
@@ -212,10 +225,20 @@ export function initDatabase(): ReturnType<typeof drizzle<typeof schema>> {
     CREATE INDEX IF NOT EXISTS idx_nudges_history_recording ON nudges_history(recording_id);
     CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_server ON mcp_tool_calls(server_id);
     CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_recording ON mcp_tool_calls(recording_id);
+
+    -- Calendar Preferences table
+    CREATE TABLE IF NOT EXISTS calendar_preferences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      notify_minutes_before INTEGER NOT NULL DEFAULT 2,
+      recording_behavior TEXT NOT NULL DEFAULT 'always_ask' CHECK(recording_behavior IN ('always_ask', 'default_record', 'no_notification')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   ensureRecordingColumns();
   ensureNudgesHistorySchema();
+  ensureMCPServerColumns();
 
   seedDefaultCueCards();
 
@@ -295,6 +318,21 @@ function ensureNudgesHistorySchema(): void {
   `);
 
   logger.info('nudges_history table rebuilt with updated enum values');
+}
+
+function ensureMCPServerColumns(): void {
+  if (!sqlite) return;
+
+  const columns = sqlite
+    .prepare("PRAGMA table_info(mcp_servers)")
+    .all() as { name: string }[];
+
+  const columnNames = columns.map((c) => c.name);
+
+  if (!columnNames.includes('description')) {
+    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN description TEXT");
+    logger.info('Added description column to mcp_servers table');
+  }
 }
 
 export function getDatabase(): ReturnType<typeof drizzle<typeof schema>> {
@@ -1511,6 +1549,94 @@ export function updateMCPToolCall(id: string, data: Partial<schema.MCPToolCall>)
     .update(schema.mcpToolCalls)
     .set(data)
     .where(eq(schema.mcpToolCalls.id, id))
+    .returning()
+    .get();
+}
+
+// MCP OAuth Token CRUD Operations
+
+export function getMCPOauthToken(serverId: string) {
+  const database = getDatabase();
+  return database
+    .select()
+    .from(schema.mcpOauthTokens)
+    .where(eq(schema.mcpOauthTokens.serverId, serverId))
+    .get();
+}
+
+export function upsertMCPOauthToken(data: schema.NewMCPOauthToken) {
+  const database = getDatabase();
+  const existing = database
+    .select()
+    .from(schema.mcpOauthTokens)
+    .where(eq(schema.mcpOauthTokens.serverId, data.serverId))
+    .get();
+
+  if (existing) {
+    return database
+      .update(schema.mcpOauthTokens)
+      .set({ ...data, updatedAt: new Date().toISOString() })
+      .where(eq(schema.mcpOauthTokens.serverId, data.serverId))
+      .returning()
+      .get();
+  }
+  return database.insert(schema.mcpOauthTokens).values(data).returning().get();
+}
+
+export function deleteMCPOauthToken(serverId: string) {
+  const database = getDatabase();
+  return database
+    .delete(schema.mcpOauthTokens)
+    .where(eq(schema.mcpOauthTokens.serverId, serverId));
+}
+
+// Calendar Preferences CRUD Operations
+
+export function getCalendarPreferences() {
+  const database = getDatabase();
+  // Get the first (and only) preferences row, or return defaults
+  const prefs = database
+    .select()
+    .from(schema.calendarPreferences)
+    .get();
+
+  if (!prefs) {
+    return {
+      id: 0,
+      notifyMinutesBefore: 2,
+      recordingBehavior: 'always_ask' as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  return prefs;
+}
+
+export function upsertCalendarPreferences(data: {
+  notifyMinutesBefore?: number;
+  recordingBehavior?: 'always_ask' | 'default_record' | 'no_notification';
+}) {
+  const database = getDatabase();
+  const existing = database
+    .select()
+    .from(schema.calendarPreferences)
+    .get();
+
+  if (existing) {
+    return database
+      .update(schema.calendarPreferences)
+      .set({ ...data, updatedAt: new Date().toISOString() })
+      .where(eq(schema.calendarPreferences.id, existing.id))
+      .returning()
+      .get();
+  }
+
+  return database
+    .insert(schema.calendarPreferences)
+    .values({
+      notifyMinutesBefore: data.notifyMinutesBefore ?? 2,
+      recordingBehavior: data.recordingBehavior ?? 'always_ask',
+    })
     .returning()
     .get();
 }

@@ -1,4 +1,9 @@
 import type { CaptureConfig, Channel } from '../schemas/capture.schema';
+import type {
+  CalendarApi,
+  CalendarEvents,
+  UpcomingMeeting,
+} from './calendar.types';
 
 export interface StartRecordingParams {
   config: CaptureConfig;
@@ -224,6 +229,8 @@ export interface IpcApi {
     onServerDisconnected: (callback: (data: { serverId: string; reason: string }) => void) => () => void;
     onServerError: (callback: (data: { serverId: string; error: string }) => void) => () => void;
   };
+  calendar: CalendarApi;
+  calendarOn: CalendarEvents;
 }
 
 export type IpcChannel =

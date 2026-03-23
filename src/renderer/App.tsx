@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Sidebar } from './components/layout/Sidebar';
+import { NewSidebar } from './components/layout/NewSidebar';
 import { AuthView } from './components/auth/AuthView';
 import { TopStatusBar } from './components/recording/TopStatusBar';
 import { TranscriptionPanel } from './components/transcription/TranscriptionPanel';
 import { HistoryView } from './components/history/HistoryView';
+import { HomeView } from './components/home/HomeView';
 import { useConfigStore } from './stores/config.store';
 import { useSession } from './hooks/useSession';
 import { useSessionStore } from './stores/session.store';
@@ -13,7 +14,7 @@ import { useCopilot } from './hooks/useCopilot';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { ErrorToast } from './components/ui/error-toast';
-import { AlertCircle, Shield, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 import {
   NudgeToast,
   CallSummaryView,
@@ -21,70 +22,165 @@ import {
 import { useCopilotStore } from './stores/copilot.store';
 import { useMeetingSetupStore } from './stores/meeting-setup.store';
 import { MCPServersPanel } from './components/settings/MCPServersPanel';
+import { CalendarPanel } from './components/settings/CalendarPanel';
+import { CalendarAuthBanner } from './components/calendar';
 import { MeetingSetupFlow, MeetingInfoPanel } from './components/meeting-setup';
+import { StepIndicators } from './components/auth/AuthView';
+import { CalendarSetupView } from './components/auth/CalendarSetupView';
+import { RecordingPreferencesView } from './components/auth/RecordingPreferencesView';
 
-type Tab = 'recording' | 'history' | 'settings';
+type Tab = 'home' | 'history' | 'settings';
+
+// Shield icon for permissions
+function ShieldIcon() {
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect width="50" height="50" rx="12" fill="#EC5B16" />
+      <path
+        d="M25 14L15 18V26C15 31.52 19.16 36.74 25 38C30.84 36.74 35 31.52 35 26V18L25 14Z"
+        stroke="white"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <path
+        d="M21 25L24 28L29 22"
+        stroke="white"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 function PermissionsView() {
   const { status, requestMicPermission, openSettings } = usePermissions();
 
   return (
-    <div className="max-w-md mx-auto mt-20">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" />
-            <CardTitle>Permissions Required</CardTitle>
+    <div className="h-full w-full bg-[#f8f8fa] flex flex-col items-center justify-center relative overflow-hidden">
+      {/* Orange gradient glow */}
+      <div
+        className="absolute top-[-30%] left-1/2 -translate-x-1/2 w-[600px] h-[567px] rounded-[300px] pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(circle at center, rgba(236,91,22,0.08) 0%, rgba(236,91,22,0) 70%)',
+        }}
+      />
+
+      {/* Step indicators */}
+      <div className="absolute top-[32px]">
+        <StepIndicators currentStep={1} />
+      </div>
+
+      {/* Main content */}
+      <div className="flex flex-col items-center w-full max-w-[380px] px-6 relative z-10">
+        {/* Icon and heading */}
+        <div className="flex flex-col items-center gap-[16px] mb-[32px]">
+          <ShieldIcon />
+          <div className="flex flex-col items-center gap-[8px]">
+            <h1 className="text-[22px] font-semibold text-black text-center tracking-[-0.44px] leading-[33px]">
+              Permissions Required
+            </h1>
+            <p className="text-[14px] font-normal text-[#464646] text-center leading-[21px]">
+              Meeting Copilot needs access to record your screen and microphone.
+            </p>
           </div>
-          <CardDescription>
-            Meeting Copilot needs access to record your screen and microphone.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between p-3 rounded-lg border">
-            <div>
-              <p className="font-medium text-sm">Microphone</p>
-              <p className="text-xs text-muted-foreground">Required for voice recording</p>
+        </div>
+
+        {/* Permission items */}
+        <div className="w-full flex flex-col gap-[12px]">
+          {/* Microphone permission */}
+          <div className="flex items-center justify-between p-[16px] bg-white border border-[#e0e0e8] rounded-[12px]">
+            <div className="flex items-center gap-[12px]">
+              <div className="w-[40px] h-[40px] bg-[#f8f8fa] rounded-[10px] flex items-center justify-center">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#464646" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" x2="12" y1="19" y2="22" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-[14px] font-medium text-black">Microphone</p>
+                <p className="text-[12px] text-[#969696]">Required for voice recording</p>
+              </div>
             </div>
             {status.microphone ? (
-              <span className="text-xs text-green-600 font-medium">Granted</span>
+              <div className="flex items-center gap-[6px] px-[12px] py-[6px] bg-[#e8f5e9] rounded-[8px]">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+                <span className="text-[13px] font-medium text-[#22c55e]">Granted</span>
+              </div>
             ) : (
-              <Button size="sm" onClick={requestMicPermission}>
+              <button
+                onClick={requestMicPermission}
+                className="px-[16px] py-[8px] bg-[#ff4000] hover:bg-[#e63900] text-white text-[13px] font-medium rounded-[8px] transition-colors"
+              >
                 Grant
-              </Button>
+              </button>
             )}
           </div>
 
-          <div className="flex items-center justify-between p-3 rounded-lg border">
-            <div>
-              <p className="font-medium text-sm">Screen Recording</p>
-              <p className="text-xs text-muted-foreground">Required for screen capture</p>
+          {/* Screen Recording permission */}
+          <div className="flex items-center justify-between p-[16px] bg-white border border-[#e0e0e8] rounded-[12px]">
+            <div className="flex items-center gap-[12px]">
+              <div className="w-[40px] h-[40px] bg-[#f8f8fa] rounded-[10px] flex items-center justify-center">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#464646" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <line x1="8" x2="16" y1="21" y2="21" />
+                  <line x1="12" x2="12" y1="17" y2="21" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-[14px] font-medium text-black">Screen Recording</p>
+                <p className="text-[12px] text-[#969696]">Required for screen capture</p>
+              </div>
             </div>
             {status.screen ? (
-              <span className="text-xs text-green-600 font-medium">Granted</span>
+              <div className="flex items-center gap-[6px] px-[12px] py-[6px] bg-[#e8f5e9] rounded-[8px]">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+                <span className="text-[13px] font-medium text-[#22c55e]">Granted</span>
+              </div>
             ) : (
-              <Button size="sm" onClick={() => openSettings('screen')}>
+              <button
+                onClick={() => openSettings('screen')}
+                className="px-[16px] py-[8px] bg-[#ff4000] hover:bg-[#e63900] text-white text-[13px] font-medium rounded-[8px] transition-colors"
+              >
                 Open Settings
-              </Button>
+              </button>
             )}
           </div>
+        </div>
 
-          {!status.screen && (
-            <div className="flex items-start gap-2 p-3 bg-muted rounded-lg">
-              <AlertCircle className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                Screen Recording permission must be granted in System Preferences. Click "Open
-                Settings" and enable Meeting Copilot in the list.
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        {/* Info message */}
+        {!status.screen && (
+          <div className="mt-[20px] p-[16px] bg-[#fff8f5] border border-[#ffe4d9] rounded-[12px] flex items-start gap-[12px]">
+            <AlertCircle className="h-5 w-5 text-[#ec5b16] flex-shrink-0 mt-0.5" />
+            <p className="text-[13px] text-[#464646] leading-[20px]">
+              Screen Recording permission must be granted in System Preferences. Click "Open Settings" and enable Meeting Copilot in the list.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function RecordingView() {
+interface RecordingViewProps {
+  onBack?: () => void;
+}
+
+function RecordingView({ onBack }: RecordingViewProps) {
   const { isCallActive, callSummary } = useCopilotStore();
   const { status } = useSession();
   const meetingSetupStore = useMeetingSetupStore();
@@ -101,6 +197,13 @@ function RecordingView() {
     meetingSetupStore.reset();
   };
 
+  // Go back to home
+  const handleGoBack = () => {
+    useCopilotStore.getState().reset();
+    meetingSetupStore.reset();
+    onBack?.();
+  };
+
   // Show call summary view if call ended and summary available
   if (callSummary && !isCallActive) {
     return (
@@ -110,9 +213,14 @@ function RecordingView() {
           <div className="max-w-4xl mx-auto h-full flex flex-col">
             <div className="flex items-center justify-between mb-4 shrink-0">
               <h2 className="text-lg font-semibold">Call Complete</h2>
-              <Button variant="outline" size="sm" onClick={handleStartNewCall}>
-                Start New Call
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleGoBack}>
+                  Back to Home
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleStartNewCall}>
+                  Start New Call
+                </Button>
+              </div>
             </div>
             <div className="flex-1 min-h-0 overflow-auto">
               <CallSummaryView />
@@ -145,16 +253,12 @@ function RecordingView() {
     );
   }
 
-  // Show meeting setup flow when idle (not recording)
+  // If idle, go back to home (user shouldn't see RecordingView when idle)
   if (isIdle) {
-    return (
-      <div className="flex flex-col h-full bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-        <TopStatusBar />
-        <div className="flex-1 flex items-center justify-center overflow-auto py-8">
-          <MeetingSetupFlow />
-        </div>
-      </div>
-    );
+    // This shouldn't happen often since App.tsx checks isActivelyRecording
+    // but if we end up here, just go back
+    onBack?.();
+    return null;
   }
 
   // Show recording view with transcription and meeting info
@@ -183,12 +287,13 @@ function RecordingView() {
 
 function SettingsView() {
   const [activeSettingsTab, setActiveSettingsTab] = useState<
-    'account' | 'mcpServers'
+    'account' | 'calendar' | 'mcpServers'
   >('account');
   const configStore = useConfigStore();
 
   const settingsTabs = [
     { id: 'account' as const, label: 'Account' },
+    { id: 'calendar' as const, label: 'Calendar' },
     { id: 'mcpServers' as const, label: 'MCP Servers' },
   ];
 
@@ -247,6 +352,8 @@ function SettingsView() {
           </div>
         )}
 
+        {activeSettingsTab === 'calendar' && <CalendarPanel />}
+
         {activeSettingsTab === 'mcpServers' && <MCPServersPanel />}
       </div>
     </div>
@@ -254,10 +361,12 @@ function SettingsView() {
 }
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('recording');
+  const [activeTab, setActiveTab] = useState<Tab>('home');
+  const [showRecordingPrefs, setShowRecordingPrefs] = useState(false);
 
   const configStore = useConfigStore();
   const sessionStore = useSessionStore();
+  const { status: sessionStatus } = useSession();
   const { allGranted, loading: permissionsLoading } = usePermissions();
 
   // Global listener for recorder events - persists during navigation
@@ -270,26 +379,84 @@ export function App() {
     sessionStore.setError(null);
   };
 
+  // Check if we need to show calendar setup (onboarding not complete)
+  const needsCalendarSetup = isAuthenticated && allGranted && !configStore.onboardingComplete;
+
+  // Check if actively recording or processing
+  const isActivelyRecording = sessionStatus === 'recording' || sessionStatus === 'processing' || sessionStatus === 'stopping' || sessionStatus === 'starting';
+
+  // Handle returning from recording mode
+  const handleExitRecordingMode = () => {
+    sessionStore.reset();
+  };
+
   const renderContent = () => {
+    // Step 0: Auth
     if (!isAuthenticated) {
       return <AuthView />;
     }
 
+    // Step 1: Permissions (loading state)
     if (permissionsLoading) {
       return (
-        <div className="flex items-center justify-center h-full">
-          <p className="text-muted-foreground">Checking permissions...</p>
+        <div className="h-full w-full bg-[#f8f8fa] flex flex-col items-center justify-center relative overflow-hidden">
+          {/* Orange gradient glow */}
+          <div
+            className="absolute top-[-30%] left-1/2 -translate-x-1/2 w-[600px] h-[567px] rounded-[300px] pointer-events-none"
+            style={{
+              background:
+                'radial-gradient(circle at center, rgba(236,91,22,0.08) 0%, rgba(236,91,22,0) 70%)',
+            }}
+          />
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="w-8 h-8 text-[#ec5b16] animate-spin" />
+            <p className="text-[14px] text-[#464646]">Checking permissions...</p>
+          </div>
         </div>
       );
     }
 
-    if (!allGranted && activeTab === 'recording') {
+    // Step 1: Permissions
+    if (!allGranted && activeTab === 'home') {
       return <PermissionsView />;
     }
 
+    // Step 2: Calendar setup (only on home tab and during onboarding)
+    if (needsCalendarSetup && activeTab === 'home' && !showRecordingPrefs) {
+      return (
+        <CalendarSetupView
+          onConnected={() => setShowRecordingPrefs(true)}
+          onSkip={() => {}}
+        />
+      );
+    }
+
+    // Step 3: Recording preferences (after calendar connected)
+    if (showRecordingPrefs && activeTab === 'home') {
+      return (
+        <RecordingPreferencesView
+          onComplete={() => {
+            setShowRecordingPrefs(false);
+            configStore.completeOnboarding();
+          }}
+        />
+      );
+    }
+
+    // If actively recording, show RecordingView
+    if (isActivelyRecording && activeTab === 'home') {
+      return <RecordingView onBack={handleExitRecordingMode} />;
+    }
+
+    // Main app
     switch (activeTab) {
-      case 'recording':
-        return <RecordingView />;
+      case 'home':
+        return (
+          <HomeView
+            onNavigateToHistory={() => setActiveTab('history')}
+            onNavigateToSettings={() => setActiveTab('settings')}
+          />
+        );
       case 'history':
         return <HistoryView />;
       case 'settings':
@@ -297,18 +464,32 @@ export function App() {
     }
   };
 
+  // Determine if we're in the setup flow (auth, permissions, calendar setup, or recording prefs)
+  const isSetupFlow = !isAuthenticated ||
+    (activeTab === 'home' && (permissionsLoading || !allGranted || needsCalendarSetup || showRecordingPrefs));
+
   return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Shared titlebar for macOS traffic lights */}
-      <div className="h-12 flex items-center justify-center border-b bg-background/80 backdrop-blur-lg shrink-0 drag-region relative">
-        {/* Space for traffic lights (absolute so title can center) */}
+    <div className="flex flex-col h-screen bg-white">
+      {/* Title bar - minimal for setup flow, hidden in main app (new design has no title bar) */}
+      <div
+        className={`flex items-center shrink-0 drag-region relative ${
+          isSetupFlow
+            ? 'h-[50px] bg-[#f8f8fa] border-b border-black/10'
+            : 'h-[50px] bg-white border-b border-black/10'
+        }`}
+      >
+        {/* Space for traffic lights */}
         <div className="absolute left-0 w-20 shrink-0" />
-        <span className="text-sm font-medium text-muted-foreground">Meeting Copilot</span>
       </div>
+
+      {/* Calendar Auth Banner (shows when calendar needs reconnection) */}
+      {isAuthenticated && !isSetupFlow && <CalendarAuthBanner />}
 
       {/* Main layout below titlebar */}
       <div className="flex flex-1 overflow-hidden">
-        {isAuthenticated && <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />}
+        {isAuthenticated && !isSetupFlow && (
+          <NewSidebar activeTab={activeTab} onTabChange={setActiveTab} />
+        )}
         <div className="flex-1 overflow-hidden">{renderContent()}</div>
       </div>
 
