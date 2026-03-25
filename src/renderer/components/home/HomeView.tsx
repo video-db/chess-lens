@@ -365,7 +365,7 @@ function WorkflowItem({
 interface HomeViewProps {
   onStartRecording: () => void;
   onNavigateToHistory: () => void;
-  onNavigateToSettings: () => void;
+  onNavigateToSettings: (tab?: 'account' | 'calendar' | 'mcpServers' | 'workflows') => void;
 }
 
 interface WorkflowData {
@@ -692,7 +692,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
             <MCPIcon />
             <span className="flex-1 text-[18px] font-medium text-black">MCPs</span>
             <button
-              onClick={onNavigateToSettings}
+              onClick={() => onNavigateToSettings('mcpServers')}
               className="flex items-center gap-[4px] text-[14px] font-medium text-[#ec5b16] hover:opacity-80"
             >
               <span className="text-[14px]">+</span>
@@ -713,7 +713,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
                 </p>
               </div>
               <button
-                onClick={onNavigateToSettings}
+                onClick={() => onNavigateToSettings('mcpServers')}
                 className="flex items-center gap-[4px] bg-white border border-[#e4e4ec] px-[16px] py-[12px] rounded-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-gray-50 transition-colors"
               >
                 <span className="text-[14px]">+</span>
@@ -736,7 +736,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
             <WorkflowIcon />
             <span className="flex-1 text-[18px] font-medium text-black">Workflows</span>
             <button
-              onClick={onNavigateToSettings}
+              onClick={() => onNavigateToSettings('workflows')}
               className="flex items-center gap-[4px] text-[14px] font-medium text-[#ec5b16] hover:opacity-80"
             >
               <span className="text-[14px]">+</span>
@@ -757,7 +757,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
                 </p>
               </div>
               <button
-                onClick={onNavigateToSettings}
+                onClick={() => onNavigateToSettings('workflows')}
                 className="flex items-center gap-[4px] bg-white border border-[#e4e4ec] px-[16px] py-[12px] rounded-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-gray-50 transition-colors"
               >
                 <span className="text-[14px]">+</span>
@@ -770,7 +770,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
                 <WorkflowItem
                   key={workflow.id}
                   workflow={workflow}
-                  onEdit={onNavigateToSettings}
+                  onEdit={() => onNavigateToSettings('workflows')}
                 />
               ))}
             </div>

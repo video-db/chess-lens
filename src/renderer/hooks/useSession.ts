@@ -5,7 +5,7 @@ import { useVisualIndexStore } from '../stores/visual-index.store';
 import { useConfigStore } from '../stores/config.store';
 import { useCopilotStore } from '../stores/copilot.store';
 import { useMCPStore } from '../stores/mcp.store';
-import { useMeetingSetupStore } from '../stores/meeting-setup.store';
+import { useLiveAssistStore } from '../stores/live-assist.store';
 import { trpc } from '../api/trpc';
 import { getElectronAPI } from '../api/ipc';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
@@ -125,6 +125,11 @@ export function useSession() {
         meetingChecklist: meetingSetup?.checklist,
       });
 
+      // Store recording ID for post-session navigation
+      if (recordingResult?.id) {
+        sessionStore.setRecordingId(recordingResult.id);
+      }
+
       const hasTranscription = transcriptionStore.enabled && (result.micWsConnectionId || result.sysAudioWsConnectionId);
       const hasVisualIndex = useVisualIndexStore.getState().enabled && result.screenWsConnectionId;
 
@@ -208,6 +213,7 @@ export function useSession() {
 
       transcriptionStore.clear();
       useVisualIndexStore.getState().clear();
+      useLiveAssistStore.getState().clear();
 
       const copilotState = useCopilotStore.getState();
       if (!copilotState.callSummary) {
@@ -225,6 +231,7 @@ export function useSession() {
 
       transcriptionStore.clear();
       useVisualIndexStore.getState().clear();
+      useLiveAssistStore.getState().clear();
       useCopilotStore.getState().reset();
     }
   }, [sessionStore, transcriptionStore, stopRecordingMutation]);

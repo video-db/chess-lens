@@ -11,6 +11,7 @@ interface StreamState {
 interface SessionState {
   status: SessionStatus;
   sessionId: string | null;
+  recordingId: number | null; // Database recording ID for navigation after stop
   sessionToken: string | null;
   tokenExpiresAt: number | null;
   startTime: number | null;
@@ -22,6 +23,7 @@ interface SessionState {
 
   // Actions
   setStatus: (status: SessionStatus) => void;
+  setRecordingId: (id: number | null) => void;
   startSession: (sessionId: string, sessionToken: string, expiresAt: number, screenWsConnectionId?: string) => void;
   stopSession: () => void;
   setSessionToken: (token: string, expiresAt: number) => void;
@@ -44,6 +46,7 @@ const initialStreams: StreamState = {
 export const useSessionStore = create<SessionState>((set, get) => ({
   status: 'idle',
   sessionId: null,
+  recordingId: null,
   sessionToken: null,
   tokenExpiresAt: null,
   startTime: null,
@@ -54,6 +57,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   screenWsConnectionId: null,
 
   setStatus: (status) => set({ status }),
+
+  setRecordingId: (id) => set({ recordingId: id }),
 
   startSession: (sessionId, sessionToken, expiresAt, screenWsConnectionId) => {
     set({
@@ -118,6 +123,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({
       status: 'idle',
       sessionId: null,
+      recordingId: null,
       startTime: null,
       elapsedTime: 0,
       streams: initialStreams,

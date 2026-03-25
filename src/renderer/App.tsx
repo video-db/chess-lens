@@ -19,6 +19,7 @@ import {
 } from './components/copilot';
 import { useCopilotStore } from './stores/copilot.store';
 import { useMeetingSetupStore } from './stores/meeting-setup.store';
+import { useSessionLifecycle, resetAllSessionStores } from './hooks/useSessionLifecycle';
 import { MCPServersPanel } from './components/settings/MCPServersPanel';
 import { CalendarPanel } from './components/settings/CalendarPanel';
 import { WorkflowsPanel } from './components/settings/WorkflowsPanel';
@@ -279,10 +280,18 @@ function RecordingView({ onBack }: RecordingViewProps) {
   const { isCallActive, callSummary, nudgeHistory } = useCopilotStore();
   const { status } = useSession();
   const meetingSetupStore = useMeetingSetupStore();
+  const { prepareNewSession } = useSessionLifecycle();
 
   const isRecording = status === 'recording';
   const isProcessing = status === 'processing' || status === 'stopping';
   const isIdle = status === 'idle';
+
+  // Handle navigation when session becomes idle (via useEffect, not during render)
+  React.useEffect(() => {
+    if (isIdle && !callSummary) {
+      onBack?.();
+    }
+  }, [isIdle, callSummary, onBack]);
 
   // Get checklist from meeting setup
   const { checklist } = meetingSetupStore;
@@ -299,16 +308,14 @@ function RecordingView({ onBack }: RecordingViewProps) {
 
   useCopilot();
 
-  // Reset meeting setup when starting a new call
+  // Reset all session state when starting a new call
   const handleStartNewCall = () => {
-    useCopilotStore.getState().reset();
-    meetingSetupStore.reset();
+    prepareNewSession();
   };
 
-  // Go back to home
+  // Go back to home - clear all session state
   const handleGoBack = () => {
-    useCopilotStore.getState().reset();
-    meetingSetupStore.reset();
+    prepareNewSession();
     onBack?.();
   };
 
@@ -366,9 +373,9 @@ function RecordingView({ onBack }: RecordingViewProps) {
     );
   }
 
-  // If idle, go back to home (user shouldn't see RecordingView when idle)
-  if (isIdle) {
-    onBack?.();
+  // If idle with no summary, the useEffect above handles navigation
+  // Return null to prevent flash of recording UI
+  if (isIdle && !callSummary) {
     return null;
   }
 
@@ -404,11 +411,24 @@ function RecordingView({ onBack }: RecordingViewProps) {
   );
 }
 
-function SettingsView() {
+interface SettingsViewProps {
+  initialTab?: 'account' | 'calendar' | 'mcpServers' | 'workflows' | null;
+  onClearInitialTab?: () => void;
+}
+
+function SettingsView({ initialTab, onClearInitialTab }: SettingsViewProps) {
   const [activeSettingsTab, setActiveSettingsTab] = useState<
     'account' | 'calendar' | 'mcpServers' | 'workflows'
-  >('account');
+  >(initialTab || 'account');
   const configStore = useConfigStore();
+
+  // Apply initial tab when it changes
+  React.useEffect(() => {
+    if (initialTab) {
+      setActiveSettingsTab(initialTab);
+      onClearInitialTab?.();
+    }
+  }, [initialTab, onClearInitialTab]);
 
   const settingsTabs = [
     { id: 'account' as const, label: 'Account' },
@@ -499,12 +519,17 @@ export function App() {
     currentMeeting?: { id: string; summary: string };
     nextMeeting: { id: string; summary: string; description?: string };
   } | null>(null);
+  // Recording ID to navigate to after recording ends
+  const [pendingRecordingNavigation, setPendingRecordingNavigation] = useState<number | null>(null);
+  // Settings tab to show when navigating to settings
+  const [initialSettingsTab, setInitialSettingsTab] = useState<'account' | 'calendar' | 'mcpServers' | 'workflows' | null>(null);
 
   const configStore = useConfigStore();
   const sessionStore = useSessionStore();
   const meetingSetupStore = useMeetingSetupStore();
   const { status: sessionStatus, startRecording, stopRecording } = useSession();
   const { allGranted, loading: permissionsLoading, checkPermissions } = usePermissions();
+  const { prepareNewSession, prepareNewSessionWithInfo, waitForIdle } = useSessionLifecycle();
 
   // Global listener for recorder events - persists during navigation
   useGlobalRecorderEvents();
@@ -517,9 +542,8 @@ export function App() {
 
     // Handle "open meeting setup" from notification/tray click
     const unsubOpenSetup = window.electronAPI.calendarOn.onOpenMeetingSetup((meeting) => {
-      // Pre-fill the meeting setup store with meeting data
-      meetingSetupStore.reset();
-      meetingSetupStore.setInfo(meeting.summary, meeting.description || '');
+      // Clear all stale state and pre-fill meeting info
+      prepareNewSessionWithInfo(meeting.summary, meeting.description || '');
 
       // Switch to home tab and show meeting setup
       setActiveTab('home');
@@ -528,9 +552,8 @@ export function App() {
 
     // Handle "auto-start recording" from notification or default_record behavior
     const unsubAutoStart = window.electronAPI.calendarOn.onAutoStartRecording(async (meeting) => {
-      // Skip UX entirely - start recording with meeting name
-      meetingSetupStore.reset();
-      meetingSetupStore.setInfo(meeting.summary, meeting.description || '');
+      // Clear ALL stale state (including old call summaries) before starting new recording
+      prepareNewSessionWithInfo(meeting.summary, meeting.description || '');
 
       // Ensure we're on home tab
       setActiveTab('home');
@@ -568,7 +591,7 @@ export function App() {
       unsubAutoStart();
       unsubOverlap();
     };
-  }, [isAuthenticated, meetingSetupStore, startRecording]);
+  }, [isAuthenticated, startRecording, prepareNewSessionWithInfo]);
 
   // Handle pending overlap action (stop current, start next)
   React.useEffect(() => {
@@ -583,8 +606,11 @@ export function App() {
       // Clear the current recording meeting
       await window.electronAPI.calendar.setRecordingMeeting(null);
 
-      // Wait a moment for recording to fully stop
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for session to properly reach idle state (no arbitrary timeout)
+      await waitForIdle();
+
+      // Clear all stale state before starting next meeting
+      prepareNewSessionWithInfo(nextMeeting.summary, nextMeeting.description || '');
 
       // Notify main process about new meeting we're recording
       await window.electronAPI.calendar.setRecordingMeeting(nextMeeting.id);
@@ -603,7 +629,7 @@ export function App() {
     if (pendingOverlap) {
       handleOverlap();
     }
-  }, [pendingOverlap, stopRecording, startRecording]);
+  }, [pendingOverlap, stopRecording, startRecording, waitForIdle, prepareNewSessionWithInfo]);
 
   // Clear recording meeting when session becomes idle
   React.useEffect(() => {
@@ -631,13 +657,24 @@ export function App() {
 
   // Handle start recording button from HomeView - show MeetingSetupFlow
   const handleStartRecording = () => {
+    prepareNewSession();  // Clear any stale state from previous sessions
     setShowMeetingSetup(true);
   };
 
-  // Handle returning from recording/setup mode
+  // Handle returning from recording/setup mode - navigate to history (detail page if we have a recording ID)
   const handleExitRecordingMode = () => {
     setShowMeetingSetup(false);
-    sessionStore.reset();
+
+    // Capture recording ID before clearing state (may be null if something went wrong)
+    const recordingId = sessionStore.recordingId;
+    if (recordingId) {
+      setPendingRecordingNavigation(recordingId);
+    }
+
+    // Always navigate to history - shows detail if we have ID, otherwise shows list
+    setActiveTab('history');
+
+    prepareNewSession();
   };
 
   const renderContent = () => {
@@ -716,13 +753,26 @@ export function App() {
           <HomeView
             onStartRecording={handleStartRecording}
             onNavigateToHistory={() => setActiveTab('history')}
-            onNavigateToSettings={() => setActiveTab('settings')}
+            onNavigateToSettings={(tab) => {
+              if (tab) setInitialSettingsTab(tab);
+              setActiveTab('settings');
+            }}
           />
         );
       case 'history':
-        return <HistoryView />;
+        return (
+          <HistoryView
+            initialSelectedRecordingId={pendingRecordingNavigation}
+            onClearInitialSelection={() => setPendingRecordingNavigation(null)}
+          />
+        );
       case 'settings':
-        return <SettingsView />;
+        return (
+          <SettingsView
+            initialTab={initialSettingsTab}
+            onClearInitialTab={() => setInitialSettingsTab(null)}
+          />
+        );
     }
   };
 
