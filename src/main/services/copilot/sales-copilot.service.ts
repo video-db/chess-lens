@@ -109,6 +109,7 @@ export class MeetingCopilotService extends EventEmitter {
 
   private config: CopilotConfig;
   private callState: CallState | null = null;
+  private apiKey: string | null = null;
   private metricsTimer: NodeJS.Timeout | null = null;
   private compressionTimer: NodeJS.Timeout | null = null;
   private processingQueue: TranscriptSegmentData[] = [];
@@ -144,6 +145,7 @@ export class MeetingCopilotService extends EventEmitter {
    * Initialize with API key
    */
   initialize(apiKey: string): void {
+    this.apiKey = apiKey;
     initLLMService(apiKey);
     log.info('Meeting Co-Pilot initialized with API key');
   }
@@ -615,7 +617,7 @@ export class MeetingCopilotService extends EventEmitter {
   }
 
   /**
-   * Export meeting to markdown file in ~/.call-md/
+   * Export meeting to markdown files in ~/.call_md/
    */
   private async exportToMarkdown(
     recordingId: number,
@@ -646,6 +648,8 @@ export class MeetingCopilotService extends EventEmitter {
       summary,
       metrics,
       transcript,
+      sessionId: this.callState?.sessionId,
+      apiKey: this.apiKey || undefined,
     });
 
     log.info({ recordingId, filePath }, 'Meeting exported to markdown');

@@ -136,7 +136,7 @@ export const visualIndexRouter = router({
         const sceneIndex = await screenStream.indexVisuals({
           batchConfig: {
             type: 'time',
-            value: 5,
+            value: 20,
             frameCount: 3,
           },
           prompt: 'Describe what is visible on the screen. Focus on any presentations, documents, charts, dashboards, or important visual content. Be concise.',

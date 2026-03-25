@@ -1,29 +1,35 @@
 /**
  * Markdown Export Service
  *
- * Exports meeting transcripts and summaries to markdown files in a globally
- * accessible folder structure (~/.call-md/) for AI agents and other tools.
+ * Exports meeting transcripts, summaries, visual analysis, and metrics to markdown files
+ * in a globally accessible folder structure (~/.call_md/) for AI agents and other tools.
  *
  * Directory structure:
- *   ~/.call-md/
+ *   ~/.call_md/
  *     ├── index.md (list of all meetings)
  *     └── meetings/
  *         └── 2024/
  *             └── 03/
  *                 └── 24/
- *                     └── <meeting_name>.md
+ *                     └── <meeting-name>/
+ *                         ├── summary.md
+ *                         ├── transcript.md
+ *                         ├── visual.md
+ *                         └── metrics.md
  */
 
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { createChildLogger } from '../lib/logger';
-import type { PostMeetingSummary, KeyPoint } from './copilot/summary-generator.service';
+import { loadRuntimeConfig } from '../lib/config';
+import { connect } from 'videodb';
+import type { PostMeetingSummary } from './copilot/summary-generator.service';
 import type { ConversationMetrics } from './copilot/conversation-metrics.service';
 
 const logger = createChildLogger('markdown-export');
 
-const CALL_MD_DIR = path.join(os.homedir(), '.call-md');
+const CALL_MD_DIR = path.join(os.homedir(), '.call_md');
 const MEETINGS_DIR = path.join(CALL_MD_DIR, 'meetings');
 const INDEX_FILE = path.join(CALL_MD_DIR, 'index.md');
 
@@ -40,10 +46,21 @@ export interface MeetingExportData {
     text: string;
     startTime: number;
   }>;
+  // VideoDB session info for fetching visual analysis
+  sessionId?: string;
+  apiKey?: string;
+}
+
+interface SceneData {
+  id: string;
+  start: number;
+  end: number;
+  description?: string;
+  metadata?: Record<string, unknown>;
 }
 
 /**
- * Ensure the .call-md directory structure exists
+ * Ensure the directory structure exists
  */
 function ensureDirectoryExists(dirPath: string): void {
   if (!fs.existsSync(dirPath)) {
@@ -61,7 +78,7 @@ function sanitizeFilename(name: string): string {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
     .toLowerCase()
-    .slice(0, 100); // Limit length
+    .slice(0, 100);
 }
 
 /**
@@ -85,9 +102,78 @@ function formatTimestamp(seconds: number): string {
 }
 
 /**
- * Generate markdown content for a meeting
+ * Fetch visual analysis from VideoDB
  */
-function generateMeetingMarkdown(data: MeetingExportData): string {
+async function fetchVisualAnalysis(sessionId: string, apiKey: string): Promise<SceneData[]> {
+  try {
+    const runtimeConfig = loadRuntimeConfig();
+    const connectOptions: { apiKey: string; baseUrl?: string } = { apiKey };
+    if (runtimeConfig.apiUrl) {
+      connectOptions.baseUrl = runtimeConfig.apiUrl;
+    }
+
+    const conn = connect(connectOptions);
+    const session = await conn.getCaptureSession(sessionId);
+    await session.refresh();
+
+    // Find screen RTStream
+    let screens = session.getRTStream('screen');
+    if (screens.length === 0) {
+      screens = (session.rtstreams || []).filter((stream) => {
+        const name = (stream.name || '').toLowerCase();
+        const channelId = (stream.channelId || '').toLowerCase();
+        return (
+          name.includes('display') ||
+          name.includes('screen') ||
+          channelId.includes('display') ||
+          channelId.includes('screen')
+        );
+      });
+    }
+
+    if (screens.length === 0) {
+      logger.debug({ sessionId }, 'No screen RTStream found for visual export');
+      return [];
+    }
+
+    const screenStream = screens[0];
+    const sceneIndexes = await screenStream.listSceneIndexes();
+
+    if (sceneIndexes.length === 0) {
+      logger.debug({ sessionId }, 'No scene indexes found for visual export');
+      return [];
+    }
+
+    // Get all scenes from the first scene index
+    const allScenes: SceneData[] = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const result = await sceneIndexes[0].getScenes(undefined, undefined, page, 100);
+      if (result) {
+        const scenes = (result.scenes || []) as SceneData[];
+        allScenes.push(...scenes);
+        hasMore = result.nextPage || false;
+      } else {
+        hasMore = false;
+      }
+      page++;
+    }
+
+    logger.info({ sessionId, sceneCount: allScenes.length }, 'Fetched visual analysis');
+    return allScenes;
+  } catch (error) {
+    const err = error as Error;
+    logger.warn({ error: err.message, sessionId }, 'Failed to fetch visual analysis');
+    return [];
+  }
+}
+
+/**
+ * Generate summary.md content
+ */
+function generateSummaryMarkdown(data: MeetingExportData): string {
   const lines: string[] = [];
   const dateStr = data.startedAt.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -109,20 +195,7 @@ function generateMeetingMarkdown(data: MeetingExportData): string {
     lines.push(`**Description:** ${data.meetingDescription}`);
   }
   lines.push('');
-
-  if (data.metrics) {
-    lines.push('## Conversation Metrics');
-    lines.push('');
-    lines.push(`- **Talk Ratio:** You ${Math.round(data.metrics.talkRatio.me * 100)}% / Them ${Math.round(data.metrics.talkRatio.them * 100)}%`);
-    lines.push(`- **Speaking Pace:** ${data.metrics.pace} WPM`);
-    lines.push(`- **Questions Asked:** ${data.metrics.questionsAsked}`);
-    if (data.metrics.monologueDetected) {
-      lines.push(`- **Monologue Detected:** Yes`);
-    }
-    lines.push('');
-  }
-
-  lines.push('## Summary');
+  lines.push('## Overview');
   lines.push('');
   lines.push(data.summary.shortOverview);
   lines.push('');
@@ -149,33 +222,133 @@ function generateMeetingMarkdown(data: MeetingExportData): string {
     lines.push('');
   }
 
+  lines.push('---');
+  lines.push(`*Exported on ${new Date().toISOString()}*`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate transcript.md content
+ */
+function generateTranscriptMarkdown(data: MeetingExportData): string {
+  const lines: string[] = [];
+
+  lines.push(`# Transcript: ${data.meetingName}`);
+  lines.push('');
+  lines.push(`**Date:** ${data.startedAt.toISOString().split('T')[0]}`);
+  lines.push(`**Duration:** ${formatDuration(data.duration)}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
   if (data.transcript && data.transcript.length > 0) {
-    lines.push('## Transcript');
-    lines.push('');
     for (const segment of data.transcript) {
       const speaker = segment.speaker === 'me' ? 'You' : 'Them';
       const time = formatTimestamp(segment.startTime);
       lines.push(`**[${time}] ${speaker}:** ${segment.text}`);
       lines.push('');
     }
+  } else {
+    lines.push('*No transcript available*');
   }
 
   lines.push('---');
-  lines.push(`*Exported by Call.md on ${new Date().toISOString()}*`);
+  lines.push(`*Exported on ${new Date().toISOString()}*`);
 
   return lines.join('\n');
 }
 
 /**
- * Get the file path for a meeting based on its date
+ * Generate visual.md content
  */
-function getMeetingFilePath(meetingName: string, date: Date): string {
+function generateVisualMarkdown(data: MeetingExportData, scenes: SceneData[]): string {
+  const lines: string[] = [];
+
+  lines.push(`# Visual Context: ${data.meetingName}`);
+  lines.push('');
+  lines.push(`**Date:** ${data.startedAt.toISOString().split('T')[0]}`);
+  lines.push(`**Scenes Captured:** ${scenes.length}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  if (scenes.length > 0) {
+    for (const scene of scenes) {
+      const startTime = formatTimestamp(scene.start);
+      const endTime = formatTimestamp(scene.end);
+      lines.push(`### [${startTime} - ${endTime}]`);
+      lines.push('');
+      if (scene.description) {
+        lines.push(scene.description);
+      } else {
+        lines.push('*No description available*');
+      }
+      lines.push('');
+    }
+  } else {
+    lines.push('*No visual analysis available*');
+  }
+
+  lines.push('---');
+  lines.push(`*Exported on ${new Date().toISOString()}*`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate metrics.md content
+ */
+function generateMetricsMarkdown(data: MeetingExportData): string {
+  const lines: string[] = [];
+
+  lines.push(`# Conversation Metrics: ${data.meetingName}`);
+  lines.push('');
+  lines.push(`**Date:** ${data.startedAt.toISOString().split('T')[0]}`);
+  lines.push(`**Duration:** ${formatDuration(data.duration)}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  if (data.metrics) {
+    lines.push('## Talk Ratio');
+    lines.push('');
+    lines.push(`- **You:** ${Math.round(data.metrics.talkRatio.me * 100)}%`);
+    lines.push(`- **Them:** ${Math.round(data.metrics.talkRatio.them * 100)}%`);
+    lines.push('');
+
+    lines.push('## Speaking Pace');
+    lines.push('');
+    lines.push(`- **Words per minute:** ${data.metrics.pace}`);
+    lines.push('');
+
+    lines.push('## Engagement');
+    lines.push('');
+    lines.push(`- **Questions asked:** ${data.metrics.questionsAsked}`);
+    if (data.metrics.monologueDetected) {
+      lines.push(`- **Monologue detected:** Yes`);
+    }
+    lines.push('');
+  } else {
+    lines.push('*No metrics available*');
+  }
+
+  lines.push('---');
+  lines.push(`*Exported on ${new Date().toISOString()}*`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Get the folder path for a meeting based on its date
+ */
+function getMeetingFolderPath(meetingName: string, date: Date): string {
   const year = date.getFullYear().toString();
   const month = (date.getMonth() + 1).toString().padStart(2, '0');
   const day = date.getDate().toString().padStart(2, '0');
-  const filename = `${sanitizeFilename(meetingName)}.md`;
+  const folderName = sanitizeFilename(meetingName);
 
-  return path.join(MEETINGS_DIR, year, month, day, filename);
+  return path.join(MEETINGS_DIR, year, month, day, folderName);
 }
 
 /**
@@ -196,7 +369,6 @@ function parseIndexEntries(): IndexEntry[] {
   const content = fs.readFileSync(INDEX_FILE, 'utf-8');
   const entries: IndexEntry[] = [];
 
-  // Parse table rows (skip header and separator)
   const lines = content.split('\n');
   let inTable = false;
 
@@ -211,7 +383,6 @@ function parseIndexEntries(): IndexEntry[] {
     if (inTable && line.startsWith('|')) {
       const parts = line.split('|').map(p => p.trim()).filter(p => p);
       if (parts.length >= 4) {
-        // Extract path from markdown link [name](path)
         const linkMatch = parts[1].match(/\[([^\]]+)\]\(([^)]+)\)/);
         if (linkMatch) {
           entries.push({
@@ -246,7 +417,7 @@ function updateIndex(data: MeetingExportData, relativePath: string): void {
   if (existingIndex >= 0) {
     entries[existingIndex] = newEntry;
   } else {
-    entries.unshift(newEntry); // Add to beginning (most recent first)
+    entries.unshift(newEntry);
   }
 
   entries.sort((a, b) => b.date.localeCompare(a.date));
@@ -272,27 +443,33 @@ function updateIndex(data: MeetingExportData, relativePath: string): void {
 }
 
 /**
- * Export a meeting to markdown
+ * Export a meeting to markdown files
  */
 export async function exportMeetingToMarkdown(data: MeetingExportData): Promise<string> {
-  // Ensure directory structure exists
   initializeCallMdDir();
 
   try {
-    const filePath = getMeetingFilePath(data.meetingName, data.startedAt);
-    const dirPath = path.dirname(filePath);
+    const folderPath = getMeetingFolderPath(data.meetingName, data.startedAt);
+    ensureDirectoryExists(folderPath);
 
-    ensureDirectoryExists(dirPath);
+    // Fetch visual analysis if session info available
+    let scenes: SceneData[] = [];
+    if (data.sessionId && data.apiKey) {
+      scenes = await fetchVisualAnalysis(data.sessionId, data.apiKey);
+    }
 
-    const markdown = generateMeetingMarkdown(data);
+    // Write all markdown files
+    fs.writeFileSync(path.join(folderPath, 'summary.md'), generateSummaryMarkdown(data), 'utf-8');
+    fs.writeFileSync(path.join(folderPath, 'transcript.md'), generateTranscriptMarkdown(data), 'utf-8');
+    fs.writeFileSync(path.join(folderPath, 'visual.md'), generateVisualMarkdown(data, scenes), 'utf-8');
+    fs.writeFileSync(path.join(folderPath, 'metrics.md'), generateMetricsMarkdown(data), 'utf-8');
 
-    fs.writeFileSync(filePath, markdown, 'utf-8');
-    logger.info({ filePath, meetingName: data.meetingName }, 'Meeting exported to markdown');
+    logger.info({ folderPath, meetingName: data.meetingName, sceneCount: scenes.length }, 'Meeting exported to markdown');
 
-    const relativePath = path.relative(CALL_MD_DIR, filePath);
+    const relativePath = path.relative(CALL_MD_DIR, folderPath);
     updateIndex(data, relativePath);
 
-    return filePath;
+    return folderPath;
   } catch (error) {
     const err = error as Error;
     logger.error({ error: err.message, meetingName: data.meetingName }, 'Failed to export meeting to markdown');
@@ -301,20 +478,19 @@ export async function exportMeetingToMarkdown(data: MeetingExportData): Promise<
 }
 
 /**
- * Get the .call-md directory path
+ * Get the .call_md directory path
  */
 export function getCallMdDir(): string {
   return CALL_MD_DIR;
 }
 
 /**
- * Initialize the .call-md directory structure
+ * Initialize the .call_md directory structure
  */
 export function initializeCallMdDir(): void {
   ensureDirectoryExists(CALL_MD_DIR);
   ensureDirectoryExists(MEETINGS_DIR);
 
-  // Create index file if it doesn't exist
   if (!fs.existsSync(INDEX_FILE)) {
     const initialContent = [
       '# Call.md Meeting Index',
@@ -329,6 +505,6 @@ export function initializeCallMdDir(): void {
     ].join('\n');
 
     fs.writeFileSync(INDEX_FILE, initialContent, 'utf-8');
-    logger.info({ path: CALL_MD_DIR }, 'Initialized .call-md directory');
+    logger.info({ path: CALL_MD_DIR }, 'Initialized .call_md directory');
   }
 }
