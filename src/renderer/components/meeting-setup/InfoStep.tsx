@@ -57,7 +57,7 @@ interface InfoStepProps {
   isSkipping?: boolean;
   onBack: () => void;
   onNext: (name: string, description: string) => void;
-  onSkip: () => void;
+  onSkip: (name: string, description: string) => void;
 }
 
 export function InfoStep({
@@ -172,7 +172,10 @@ export function InfoStep({
           {/* Skip and Record button */}
           <button
             type="button"
-            onClick={onSkip}
+            onClick={() => {
+              console.log('[InfoStep] Skip clicked, passing name:', name.trim(), 'description:', description.trim());
+              onSkip(name.trim(), description.trim());
+            }}
             disabled={isDisabled}
             className="w-full flex items-center justify-center gap-[6px] px-[20px] py-[12px] bg-transparent border border-dashed border-[#c0c0c8] rounded-[12px] text-[14px] font-medium text-[#464646] hover:border-[#ec5b16] hover:text-[#ec5b16] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >

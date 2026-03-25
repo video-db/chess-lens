@@ -605,10 +605,6 @@ export class MeetingCopilotService extends EventEmitter {
       duration,
     });
 
-    // Trigger workflow webhooks (fire and forget)
-    this.triggerWorkflowWebhooks(recordingId, summary, duration, segments).catch((err) => {
-      log.error({ err }, 'Failed to trigger workflow webhooks');
-    });
 
     // Cleanup
     this.transcriptBuffer.clear(sessionId);
@@ -616,53 +612,6 @@ export class MeetingCopilotService extends EventEmitter {
     this.callState = null;
 
     return summary;
-  }
-
-  /**
-   * Trigger workflow webhooks with meeting data
-   */
-  private async triggerWorkflowWebhooks(
-    recordingId: number,
-    summary: PostMeetingSummary,
-    duration: number,
-    segments: TranscriptSegmentData[]
-  ): Promise<void> {
-    const { triggerWorkflowWebhooks } = await import('../workflow-webhook.service');
-
-    // Fetch recording data for video details
-    const recording = getRecordingById(recordingId);
-    if (!recording) {
-      log.warn({ recordingId }, 'Recording not found for workflow webhooks');
-      return;
-    }
-
-    // Prepare transcript data
-    const transcript = segments.map((seg) => ({
-      speaker: seg.channel as 'me' | 'them',
-      text: seg.text,
-      timestamp: seg.startTime,
-    }));
-
-    // Trigger webhooks
-    await triggerWorkflowWebhooks({
-      recordingId,
-      title: (recording as any).meetingName || 'Meeting Recording',
-      description: (recording as any).meetingDescription,
-      startedAt: recording.createdAt,
-      endedAt: new Date().toISOString(),
-      durationSeconds: Math.round(duration),
-      exportedVideoId: recording.videoId || '',
-      playerUrl: recording.playerUrl || '',
-      streamId: (recording as any).streamUrl,
-      summary: summary.shortOverview,
-      topics: summary.keyPoints.map((kp) => kp.topic),
-      actionItems: summary.keyPoints.flatMap((kp) => kp.points),
-      checklist: summary.postMeetingChecklist.map((item) => ({
-        text: item,
-        completed: false,
-      })),
-      transcript,
-    });
   }
 
   /**

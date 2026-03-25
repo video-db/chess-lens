@@ -6,8 +6,9 @@
  */
 
 import { createChildLogger } from '../lib/logger';
-import { updateRecordingBySessionId } from '../db';
+import { updateRecordingBySessionId, getRecordingBySessionId, getTranscriptSegmentsBySession } from '../db';
 import { checkSessionExport, recoverExportedRecording } from './recording-export.service';
+import { triggerWorkflowWebhooks, type MeetingCompletionData } from './workflow-webhook.service';
 
 const logger = createChildLogger('export-poller');
 
@@ -75,6 +76,11 @@ export function startExportPoller(
 
       if (!recovery.success) {
         logger.error({ sessionId, error: recovery.error }, 'Failed to recover recording');
+      } else {
+        // Trigger workflow webhooks now that we have the video data
+        triggerPostExportWorkflows(sessionId).catch((err) => {
+          logger.error({ sessionId, error: err }, 'Failed to trigger workflow webhooks');
+        });
       }
     } else if (result.status === 'failed') {
       logger.error({ sessionId }, 'Session failed on VideoDB');
@@ -127,4 +133,87 @@ export function isPollerActive(sessionId: string): boolean {
  */
 export function getActivePollerCount(): number {
   return activePollers.size;
+}
+
+/**
+ * Trigger workflow webhooks after export completes
+ * This is called AFTER the recording has been updated with videoId/playerUrl
+ */
+async function triggerPostExportWorkflows(sessionId: string): Promise<void> {
+  const recording = getRecordingBySessionId(sessionId);
+  if (!recording) {
+    logger.warn({ sessionId }, 'Recording not found for workflow webhooks');
+    return;
+  }
+
+  // Check we have the video data
+  if (!recording.videoId || !recording.playerUrl) {
+    logger.warn({ sessionId }, 'Recording missing video data for workflow webhooks');
+    return;
+  }
+
+  // Get transcript segments
+  const segments = getTranscriptSegmentsBySession(sessionId);
+  const transcript = segments.map((seg) => ({
+    speaker: seg.channel as 'me' | 'them',
+    text: seg.text,
+    timestamp: seg.startTime,
+  }));
+
+  // Parse stored summary data
+  let summary: string | undefined;
+  let topics: string[] | undefined;
+  let actionItems: string[] | undefined;
+  let checklist: Array<{ text: string; completed: boolean }> | undefined;
+
+  if ((recording as any).shortOverview) {
+    summary = (recording as any).shortOverview;
+  }
+
+  if ((recording as any).keyPoints) {
+    try {
+      const keyPoints = JSON.parse((recording as any).keyPoints);
+      if (Array.isArray(keyPoints)) {
+        topics = keyPoints.map((kp: any) => kp.topic);
+        actionItems = keyPoints.flatMap((kp: any) => kp.points || []);
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  if ((recording as any).postMeetingChecklist) {
+    try {
+      const items = JSON.parse((recording as any).postMeetingChecklist);
+      if (Array.isArray(items)) {
+        checklist = items.map((item: string) => ({ text: item, completed: false }));
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  const meetingData: MeetingCompletionData = {
+    recordingId: recording.id,
+    title: (recording as any).meetingName || 'Meeting Recording',
+    description: (recording as any).meetingDescription,
+    startedAt: recording.createdAt,
+    endedAt: new Date().toISOString(),
+    durationSeconds: recording.duration || 0,
+    exportedVideoId: recording.videoId,
+    playerUrl: recording.playerUrl,
+    streamId: recording.streamUrl || undefined,
+    summary,
+    topics,
+    actionItems,
+    checklist,
+    transcript,
+  };
+
+  logger.info(
+    { sessionId, recordingId: recording.id, hasPlayerUrl: !!recording.playerUrl },
+    'Triggering workflow webhooks after export'
+  );
+
+  await triggerWorkflowWebhooks(meetingData);
 }

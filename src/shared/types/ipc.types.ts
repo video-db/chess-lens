@@ -176,7 +176,7 @@ export interface LiveAssistApi {
 }
 
 export interface LiveAssistEvents {
-  onUpdate: (callback: (data: { assists: any[]; processedAt: number }) => void) => () => void;
+  onUpdate: (callback: (data: { insights: { say_this: string[]; ask_this: string[] }; processedAt: number }) => void) => () => void;
 }
 
 export interface WorkflowsApi {
@@ -202,8 +202,10 @@ export interface IpcApi {
     checkMicPermission: () => Promise<boolean>;
     checkScreenPermission: () => Promise<boolean>;
     checkAccessibilityPermission: () => Promise<boolean>;
+    checkNotificationPermission: () => Promise<boolean>;
     requestMicPermission: () => Promise<boolean>;
     requestScreenPermission: () => Promise<boolean>;
+    requestNotificationPermission: () => Promise<boolean>;
     openSystemSettings: (pane: string) => Promise<void>;
     getStatus: () => Promise<PermissionStatus>;
   };
@@ -278,8 +280,10 @@ export type IpcChannel =
   | 'check-mic-permission'
   | 'check-screen-permission'
   | 'check-accessibility-permission'
+  | 'check-notification-permission'
   | 'request-mic-permission'
   | 'request-screen-permission'
+  | 'request-notification-permission'
   | 'open-system-settings'
   | 'get-permission-status'
   | 'get-settings'

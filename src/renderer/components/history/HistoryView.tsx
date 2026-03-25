@@ -3,12 +3,27 @@ import { RefreshCw, Inbox, Search } from 'lucide-react';
 import { RecordingCard } from './RecordingCard';
 import { RecordingDetailPage } from './RecordingDetailPage';
 import { trpc } from '../../api/trpc';
+import { useSessionStore } from '../../stores/session.store';
 import type { Recording } from '../../../shared/schemas/recording.schema';
 
-export function HistoryView() {
-  const [selectedRecordingId, setSelectedRecordingId] = useState<number | null>(null);
+interface HistoryViewProps {
+  initialSelectedRecordingId?: number | null;
+  onClearInitialSelection?: () => void;
+}
+
+export function HistoryView({ initialSelectedRecordingId, onClearInitialSelection }: HistoryViewProps = {}) {
+  const [selectedRecordingId, setSelectedRecordingId] = useState<number | null>(initialSelectedRecordingId ?? null);
+
+  useEffect(() => {
+    if (initialSelectedRecordingId != null) {
+      setSelectedRecordingId(initialSelectedRecordingId);
+      onClearInitialSelection?.();
+    }
+  }, [initialSelectedRecordingId, onClearInitialSelection]);
   const [hasCleanedUp, setHasCleanedUp] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const activeSessionId = useSessionStore((state) => state.sessionId);
 
   const { data: recordings, isLoading, refetch } = trpc.recordings.list.useQuery(
     undefined,
@@ -27,17 +42,22 @@ export function HistoryView() {
 
   useEffect(() => {
     if (!hasCleanedUp && recordings) {
+      // Check for stale recordings older than 1 hour (excluding active session)
       const staleCount = recordings.filter(
         r => (r.status === 'processing' || r.status === 'recording') &&
-        Date.now() - new Date(r.createdAt).getTime() > 30 * 60 * 1000
+        r.sessionId !== activeSessionId &&
+        Date.now() - new Date(r.createdAt).getTime() > 60 * 60 * 1000
       ).length;
 
       if (staleCount > 0) {
-        cleanupMutation.mutate({ maxAgeMinutes: 30 });
+        cleanupMutation.mutate({
+          maxAgeMinutes: 60,
+          excludeSessionId: activeSessionId || undefined,
+        });
       }
       setHasCleanedUp(true);
     }
-  }, [recordings, hasCleanedUp]);
+  }, [recordings, hasCleanedUp, activeSessionId]);
 
   // Sort recordings by date (newest first) and filter by search query
   const filteredRecordings = useMemo(() => {

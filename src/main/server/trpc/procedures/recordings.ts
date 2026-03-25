@@ -59,6 +59,10 @@ function toApiRecording(dbRecording: ReturnType<typeof getRecordingById>) {
     (dbRecording as any).postMeetingChecklist,
     z.array(z.string())
   );
+  const postMeetingChecklistCompleted = safeJsonParse(
+    (dbRecording as any).postMeetingChecklistCompleted,
+    z.array(z.number())
+  );
 
   return {
     id: dbRecording.id,
@@ -84,6 +88,7 @@ function toApiRecording(dbRecording: ReturnType<typeof getRecordingById>) {
     meetingChecklist: meetingChecklist || null,
     // Post-meeting analysis
     postMeetingChecklist: postMeetingChecklist || null,
+    postMeetingChecklistCompleted: postMeetingChecklistCompleted || null,
   };
 }
 
@@ -218,10 +223,13 @@ export const recordingsRouter = router({
     }),
 
   cleanupStale: protectedProcedure
-    .input(z.object({ maxAgeMinutes: z.number().default(30) }))
+    .input(z.object({
+      maxAgeMinutes: z.number().default(60),
+      excludeSessionId: z.string().optional(),
+    }))
     .output(z.object({ cleaned: z.number(), recovered: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      logger.info({ maxAgeMinutes: input.maxAgeMinutes }, 'Cleaning up stale recordings');
+      logger.info({ maxAgeMinutes: input.maxAgeMinutes, excludeSessionId: input.excludeSessionId }, 'Cleaning up stale recordings');
 
       const recordings = getAllRecordings();
       const now = Date.now();
@@ -236,7 +244,7 @@ export const recordingsRouter = router({
       // Try to recover processing recordings from VideoDB
       if (apiKey) {
         const processingRecordings = recordings.filter(
-          r => r.status === 'processing' && !r.videoId
+          r => r.status === 'processing' && !r.videoId && r.sessionId !== input.excludeSessionId
         );
 
         for (const recording of processingRecordings) {
@@ -257,9 +265,12 @@ export const recordingsRouter = router({
         }
       }
 
-      // Mark truly stale recordings as failed
       const updatedRecordings = getAllRecordings();
       for (const recording of updatedRecordings) {
+        if (recording.sessionId === input.excludeSessionId) {
+          continue;
+        }
+
         if ((recording.status === 'processing' || recording.status === 'recording') && !(recording as any).shortOverview) {
           const createdAt = new Date(recording.createdAt).getTime();
           const age = now - createdAt;
@@ -343,5 +354,27 @@ export const recordingsRouter = router({
         logger.error({ error, recordingId: input.recordingId }, 'Failed to fetch collectionId');
         return { collectionId: null };
       }
+    }),
+
+  // Update post-meeting checklist completion status
+  updateChecklistCompletion: protectedProcedure
+    .input(z.object({
+      recordingId: z.number(),
+      completedIndices: z.array(z.number()),
+    }))
+    .output(z.object({ success: z.boolean() }))
+    .mutation(async ({ input }) => {
+      logger.debug({ recordingId: input.recordingId, completedIndices: input.completedIndices }, 'Updating checklist completion');
+
+      const recording = getRecordingById(input.recordingId);
+      if (!recording) {
+        throw new Error('Recording not found');
+      }
+
+      updateRecordingBySessionId(recording.sessionId, {
+        postMeetingChecklistCompleted: JSON.stringify(input.completedIndices),
+      });
+
+      return { success: true };
     }),
 });

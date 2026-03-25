@@ -5,7 +5,7 @@ import { useVisualIndexStore } from '../stores/visual-index.store';
 import { useConfigStore } from '../stores/config.store';
 import { useCopilotStore } from '../stores/copilot.store';
 import { useMCPStore } from '../stores/mcp.store';
-import { useMeetingSetupStore } from '../stores/meeting-setup.store';
+import { useLiveAssistStore } from '../stores/live-assist.store';
 import { trpc } from '../api/trpc';
 import { getElectronAPI } from '../api/ipc';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
@@ -53,8 +53,10 @@ export function useSession() {
   }, [sessionStore.status, sessionStore.startTime]);
 
   const startRecording = useCallback(async (meetingSetup?: MeetingSetupData) => {
+    console.log('[useSession] startRecording called with:', meetingSetup?.name);
     const api = getElectronAPI();
     if (!api) {
+      console.log('[useSession] Error: Electron API not available');
       sessionStore.setError('Electron API not available');
       return;
     }
@@ -63,10 +65,12 @@ export function useSession() {
     const apiUrl = configStore.apiUrl;
 
     if (!accessToken) {
+      console.log('[useSession] Error: Not authenticated');
       sessionStore.setError('Not authenticated. Please log in first.');
       return;
     }
 
+    console.log('[useSession] Setting status to starting');
     sessionStore.setStatus('starting');
     transcriptionStore.clear();
     useVisualIndexStore.getState().clear();
@@ -125,6 +129,11 @@ export function useSession() {
         meetingChecklist: meetingSetup?.checklist,
       });
 
+      // Store recording ID for post-session navigation
+      if (recordingResult?.id) {
+        sessionStore.setRecordingId(recordingResult.id);
+      }
+
       const hasTranscription = transcriptionStore.enabled && (result.micWsConnectionId || result.sysAudioWsConnectionId);
       const hasVisualIndex = useVisualIndexStore.getState().enabled && result.screenWsConnectionId;
 
@@ -151,8 +160,10 @@ export function useSession() {
         }
       }
 
+      console.log('[useSession] Recording started successfully, sessionId:', captureSession.sessionId);
       sessionStore.startSession(captureSession.sessionId, sessionToken!, tokenExpiresAt!, result.screenWsConnectionId);
     } catch (error) {
+      console.log('[useSession] Error starting recording:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to start recording';
 
       if (errorMessage.includes('logged in') || errorMessage.includes('UNAUTHORIZED')) {
@@ -208,6 +219,7 @@ export function useSession() {
 
       transcriptionStore.clear();
       useVisualIndexStore.getState().clear();
+      useLiveAssistStore.getState().clear();
 
       const copilotState = useCopilotStore.getState();
       if (!copilotState.callSummary) {
@@ -225,6 +237,7 @@ export function useSession() {
 
       transcriptionStore.clear();
       useVisualIndexStore.getState().clear();
+      useLiveAssistStore.getState().clear();
       useCopilotStore.getState().reset();
     }
   }, [sessionStore, transcriptionStore, stopRecordingMutation]);

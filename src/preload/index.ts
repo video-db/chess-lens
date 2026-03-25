@@ -330,7 +330,7 @@ const api: IpcApi = {
   },
 
   liveAssistOn: {
-    onUpdate: (callback: (data: { assists: any[]; processedAt: number }) => void) => {
+    onUpdate: (callback: (data: { insights: { say_this: string[]; ask_this: string[] }; processedAt: number }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
       ipcRenderer.on('live-assist:update', listener);
       return () => ipcRenderer.removeListener('live-assist:update', listener);
@@ -341,8 +341,10 @@ const api: IpcApi = {
     checkMicPermission: () => ipcRenderer.invoke('check-mic-permission'),
     checkScreenPermission: () => ipcRenderer.invoke('check-screen-permission'),
     checkAccessibilityPermission: () => ipcRenderer.invoke('check-accessibility-permission'),
+    checkNotificationPermission: () => ipcRenderer.invoke('check-notification-permission'),
     requestMicPermission: () => ipcRenderer.invoke('request-mic-permission'),
     requestScreenPermission: () => ipcRenderer.invoke('request-screen-permission'),
+    requestNotificationPermission: () => ipcRenderer.invoke('request-notification-permission'),
     openSystemSettings: (pane: string) => ipcRenderer.invoke('open-system-settings', pane),
     getStatus: (): Promise<PermissionStatus> => ipcRenderer.invoke('get-permission-status'),
   },

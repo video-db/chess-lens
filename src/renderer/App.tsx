@@ -19,6 +19,7 @@ import {
 } from './components/copilot';
 import { useCopilotStore } from './stores/copilot.store';
 import { useMeetingSetupStore } from './stores/meeting-setup.store';
+import { useSessionLifecycle, resetAllSessionStores } from './hooks/useSessionLifecycle';
 import { MCPServersPanel } from './components/settings/MCPServersPanel';
 import { CalendarPanel } from './components/settings/CalendarPanel';
 import { WorkflowsPanel } from './components/settings/WorkflowsPanel';
@@ -94,9 +95,58 @@ function PermissionToggle({ enabled, onClick }: { enabled: boolean; onClick?: ()
 }
 
 
+// Notification icon for permissions
+function NotificationIcon({ color = "#969696" }: { color?: string }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M10 2.5C7.5 2.5 5.5 4.5 5.5 7v3.5l-1.25 1.25c-.417.417-.125 1.125.458 1.125h10.584c.583 0 .875-.708.458-1.125L14.5 10.5V7c0-2.5-2-4.5-4.5-4.5z"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8.5 15.833a1.667 1.667 0 003.333 0"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function PermissionsView({ onContinue }: { onContinue: () => void }) {
   const { status, requestMicPermission, openSettings, checkPermissions } = usePermissions();
   const configStore = useConfigStore();
+  const [notificationsEnabled, setNotificationsEnabled] = React.useState(false);
+
+  // Check notification permission on mount
+  React.useEffect(() => {
+    const checkNotifications = async () => {
+      try {
+        const enabled = await window.electronAPI.permissions.checkNotificationPermission();
+        setNotificationsEnabled(enabled);
+      } catch {
+        // Ignore errors
+      }
+    };
+    checkNotifications();
+  }, []);
+
+  const handleToggleNotifications = async () => {
+    await window.electronAPI.permissions.openSystemSettings('notifications');
+    // Re-check permission after a delay
+    setTimeout(async () => {
+      try {
+        const enabled = await window.electronAPI.permissions.checkNotificationPermission();
+        setNotificationsEnabled(enabled);
+      } catch {
+        // Ignore errors
+      }
+    }, 1000);
+  };
 
   const allGranted = status.microphone && status.screen;
 
@@ -244,12 +294,33 @@ function PermissionsView({ onContinue }: { onContinue: () => void }) {
             </div>
           </div>
 
-          {/* Notifications tip */}
-          <div className="flex items-start gap-[10px] px-[14px] py-[12px] bg-[#f8f8fa] rounded-[12px] border border-[#efefef]">
-            <p className="text-[13px] text-[#666666] leading-[18px]">
-              <span className="font-medium">Tip:</span> Enable notifications for Notter in{' '}
-              <span className="font-medium">System Settings → Notifications</span> to get alerts before your meetings start.
-            </p>
+          {/* App notifications permission */}
+          <div
+            className={`flex gap-[14px] items-center px-[17px] py-[15px] rounded-[16px] border ${
+              notificationsEnabled
+                ? 'bg-[#fff5ec] border-[#ffe9d3]'
+                : 'bg-white border-[#efefef]'
+            }`}
+          >
+            <div
+              className={`size-[36px] rounded-[10px] flex items-center justify-center border ${
+                notificationsEnabled
+                  ? 'bg-[rgba(236,91,22,0.1)] border-[rgba(236,91,22,0.3)]'
+                  : 'bg-white border-[#ededf3]'
+              }`}
+            >
+              <NotificationIcon color={notificationsEnabled ? '#EC5B16' : '#969696'} />
+            </div>
+            <div className="flex-1 flex flex-col gap-[3px]">
+              <p className="text-[16px] font-medium text-[#141420] leading-[20px]">App notifications</p>
+              <p className="text-[13px] font-normal text-[#969696] leading-[18px]">
+                Get alerts before your meetings start.
+              </p>
+            </div>
+            <PermissionToggle
+              enabled={notificationsEnabled}
+              onClick={handleToggleNotifications}
+            />
           </div>
 
           {/* Buttons */}
@@ -279,10 +350,27 @@ function RecordingView({ onBack }: RecordingViewProps) {
   const { isCallActive, callSummary, nudgeHistory } = useCopilotStore();
   const { status } = useSession();
   const meetingSetupStore = useMeetingSetupStore();
+  const { prepareNewSession } = useSessionLifecycle();
 
   const isRecording = status === 'recording';
   const isProcessing = status === 'processing' || status === 'stopping';
   const isIdle = status === 'idle';
+
+  console.log('[RecordingView] status:', status, 'isIdle:', isIdle, 'callSummary:', !!callSummary);
+
+  // Handle navigation when session becomes idle and call summary is ready
+  // Only trigger if we were previously recording (not on initial mount edge case)
+  const wasRecordingRef = React.useRef(false);
+  React.useEffect(() => {
+    if (isRecording) {
+      wasRecordingRef.current = true;
+    }
+    // Navigate to detail page when call summary is ready (after recording ended)
+    if (callSummary && wasRecordingRef.current) {
+      console.log('[RecordingView] Call summary ready, navigating to recording detail page');
+      onBack?.();
+    }
+  }, [callSummary, isRecording, onBack]);
 
   // Get checklist from meeting setup
   const { checklist } = meetingSetupStore;
@@ -299,16 +387,14 @@ function RecordingView({ onBack }: RecordingViewProps) {
 
   useCopilot();
 
-  // Reset meeting setup when starting a new call
+  // Reset all session state when starting a new call
   const handleStartNewCall = () => {
-    useCopilotStore.getState().reset();
-    meetingSetupStore.reset();
+    prepareNewSession();
   };
 
-  // Go back to home
+  // Go back to home - clear all session state
   const handleGoBack = () => {
-    useCopilotStore.getState().reset();
-    meetingSetupStore.reset();
+    prepareNewSession();
     onBack?.();
   };
 
@@ -366,9 +452,9 @@ function RecordingView({ onBack }: RecordingViewProps) {
     );
   }
 
-  // If idle, go back to home (user shouldn't see RecordingView when idle)
-  if (isIdle) {
-    onBack?.();
+  // If idle with no summary, the useEffect above handles navigation
+  // Return null to prevent flash of recording UI
+  if (isIdle && !callSummary) {
     return null;
   }
 
@@ -380,23 +466,23 @@ function RecordingView({ onBack }: RecordingViewProps) {
 
       {/* Main Container */}
       <div className="flex-1 bg-white border border-[#efefef] rounded-t-[20px] mx-[10px] p-[20px] flex gap-[30px] overflow-hidden">
-        {/* Left Column - Transcript Section */}
+        {/* Left Column - Live Assist Panel */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <TranscriptionPanel />
+          <LiveAssistPanel />
         </div>
 
-        {/* Right Column - Metrics, Agenda, Live Assist */}
-        <div className="w-[460px] shrink-0 flex flex-col gap-[30px] h-full">
+        {/* Right Column - Metrics, Agenda, Transcript */}
+        <div className="w-[460px] shrink-0 flex flex-col gap-[13px] h-full">
           {/* Metrics Bar */}
           <MetricsBar />
 
           {/* Right Panel with scrollable content */}
-          <div className="flex-1 bg-[#f7f7f7] border border-[#efefef] rounded-[16px] p-[12px] flex flex-col gap-[16px] overflow-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="flex-1 bg-[#f7f7f7] border border-[#efefef] rounded-[16px] p-[12px] flex flex-col gap-[16px] overflow-hidden min-h-0">
             {/* Meeting Agenda - only show if checklist exists */}
             {hasChecklist && <MeetingAgendaPanel checklist={checklist} />}
 
-            {/* Live Assist Panel */}
-            <LiveAssistPanel />
+            {/* Meeting Transcript */}
+            <TranscriptionPanel />
           </div>
         </div>
       </div>
@@ -404,11 +490,24 @@ function RecordingView({ onBack }: RecordingViewProps) {
   );
 }
 
-function SettingsView() {
+interface SettingsViewProps {
+  initialTab?: 'account' | 'calendar' | 'mcpServers' | 'workflows' | null;
+  onClearInitialTab?: () => void;
+}
+
+function SettingsView({ initialTab, onClearInitialTab }: SettingsViewProps) {
   const [activeSettingsTab, setActiveSettingsTab] = useState<
     'account' | 'calendar' | 'mcpServers' | 'workflows'
-  >('account');
+  >(initialTab || 'account');
   const configStore = useConfigStore();
+
+  // Apply initial tab when it changes
+  React.useEffect(() => {
+    if (initialTab) {
+      setActiveSettingsTab(initialTab);
+      onClearInitialTab?.();
+    }
+  }, [initialTab, onClearInitialTab]);
 
   const settingsTabs = [
     { id: 'account' as const, label: 'Account' },
@@ -499,12 +598,17 @@ export function App() {
     currentMeeting?: { id: string; summary: string };
     nextMeeting: { id: string; summary: string; description?: string };
   } | null>(null);
+  // Recording ID to navigate to after recording ends
+  const [pendingRecordingNavigation, setPendingRecordingNavigation] = useState<number | null>(null);
+  // Settings tab to show when navigating to settings
+  const [initialSettingsTab, setInitialSettingsTab] = useState<'account' | 'calendar' | 'mcpServers' | 'workflows' | null>(null);
 
   const configStore = useConfigStore();
   const sessionStore = useSessionStore();
   const meetingSetupStore = useMeetingSetupStore();
   const { status: sessionStatus, startRecording, stopRecording } = useSession();
   const { allGranted, loading: permissionsLoading, checkPermissions } = usePermissions();
+  const { prepareNewSession, prepareNewSessionWithInfo, waitForIdle } = useSessionLifecycle();
 
   // Global listener for recorder events - persists during navigation
   useGlobalRecorderEvents();
@@ -517,9 +621,8 @@ export function App() {
 
     // Handle "open meeting setup" from notification/tray click
     const unsubOpenSetup = window.electronAPI.calendarOn.onOpenMeetingSetup((meeting) => {
-      // Pre-fill the meeting setup store with meeting data
-      meetingSetupStore.reset();
-      meetingSetupStore.setInfo(meeting.summary, meeting.description || '');
+      // Clear all stale state and pre-fill meeting info
+      prepareNewSessionWithInfo(meeting.summary, meeting.description || '');
 
       // Switch to home tab and show meeting setup
       setActiveTab('home');
@@ -528,9 +631,8 @@ export function App() {
 
     // Handle "auto-start recording" from notification or default_record behavior
     const unsubAutoStart = window.electronAPI.calendarOn.onAutoStartRecording(async (meeting) => {
-      // Skip UX entirely - start recording with meeting name
-      meetingSetupStore.reset();
-      meetingSetupStore.setInfo(meeting.summary, meeting.description || '');
+      // Clear ALL stale state (including old call summaries) before starting new recording
+      prepareNewSessionWithInfo(meeting.summary, meeting.description || '');
 
       // Ensure we're on home tab
       setActiveTab('home');
@@ -568,7 +670,7 @@ export function App() {
       unsubAutoStart();
       unsubOverlap();
     };
-  }, [isAuthenticated, meetingSetupStore, startRecording]);
+  }, [isAuthenticated, startRecording, prepareNewSessionWithInfo]);
 
   // Handle pending overlap action (stop current, start next)
   React.useEffect(() => {
@@ -583,8 +685,11 @@ export function App() {
       // Clear the current recording meeting
       await window.electronAPI.calendar.setRecordingMeeting(null);
 
-      // Wait a moment for recording to fully stop
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for session to properly reach idle state (no arbitrary timeout)
+      await waitForIdle();
+
+      // Clear all stale state before starting next meeting
+      prepareNewSessionWithInfo(nextMeeting.summary, nextMeeting.description || '');
 
       // Notify main process about new meeting we're recording
       await window.electronAPI.calendar.setRecordingMeeting(nextMeeting.id);
@@ -603,7 +708,7 @@ export function App() {
     if (pendingOverlap) {
       handleOverlap();
     }
-  }, [pendingOverlap, stopRecording, startRecording]);
+  }, [pendingOverlap, stopRecording, startRecording, waitForIdle, prepareNewSessionWithInfo]);
 
   // Clear recording meeting when session becomes idle
   React.useEffect(() => {
@@ -623,6 +728,10 @@ export function App() {
   // Check if actively recording or processing
   const isActivelyRecording = sessionStatus === 'recording' || sessionStatus === 'processing' || sessionStatus === 'stopping' || sessionStatus === 'starting';
 
+  // Track if we're waiting for call summary after recording ended
+  const copilotCallActive = useCopilotStore((state) => state.isCallActive);
+  const awaitingCallSummary = sessionStatus === 'idle' && copilotCallActive;
+
   React.useEffect(() => {
     if (isActivelyRecording && showMeetingSetup) {
       setShowMeetingSetup(false);
@@ -631,16 +740,29 @@ export function App() {
 
   // Handle start recording button from HomeView - show MeetingSetupFlow
   const handleStartRecording = () => {
+    prepareNewSession();  // Clear any stale state from previous sessions
     setShowMeetingSetup(true);
   };
 
-  // Handle returning from recording/setup mode
+  // Handle returning from recording/setup mode - navigate to history (detail page if we have a recording ID)
   const handleExitRecordingMode = () => {
     setShowMeetingSetup(false);
-    sessionStore.reset();
+
+    // Capture recording ID before clearing state (may be null if something went wrong)
+    const recordingId = sessionStore.recordingId;
+    if (recordingId) {
+      setPendingRecordingNavigation(recordingId);
+    }
+
+    // Always navigate to history - shows detail if we have ID, otherwise shows list
+    setActiveTab('history');
+
+    prepareNewSession();
   };
 
   const renderContent = () => {
+    console.log('[App.renderContent] sessionStatus:', sessionStatus, 'isActivelyRecording:', isActivelyRecording, 'awaitingCallSummary:', awaitingCallSummary, 'activeTab:', activeTab);
+
     // Step 0: Auth
     if (!isAuthenticated) {
       return <AuthView />;
@@ -693,8 +815,8 @@ export function App() {
       );
     }
 
-    // If actively recording, show RecordingView
-    if (isActivelyRecording && activeTab === 'home') {
+    // If actively recording OR waiting for call summary, show RecordingView
+    if ((isActivelyRecording || awaitingCallSummary) && activeTab === 'home') {
       return <RecordingView onBack={handleExitRecordingMode} />;
     }
 
@@ -716,13 +838,26 @@ export function App() {
           <HomeView
             onStartRecording={handleStartRecording}
             onNavigateToHistory={() => setActiveTab('history')}
-            onNavigateToSettings={() => setActiveTab('settings')}
+            onNavigateToSettings={(tab) => {
+              if (tab) setInitialSettingsTab(tab);
+              setActiveTab('settings');
+            }}
           />
         );
       case 'history':
-        return <HistoryView />;
+        return (
+          <HistoryView
+            initialSelectedRecordingId={pendingRecordingNavigation}
+            onClearInitialSelection={() => setPendingRecordingNavigation(null)}
+          />
+        );
       case 'settings':
-        return <SettingsView />;
+        return (
+          <SettingsView
+            initialTab={initialSettingsTab}
+            onClearInitialTab={() => setInitialSettingsTab(null)}
+          />
+        );
     }
   };
 
