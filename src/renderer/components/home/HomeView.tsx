@@ -650,7 +650,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
         <div className="flex flex-col gap-[30px] w-full">
           {/* Dashboard Header with Start Recording button */}
           <div className="flex items-center justify-between">
-            <h1 className="text-[22px] font-semibold text-black tracking-[0.11px]">
+            <h1 className="text-[28px] font-semibold text-black tracking-tight">
               Dashboard
             </h1>
             <button
