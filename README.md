@@ -11,23 +11,23 @@
 <!-- PROJECT LOGO -->
 <br />
 <p align="center">
-  <a href="https://github.com/video-db/call-md">
+  <a href="https://github.com/video-db/call.md">
     <img src="resources/wordmark-color-black-bg.png" alt="Call.md Logo" width="300" height="">
   </a>
 
   <h1 align="center">Call.md</h1>
 
   <p align="center">
-    Real-time AI meeting assistant with live transcription, sentiment analysis, cue cards, and post-meeting summaries — powered by <a href="https://videodb.io">VideoDB</a>.
+    Turn meetings into live agent loops. Record, transcribe, and analyze meetings with real-time AI intelligence — before, during, and after calls.
     <br />
     <a href="https://docs.videodb.io"><strong>Explore the docs »</strong></a>
     <br />
     <br />
     <a href="#demo">View Demo</a>
     ·
-    <a href="#download">Download</a>
+    <a href="#quick-install">Install</a>
     ·
-    <a href="https://github.com/video-db/sales-copilot/issues">Report Bug</a>
+    <a href="https://github.com/video-db/call.md/issues">Report Bug</a>
   </p>
 </p>
 
@@ -35,106 +35,120 @@
 
 ## Demo
 
-https://github.com/user-attachments/assets/e3cd2dcc-d9ab-4f5f-8904-52c56133ed2d
 
-## Download
+https://github.com/user-attachments/assets/94470e99-c0f6-4e35-9d03-b28efa362b3b
 
-- **Apple Silicon**: [sales-copilot-1.0.0-arm64.dmg](https://artifacts.videodb.io/sales-copilot/sales-copilot-1.0.0-arm64.dmg)
-- **Apple Intel**: [sales-copilot-1.0.0.dmg](https://artifacts.videodb.io/sales-copilot/sales-copilot-1.0.0.dmg)
+
+
+## Quick Install
+
+**macOS** (Apple Silicon & Intel):
+```bash
+curl -fsSL https://artifacts.videodb.io/call.md/install | bash
+```
 
 <p>
   <em>Currently available for macOS — Windows and Linux support coming soon</em>
 </p>
 
----
-
-## Installation (Pre-built App)
-
-If you downloaded the pre-built app from the links above:
-
-1. **Mount the DMG** and drag Call.md to your Applications folder
-
-2. **Remove quarantine attributes** to allow the app to run:
-   ```bash
-   xattr -cr /Applications/Meeting\ Copilot.app
-   ```
-
-3. **Launch the app** from Applications or Spotlight
-
-4. **Grant system permissions** when prompted (Microphone and Screen Recording are required)
+After installation:
+1. Launch Call.md from Applications or Spotlight
+2. Grant system permissions when prompted (Microphone and Screen Recording required)
+3. Register with your VideoDB API key ([get one free](https://console.videodb.io))
 
 ---
 
 ## Overview
 
-Call.md records your meetings and provides real-time insights while you talk. It captures screen, microphone, and system audio through VideoDB's capture SDK, runs dual-channel transcription (your mic vs. other participants' system audio), and feeds the conversation into a parallel analysis pipeline that produces sentiment scores, cue cards, nudges, talk ratio monitoring, and playbook tracking — all updated live during the meeting. When the meeting ends, it generates a structured summary with action items, objections, and risk assessment.
+Call.md turns meetings into live agent loops. It records locally, transcribes in real-time (you vs them), and provides live intelligence during calls. When the meeting ends, it generates summaries with action items and can send data to your workflow automation platforms.
 
 ## Features
 
-### Recording & Transcription
+### During the Meeting (Live Intelligence)
+- **Dual-Channel Transcription** - Separate transcription for you (mic) vs them (system audio), powered by VideoDB
+- **Live Assist** - AI generates contextual suggestions: things to say, questions to ask
+- **Conversation Metrics** - Real-time monitoring of talk ratio, speaking pace (WPM), questions asked, monologue detection
+- **Coaching Nudges** - Gentle rate-limited alerts when conversation needs steering
+- **MCP Auto-Triggering** - Detects information needs from conversation and calls your MCP tools automatically
+- **MCP Results Panel** - Inline display of tool outputs (markdown, links, structured data) during meetings
+- **Bookmarking** - Mark important moments for easy reference later
+
+### Post-Meeting Intelligence
+- **AI-Generated Summaries** - Three parallel extractions:
+  - Short overview (narrative summary)
+  - Key points by topic (attributed to participants)
+  - Action items (concrete next steps)
+- **Structured Export** - Markdown export with full transcript, summary, and metrics
+- **Workflow Webhooks** - Auto-send meeting data to n8n, Zapier, or CRMs when meeting ends
+
+### Meeting Preparation
+- **Meeting Setup Wizard** - AI-generated probing questions based on meeting description
+- **Dynamic Checklist** - AI creates discussion checklist from meeting context
+- **Google Calendar Integration** - Sync upcoming meetings
+
+### Privacy & Storage
+- **Local-First** - SQLite database, all data stored on your machine
 - **Screen & Audio Recording** - Capture screen, microphone, and system audio simultaneously
-- **Real-time Transcription** - Live speech-to-text powered by VideoDB
 - **Recording History** - Browse and review past recordings with full transcripts
+- **VideoDB Integration** - Transcription and AI features require internet connectivity
 
-### AI Assistant
-- **Cue Cards** - Context-aware prompts and talking points based on conversation
-- **Sentiment Analysis** - Track participant sentiment throughout the meeting
-- **Conversation Metrics** - Monitor talk ratio, speaking pace, questions asked, and more
-- **Playbook Tracking** - Ensure you cover all discussion items with progress tracking
-- **Nudges** - Timely reminders based on conversation context (e.g., "You haven't covered budget")
-- **Meeting Summary** - AI-generated summary with key points, action items, objections, and risks
-- **Bookmarking** - Mark important moments during meetings for easy reference
-- **MCP Agent Support** - Connect MCP servers and let the app auto-trigger tool calls from conversation context
-- **MCP Result Cards** - Inline tool outputs (including links) shown live during meetings
+## How It Works
 
-### Technical
-- **Modern UI** - Built with React, Tailwind CSS, and shadcn/ui
-- **Type-safe API** - End-to-end type safety with tRPC
-- **Local Database** - SQLite with Drizzle ORM for offline-first storage
-- **Secure Webhooks** - Cloudflare tunnel for receiving real-time transcription events
+**During Recording:**
+- Captures dual-channel audio (you vs them) and sends to VideoDB for real-time transcription via WebSocket
+- Runs live intelligence: metrics tracking, coaching nudges, and AI-generated assists
+- MCP agent automatically detects information needs and triggers relevant tools
 
-## Architecture
-
-![Call.md Architecture](assets/sales-copilot-architecture.png)
-
-## How the Copilot Works
-
-The copilot pipeline processes conversation in real-time through several parallel analyzers:
-
-- **Dual-channel transcription** — Mic is labeled as "you", system audio as other participants. This separation powers all downstream analysis.
-- **Sentiment analysis** — Tracks participant sentiment using pattern-based detection and optional LLM analysis. Sentiment is scored per transcript segment and trended over time.
-- **Talk ratio monitoring** — Calculates the balance between your speaking time and others. Alerts when ratio drifts outside the ideal 40-60% range.
-- **Cue card engine** — Detects objection types (pricing, competition, timing, authority) from participant speech and surfaces matching response suggestions in real-time.
-- **Nudge engine** — Generates contextual alerts: monologue warnings when you've been talking too long, sentiment dip alerts when participant tone drops, and ratio alerts when conversation is one-sided.
-- **Playbook tracker** — Tracks which discussion items from your playbook have been covered, showing completion percentage and highlighting gaps.
-- **Post-meeting summary** — When the meeting ends, runs parallel extraction of action items, objections raised, competitive mentions, risks identified, and next steps.
+**After Recording:**
+- Generates three-part summary: narrative overview, key points, and action items
+- Sends meeting data to workflow automation platforms (n8n, Zapier, CRMs)
+- Exports to markdown with full transcript and intelligence
 
 ## Tech Stack
 
-- **Electron 34** - Desktop application shell
-- **TypeScript 5.8** - Full type coverage
-- **React 19** - Modern UI framework
-- **Tailwind CSS** - Utility-first styling with Geist font
-- **shadcn/ui** - High-quality component primitives
-- **tRPC 11** - Type-safe API layer
-- **Hono** - Fast HTTP server for webhooks
-- **Drizzle ORM** - Type-safe database operations
+- **Electron 34** - Desktop application framework
+- **TypeScript 5.8** - Full type safety across main and renderer processes
+- **React 19** - Modern UI framework with concurrent features
+- **Tailwind CSS + shadcn/ui** - Utility-first styling with high-quality component primitives
+- **tRPC 11** - End-to-end type-safe API layer between main and renderer
+- **Hono** - Fast HTTP server for tRPC API endpoints
+- **Drizzle ORM + SQLite** - Type-safe database operations with local storage
 - **Zustand** - Lightweight state management
-- **Vite** - Fast frontend bundling
-- **VideoDB SDK** - Screen recording and transcription (includes OpenAI-compatible API for LLM calls)
+- **VideoDB SDK** (0.2.4) - Screen recording, transcription, and video processing
+- **MCP SDK** (1.0.0) - Model Context Protocol for tool integrations
+- **OpenAI SDK** (6.19.0) - LLM calls via VideoDB's OpenAI-compatible API
+- **Vite** - Fast frontend bundling and hot module replacement
 
 ## Prerequisites
 
-- **Operating System**: macOS 12+ (for screen recording features)
-- **Node.js**: 18 or higher
-- **npm**: 10 or higher
-- **VideoDB API Key**: Sign up at [console.videodb.io](https://console.videodb.io)
+- macOS 12+ (Monterey or later)
+- VideoDB API Key ([console.videodb.io](https://console.videodb.io))
+- System permissions: Microphone and Screen Recording
 
-## Getting Started
+For development: Node.js 18+ and npm 10+
+
+## Getting Started (Users)
+
+1. **Install:**
+   ```bash
+   curl -fsSL https://artifacts.videodb.io/call.md/install | bash
+   ```
+
+2. **Launch** the app and enter your VideoDB API key ([get one free](https://console.videodb.io))
+
+3. **Grant permissions** when prompted (Microphone and Screen Recording)
+
+4. **Start Recording** - Click "New Meeting" and begin your first session
+
+The app will transcribe in real-time, show live assists, and generate a summary when you're done.
+
+---
+
+## Getting Started (Developers)
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/video-db/call-md.git
+   git clone https://github.com/video-db/call.md.git
    cd call-md
    ```
 
@@ -155,48 +169,30 @@ The copilot pipeline processes conversation in real-time through several paralle
 
 5. **Register with your VideoDB API key** when the app opens
 
-## MCP Server Setup
-
-### Where to Configure
-
-Open **Settings → MCP Servers** in the app.
-
-### How to Add a Server
-
-1. Click **Add Server**
-2. Choose transport:
-   - **stdio** (local command-based MCP server)
-   - **http** (remote MCP endpoint)
-3. Fill required fields (command/args/env or URL/headers)
-4. Save and click **Connect**
-
-### Triggering Behavior
-
-- MCP agent runs automatically during active meetings when trigger keywords are detected in transcript context.
-- You can customize trigger keywords from the MCP settings panel.
-- Tool outputs appear in the **MCP Results** panel during the call.
-
-### Capabilities
-
-- Multiple MCP server connections
-- Aggregated tool discovery across connected servers
-- Auto-triggered tool execution from call context
-- Live MCP result rendering (cards, markdown, links, structured fields)
-- Result actions like pin/dismiss while in-meeting
-
-## Development
-
 ### Available Scripts
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start development mode (main + renderer) |
-| `npm run build` | Build for production |
+| `npm run dev` | Start development mode (main + renderer with hot reload) |
+| `npm run build` | Build TypeScript and React for production |
+| `npm run dist:mac` | Build macOS distributable DMG |
 | `npm run typecheck` | Run TypeScript type checking |
 | `npm run lint` | Run ESLint |
 | `npm run rebuild` | Rebuild native modules for Electron |
 | `npm run db:generate` | Generate database migration files |
 | `npm run db:migrate` | Apply database migrations |
+
+## MCP Server Setup
+
+Connect MCP servers in **Settings → MCP Servers**:
+
+1. Click **Add Server**
+2. Choose transport: **stdio** (local) or **http** (remote)
+3. Configure and click **Connect**
+
+The MCP agent runs automatically during meetings, detects information needs from conversation, and triggers relevant tools. Results appear inline in the **MCP Results** panel.
+
+## Development
 
 ### Project Structure
 
@@ -207,33 +203,39 @@ src/
 │   ├── ipc/                # IPC handlers
 │   ├── lib/                # Utilities (logger, paths, permissions)
 │   ├── server/             # HTTP server (Hono + tRPC)
-│   │   ├── routes/         # Webhook routes
 │   │   └── trpc/           # tRPC router and procedures
 │   └── services/           # Business logic
-│       ├── copilot/        # AI copilot services
+│       ├── copilot/        # Meeting intelligence services
 │       │   ├── context-manager.service.ts
 │       │   ├── conversation-metrics.service.ts
-│       │   ├── cue-card-engine.service.ts
 │       │   ├── nudge-engine.service.ts
-│       │   ├── playbook-tracker.service.ts
-│       │   ├── sales-copilot.service.ts
-│       │   ├── sentiment-analyzer.service.ts
+│       │   ├── sales-copilot.service.ts  # Core orchestrator
 │       │   ├── summary-generator.service.ts
 │       │   └── transcript-buffer.service.ts
-│       ├── mcp/            # MCP orchestration and tool execution services
+│       ├── mcp/            # MCP orchestration and tool execution
+│       │   ├── connection-orchestrator.service.ts
+│       │   ├── intent-detector.service.ts
+│       │   ├── mcp-agent.service.ts
+│       │   ├── tool-aggregator.service.ts
+│       │   └── result-handler.service.ts
+│       ├── live-assist.service.ts
+│       ├── mcp-inference.service.ts
 │       ├── llm.service.ts
-│       ├── tunnel.service.ts
 │       └── videodb.service.ts
 ├── preload/                # Preload scripts (IPC bridge)
 ├── renderer/               # React Frontend
 │   ├── api/                # tRPC client
 │   ├── components/         # UI components
 │   │   ├── auth/           # Authentication modal
-│   │   ├── copilot/        # Copilot UI components
+│   │   ├── calendar/       # Calendar integration UI
+│   │   ├── copilot/        # Meeting intelligence UI
 │   │   ├── history/        # Recording history views
+│   │   ├── home/           # Home screen
+│   │   ├── icons/          # Icon components
 │   │   ├── layout/         # App layout (sidebar, titlebar)
 │   │   ├── mcp/            # MCP results/status components
-│   │   ├── recording/      # Recording controls
+│   │   ├── meeting-setup/  # Meeting prep wizard
+│   │   ├── recording/      # Recording controls & live assist
 │   │   ├── settings/       # Settings editors
 │   │   ├── transcription/  # Live transcription panel
 │   │   └── ui/             # shadcn/ui components
@@ -262,31 +264,19 @@ Grant these in **System Preferences > Privacy & Security**.
 
 ## Troubleshooting
 
-### Recording not starting
-- Verify VideoDB API key is registered (enter via registration modal on first launch)
+**Recording not starting:**
 - Check microphone and screen recording permissions in System Settings
-- Try `npm run rebuild` to rebuild native modules
+- Verify VideoDB API key is valid
 
-### Transcription not appearing
-- Ensure both mic and system audio are enabled in recording settings
-- Check that the Cloudflare tunnel is active (shown in recording status)
-- Wait 5-10 seconds for first transcripts to appear
-
-### Copilot features not updating
-- Verify that transcription is working first
-- Check that at least 2-3 transcript segments exist
-- Some features (cue cards, nudges) require specific conversation patterns
-
-### Build/Installation issues
-- Delete `node_modules` and reinstall: `rm -rf node_modules && npm install`
-- Rebuild native modules: `npm run rebuild`
-- Check Node.js version: `node --version` (requires 18+)
-- Review logs in `~/Library/Application Support/call-md/logs/`
-
-### Webhook delivery fails
-- Cloudflare tunnel auto-creates on recording start
+**Transcription not appearing:**
+- Ensure mic and system audio are enabled in settings
+- Wait 5-10 seconds for first transcripts
 - Check internet connectivity
-- Restart the recording to reinitialize tunnel
+
+**Development issues:**
+- Rebuild native modules: `npm run rebuild`
+- Check Node.js version (requires 18+)
+- Review logs: `~/Library/Application Support/call-md/logs/`
 
 ## Data Storage
 
@@ -301,10 +291,10 @@ Application data is stored in:
 
 ## Community & Support
 
-- **Docs**: [docs.videodb.io](https://docs.videodb.io)
-- **Issues**: [GitHub Issues](https://github.com/video-db/sales-copilot/issues)
-- **Discord**: [Join community](https://discord.gg/py9P639jGz)
-- **Console**: [Get API key](https://console.videodb.io)
+- **Documentation:** [docs.videodb.io](https://docs.videodb.io)
+- **Issues:** [GitHub Issues](https://github.com/video-db/call.md/issues)
+- **Discord:** [Join community](https://discord.gg/py9P639jGz)
+- **API Key:** [VideoDB Console](https://console.videodb.io)
 
 ---
 
@@ -323,9 +313,9 @@ Application data is stored in:
 [typescript-url]: https://www.typescriptlang.org/
 [license-shield]: https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge
 [license-url]: https://opensource.org/licenses/MIT
-[stars-shield]: https://img.shields.io/github/stars/video-db/sales-copilot.svg?style=for-the-badge
-[stars-url]: https://github.com/video-db/sales-copilot/stargazers
-[issues-shield]: https://img.shields.io/github/issues/video-db/sales-copilot.svg?style=for-the-badge
-[issues-url]: https://github.com/video-db/sales-copilot/issues
+[stars-shield]: https://img.shields.io/github/stars/video-db/call.md.svg?style=for-the-badge
+[stars-url]: https://github.com/video-db/call.md/stargazers
+[issues-shield]: https://img.shields.io/github/issues/video-db/call.md.svg?style=for-the-badge
+[issues-url]: https://github.com/video-db/call.md/issues
 [website-shield]: https://img.shields.io/website?url=https%3A%2F%2Fvideodb.io%2F&style=for-the-badge&label=videodb.io
 [website-url]: https://videodb.io/
