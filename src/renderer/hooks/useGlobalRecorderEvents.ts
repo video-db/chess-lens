@@ -100,6 +100,25 @@ export function useGlobalRecorderEvents() {
               rtstreamId: visualData.rtstreamId,
               rtstreamName: visualData.rtstreamName,
             });
+
+            // Save to database for durable storage
+            const currentSession = useSessionStore.getState();
+            const currentApi = getElectronAPI();
+            if (currentSession.recordingId && currentSession.sessionId && currentApi) {
+              // Convert epoch ms timestamps to seconds from call start
+              const callStartSec = currentSession.startTime ? currentSession.startTime / 1000 : visualData.start;
+              currentApi.visualIndex.saveItem({
+                recordingId: currentSession.recordingId,
+                sessionId: currentSession.sessionId,
+                text: visualData.text,
+                startTime: Math.max(0, visualData.start - callStartSec),
+                endTime: Math.max(0, visualData.end - callStartSec),
+                rtstreamId: visualData.rtstreamId,
+                rtstreamName: visualData.rtstreamName,
+              }).catch((err: Error) => {
+                console.warn('[GlobalRecorderEvents] Error saving visual index item:', err);
+              });
+            }
           }
           break;
 

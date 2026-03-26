@@ -7,6 +7,7 @@ import { setupMCPHandlers, removeMCPHandlers, setMCPMainWindow } from './mcp';
 import { setupCalendarHandlers, removeCalendarHandlers, setCalendarMainWindow } from './calendar';
 import { setupLiveAssistHandlers, setLiveAssistWindow, cleanupLiveAssist } from './live-assist';
 import { setupWorkflowHandlers, removeWorkflowHandlers, setWorkflowsMainWindow } from './workflows';
+import { setupVisualIndexIPC } from './visual-index';
 import { createChildLogger } from '../lib/logger';
 
 const logger = createChildLogger('ipc');
@@ -22,6 +23,7 @@ export function setupIpcHandlers(): void {
   setupCalendarHandlers();
   setupLiveAssistHandlers();
   setupWorkflowHandlers();
+  setupVisualIndexIPC();
 
   logger.info('IPC handlers registered');
 }

@@ -3,6 +3,8 @@ import { loadAppConfig, loadRuntimeConfig, clearAppConfig } from '../lib/config'
 import { VideoDBService } from '../services/videodb.service';
 import { getServerStatus } from '../server';
 import { createChildLogger } from '../lib/logger';
+import os from 'os';
+import path from 'path';
 
 const logger = createChildLogger('ipc-app');
 
@@ -41,6 +43,25 @@ export function setupAppHandlers(): void {
   ipcMain.handle('open-external-link', async (_event, url: string): Promise<void> => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
       await shell.openExternal(url);
+    }
+  });
+
+  ipcMain.handle('open-call-md-folder', async (_event, folderPath: string): Promise<void> => {
+    // Expand ~ to home directory
+    const expandedPath = folderPath.replace(/^~/, os.homedir());
+    const absolutePath = path.resolve(expandedPath);
+
+    // Security check: only allow paths under ~/.call_md
+    const callMdRoot = path.join(os.homedir(), '.call_md');
+    if (!absolutePath.startsWith(callMdRoot)) {
+      logger.warn({ path: absolutePath }, 'Attempted to open folder outside .call_md');
+      return;
+    }
+
+    try {
+      await shell.openPath(absolutePath);
+    } catch (error) {
+      logger.error({ error, path: absolutePath }, 'Failed to open call_md folder');
     }
   });
 

@@ -14,6 +14,7 @@ import {
   getRecordingById,
   createCallMetricsSnapshot,
   createNudge,
+  getTranscriptSegmentsByRecording,
 } from '../../db';
 
 import {
@@ -624,7 +625,7 @@ export class MeetingCopilotService extends EventEmitter {
     summary: PostMeetingSummary,
     metrics: ConversationMetrics,
     duration: number,
-    segments: TranscriptSegmentData[],
+    _segments: TranscriptSegmentData[],
     meetingContext: { meetingName?: string; meetingDescription?: string }
   ): Promise<void> {
     const recording = getRecordingById(recordingId);
@@ -633,11 +634,15 @@ export class MeetingCopilotService extends EventEmitter {
       return;
     }
 
-    const transcript = segments.map((seg) => ({
+    // Fetch FULL transcript from database (not limited in-memory buffer)
+    const dbSegments = getTranscriptSegmentsByRecording(recordingId);
+    const transcript = dbSegments.map((seg) => ({
       speaker: seg.channel as 'me' | 'them',
       text: seg.text,
       startTime: seg.startTime,
     }));
+
+    log.info({ recordingId, segmentCount: dbSegments.length }, 'Fetched full transcript from DB for export');
 
     const filePath = await exportMeetingToMarkdown({
       recordingId,

@@ -290,4 +290,45 @@ export const visualIndexRouter = router({
       activeSceneIndexes.delete(input.sessionId);
       return { success: true };
     }),
+
+  /**
+   * Save a visual index item to the database.
+   */
+  saveItem: protectedProcedure
+    .input(z.object({
+      recordingId: z.number(),
+      sessionId: z.string(),
+      text: z.string(),
+      startTime: z.number(),
+      endTime: z.number(),
+      rtstreamId: z.string().optional(),
+      rtstreamName: z.string().optional(),
+    }))
+    .output(z.object({
+      success: z.boolean(),
+      id: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { createVisualIndexItem } = await import('../../../db');
+      const { v4: uuid } = await import('uuid');
+
+      try {
+        const item = createVisualIndexItem({
+          id: uuid(),
+          recordingId: input.recordingId,
+          sessionId: input.sessionId,
+          text: input.text,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          rtstreamId: input.rtstreamId,
+          rtstreamName: input.rtstreamName,
+        });
+
+        logger.debug({ recordingId: input.recordingId }, '[VisualIndex] Saved visual index item to DB');
+        return { success: true, id: item.id };
+      } catch (error) {
+        logger.error({ error }, '[VisualIndex] Failed to save visual index item');
+        return { success: false };
+      }
+    }),
 });

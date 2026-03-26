@@ -1,7 +1,25 @@
 import React from 'react';
-import { Calendar, Clock, CheckCircle2, AlertTriangle, Loader2, Circle } from 'lucide-react';
+import { Calendar, Clock, CheckCircle2, AlertTriangle, Loader2, Circle, Copy, ExternalLink } from 'lucide-react';
 import type { Recording } from '../../../shared/schemas/recording.schema';
 import { formatDate, formatDurationMinutes, stripMarkdown, cn } from '../../lib/utils';
+import { Tooltip } from '../ui/Tooltip';
+
+// Generate the call_md folder path for a recording
+function getCallMdPath(recording: Recording): string {
+  const date = new Date(recording.createdAt);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const name = (recording.meetingName || 'untitled-meeting')
+    .replace(/[/\\?%*:|"<>]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase()
+    .slice(0, 100);
+
+  return `~/.call_md/meetings/${year}/${month}/${day}/${name}`;
+}
 
 interface RecordingCardProps {
   recording: Recording;
@@ -65,6 +83,80 @@ function StatusBadge({ status }: { status: RecordingStatus }) {
   );
 }
 
+function CopyPathButton({ recording }: { recording: Recording }) {
+  const isDisabled = recording.status === 'recording' || recording.status === 'failed';
+  const path = getCallMdPath(recording);
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isDisabled) return;
+
+    // Copy the path with ~ prefix (user can expand it)
+    navigator.clipboard.writeText(path);
+  };
+
+  if (isDisabled) {
+    return (
+      <button
+        disabled
+        className="w-[24px] h-[24px] flex items-center justify-center rounded opacity-10 cursor-not-allowed"
+      >
+        <Copy className="w-[16px] h-[16px] text-[#464646]" />
+      </button>
+    );
+  }
+
+  return (
+    <Tooltip content="Copy folder path">
+      <button
+        onClick={handleClick}
+        className="w-[24px] h-[24px] flex items-center justify-center rounded opacity-60 hover:opacity-100 cursor-pointer transition-opacity"
+      >
+        <Copy className="w-[16px] h-[16px] text-[#464646]" />
+      </button>
+    </Tooltip>
+  );
+}
+
+function OpenFolderButton({ recording }: { recording: Recording }) {
+  const isDisabled = recording.status === 'recording' || recording.status === 'failed';
+  const path = getCallMdPath(recording);
+
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isDisabled) return;
+
+    // Use shell.openPath via IPC - the main process will resolve ~ to home dir
+    try {
+      await window.electronAPI?.app?.openCallMdFolder?.(path);
+    } catch (err) {
+      console.error('Failed to open folder:', err);
+    }
+  };
+
+  if (isDisabled) {
+    return (
+      <button
+        disabled
+        className="w-[24px] h-[24px] flex items-center justify-center rounded opacity-10 cursor-not-allowed"
+      >
+        <ExternalLink className="w-[16px] h-[16px] text-[#464646]" />
+      </button>
+    );
+  }
+
+  return (
+    <Tooltip content="Open folder">
+      <button
+        onClick={handleClick}
+        className="w-[24px] h-[24px] flex items-center justify-center rounded opacity-60 hover:opacity-100 cursor-pointer transition-opacity"
+      >
+        <ExternalLink className="w-[16px] h-[16px] text-[#464646]" />
+      </button>
+    </Tooltip>
+  );
+}
+
 export function RecordingCard({ recording, onClick }: RecordingCardProps) {
   const config = statusConfigs[recording.status] || statusConfigs.available;
 
@@ -100,8 +192,14 @@ export function RecordingCard({ recording, onClick }: RecordingCardProps) {
     >
       {/* Header Section */}
       <div className="flex flex-col gap-[10px]">
-        {/* Status Badge */}
-        <StatusBadge status={recording.status} />
+        {/* Status Badge and Action Buttons */}
+        <div className="flex items-start justify-between">
+          <StatusBadge status={recording.status} />
+          <div className="flex items-center gap-[8px]">
+            <CopyPathButton recording={recording} />
+            <OpenFolderButton recording={recording} />
+          </div>
+        </div>
 
         {/* Title */}
         <h3 className="text-[18px] font-medium text-black tracking-[0.09px] line-clamp-1">

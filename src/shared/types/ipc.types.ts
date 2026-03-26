@@ -221,6 +221,18 @@ export interface IpcApi {
     openExternalLink: (url: string) => Promise<void>;
     showNotification: (title: string, body: string) => Promise<void>;
     openPlayerWindow: (url: string) => Promise<void>;
+    openCallMdFolder: (path: string) => Promise<void>;
+  };
+  visualIndex: {
+    saveItem: (data: {
+      recordingId: number;
+      sessionId: string;
+      text: string;
+      startTime: number;
+      endTime: number;
+      rtstreamId?: string;
+      rtstreamName?: string;
+    }) => Promise<{ success: boolean; id?: string; error?: string }>;
   };
   on: {
     recorderEvent: (callback: (event: RecorderEvent) => void) => () => void;

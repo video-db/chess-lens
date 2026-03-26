@@ -343,6 +343,30 @@ export type CalendarPreferences = typeof calendarPreferences.$inferSelect;
 export type NewCalendarPreferences = typeof calendarPreferences.$inferInsert;
 export type RecordingBehavior = 'always_ask' | 'default_record' | 'no_notification';
 
+// Visual Index Tables
+
+/**
+ * Visual Index Items
+ * Stores visual/screen analysis from VideoDB scene indexing
+ */
+export const visualIndexItems = sqliteTable('visual_index_items', {
+  id: text('id').primaryKey(),
+  recordingId: integer('recording_id').notNull(),
+  sessionId: text('session_id').notNull(),
+  text: text('text').notNull(), // AI-generated scene description
+  startTime: real('start_time').notNull(), // seconds from call start
+  endTime: real('end_time').notNull(),
+  rtstreamId: text('rtstream_id'),
+  rtstreamName: text('rtstream_name'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => ({
+  sessionIdx: index('idx_visual_index_items_session').on(table.sessionId),
+  recordingIdx: index('idx_visual_index_items_recording').on(table.recordingId),
+}));
+
+export type VisualIndexItem = typeof visualIndexItems.$inferSelect;
+export type NewVisualIndexItem = typeof visualIndexItems.$inferInsert;
+
 // Workflows Tables
 
 /**

@@ -211,6 +211,19 @@ export function initDatabase(): ReturnType<typeof drizzle<typeof schema>> {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Visual Index Tables
+    CREATE TABLE IF NOT EXISTS visual_index_items (
+      id TEXT PRIMARY KEY,
+      recording_id INTEGER NOT NULL,
+      session_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      start_time REAL NOT NULL,
+      end_time REAL NOT NULL,
+      rtstream_id TEXT,
+      rtstream_name TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_users_access_token ON users(access_token);
     CREATE INDEX IF NOT EXISTS idx_recordings_session_id ON recordings(session_id);
@@ -225,6 +238,8 @@ export function initDatabase(): ReturnType<typeof drizzle<typeof schema>> {
     CREATE INDEX IF NOT EXISTS idx_nudges_history_recording ON nudges_history(recording_id);
     CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_server ON mcp_tool_calls(server_id);
     CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_recording ON mcp_tool_calls(recording_id);
+    CREATE INDEX IF NOT EXISTS idx_visual_index_items_session ON visual_index_items(session_id);
+    CREATE INDEX IF NOT EXISTS idx_visual_index_items_recording ON visual_index_items(recording_id);
 
     -- Calendar Preferences table
     CREATE TABLE IF NOT EXISTS calendar_preferences (
@@ -491,6 +506,40 @@ export function deleteTranscriptSegmentsBySession(sessionId: string) {
     .run();
 }
 
+// Visual Index Items
+
+export function createVisualIndexItem(data: schema.NewVisualIndexItem) {
+  const database = getDatabase();
+  return database.insert(schema.visualIndexItems).values(data).returning().get();
+}
+
+export function getVisualIndexItemsByRecording(recordingId: number) {
+  const database = getDatabase();
+  return database
+    .select()
+    .from(schema.visualIndexItems)
+    .where(eq(schema.visualIndexItems.recordingId, recordingId))
+    .orderBy(schema.visualIndexItems.startTime)
+    .all();
+}
+
+export function getVisualIndexItemsBySession(sessionId: string) {
+  const database = getDatabase();
+  return database
+    .select()
+    .from(schema.visualIndexItems)
+    .where(eq(schema.visualIndexItems.sessionId, sessionId))
+    .orderBy(schema.visualIndexItems.startTime)
+    .all();
+}
+
+export function deleteVisualIndexItemsBySession(sessionId: string) {
+  const database = getDatabase();
+  return database
+    .delete(schema.visualIndexItems)
+    .where(eq(schema.visualIndexItems.sessionId, sessionId))
+    .run();
+}
 
 export function createBookmark(data: schema.NewBookmark) {
   const database = getDatabase();

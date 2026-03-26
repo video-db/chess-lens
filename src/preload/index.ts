@@ -357,6 +357,7 @@ const api: IpcApi = {
     showNotification: (title: string, body: string) =>
       ipcRenderer.invoke('show-notification', title, body),
     openPlayerWindow: (url: string) => ipcRenderer.invoke('open-player-window', url),
+    openCallMdFolder: (path: string) => ipcRenderer.invoke('open-call-md-folder', path),
   },
 
   on: {
@@ -445,6 +446,19 @@ const api: IpcApi = {
       return () => ipcRenderer.removeListener('copilot:error', listener);
     },
   } as CopilotEvents,
+
+  // Visual Index API
+  visualIndex: {
+    saveItem: (data: {
+      recordingId: number;
+      sessionId: string;
+      text: string;
+      startTime: number;
+      endTime: number;
+      rtstreamId?: string;
+      rtstreamName?: string;
+    }) => ipcRenderer.invoke('visual-index:save-item', data),
+  },
 
   // MCP API
   mcp: {

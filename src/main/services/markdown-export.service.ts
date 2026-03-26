@@ -22,8 +22,6 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { createChildLogger } from '../lib/logger';
-import { loadRuntimeConfig } from '../lib/config';
-import { connect } from 'videodb';
 import type { PostMeetingSummary } from './copilot/summary-generator.service';
 import type { ConversationMetrics } from './copilot/conversation-metrics.service';
 
@@ -102,70 +100,29 @@ function formatTimestamp(seconds: number): string {
 }
 
 /**
- * Fetch visual analysis from VideoDB
+ * Fetch visual analysis from local database
  */
-async function fetchVisualAnalysis(sessionId: string, apiKey: string): Promise<SceneData[]> {
+function fetchVisualAnalysisFromDB(recordingId: number): SceneData[] {
   try {
-    const runtimeConfig = loadRuntimeConfig();
-    const connectOptions: { apiKey: string; baseUrl?: string } = { apiKey };
-    if (runtimeConfig.apiUrl) {
-      connectOptions.baseUrl = runtimeConfig.apiUrl;
-    }
+    const { getVisualIndexItemsByRecording } = require('../db');
+    const items = getVisualIndexItemsByRecording(recordingId);
 
-    const conn = connect(connectOptions);
-    const session = await conn.getCaptureSession(sessionId);
-    await session.refresh();
+    const scenes: SceneData[] = items.map((item: any) => ({
+      id: item.id,
+      start: item.startTime,
+      end: item.endTime,
+      description: item.text,
+      metadata: {
+        rtstreamId: item.rtstreamId,
+        rtstreamName: item.rtstreamName,
+      },
+    }));
 
-    // Find screen RTStream
-    let screens = session.getRTStream('screen');
-    if (screens.length === 0) {
-      screens = (session.rtstreams || []).filter((stream) => {
-        const name = (stream.name || '').toLowerCase();
-        const channelId = (stream.channelId || '').toLowerCase();
-        return (
-          name.includes('display') ||
-          name.includes('screen') ||
-          channelId.includes('display') ||
-          channelId.includes('screen')
-        );
-      });
-    }
-
-    if (screens.length === 0) {
-      logger.debug({ sessionId }, 'No screen RTStream found for visual export');
-      return [];
-    }
-
-    const screenStream = screens[0];
-    const sceneIndexes = await screenStream.listSceneIndexes();
-
-    if (sceneIndexes.length === 0) {
-      logger.debug({ sessionId }, 'No scene indexes found for visual export');
-      return [];
-    }
-
-    // Get all scenes from the first scene index
-    const allScenes: SceneData[] = [];
-    let page = 1;
-    let hasMore = true;
-
-    while (hasMore) {
-      const result = await sceneIndexes[0].getScenes(undefined, undefined, page, 100);
-      if (result) {
-        const scenes = (result.scenes || []) as SceneData[];
-        allScenes.push(...scenes);
-        hasMore = result.nextPage || false;
-      } else {
-        hasMore = false;
-      }
-      page++;
-    }
-
-    logger.info({ sessionId, sceneCount: allScenes.length }, 'Fetched visual analysis');
-    return allScenes;
+    logger.info({ recordingId, sceneCount: scenes.length }, 'Fetched visual analysis from DB');
+    return scenes;
   } catch (error) {
     const err = error as Error;
-    logger.warn({ error: err.message, sessionId }, 'Failed to fetch visual analysis');
+    logger.warn({ error: err.message, recordingId }, 'Failed to fetch visual analysis from DB');
     return [];
   }
 }
@@ -452,11 +409,8 @@ export async function exportMeetingToMarkdown(data: MeetingExportData): Promise<
     const folderPath = getMeetingFolderPath(data.meetingName, data.startedAt);
     ensureDirectoryExists(folderPath);
 
-    // Fetch visual analysis if session info available
-    let scenes: SceneData[] = [];
-    if (data.sessionId && data.apiKey) {
-      scenes = await fetchVisualAnalysis(data.sessionId, data.apiKey);
-    }
+    // Fetch visual analysis from local database
+    const scenes: SceneData[] = fetchVisualAnalysisFromDB(data.recordingId);
 
     // Write all markdown files
     fs.writeFileSync(path.join(folderPath, 'summary.md'), generateSummaryMarkdown(data), 'utf-8');
