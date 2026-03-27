@@ -54,6 +54,9 @@ declare module 'videodb' {
 
   export interface Collection {
     id: string;
+    name?: string;
+    description?: string;
+    isPublic?: boolean;
     createCaptureSession(options: CreateCaptureSessionOptions): Promise<CaptureSession>;
     getCaptureSession(sessionId: string): Promise<CaptureSession>;
     listCaptureSessions(config?: ListCaptureSessionsConfig): Promise<CaptureSession[]>;
@@ -136,6 +139,7 @@ declare module 'videodb' {
   export class Connection {
     getCollection(id?: string): Promise<Collection>;
     getCollections(): Promise<Collection[]>;
+    createCollection(name: string, description: string, isPublic?: boolean): Promise<Collection>;
     generateClientToken(expiresIn?: number): Promise<string>;
     createCaptureSession(config: CreateCaptureSessionOptions): Promise<CaptureSession>;
     connectWebsocket(collectionId?: string): Promise<WebSocketConnection>;

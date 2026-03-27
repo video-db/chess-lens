@@ -47,6 +47,7 @@ let currentSessionId: string | null = null;
 let currentApiKey: string | null = null;
 let currentAccessToken: string | null = null;
 let currentApiUrl: string | undefined = undefined;
+let currentCollectionId: string | null = null;
 
 function ensureVideoDBPatched(): void {
   if (!app.isPackaged) return;
@@ -362,6 +363,7 @@ async function stopRecordingInternal(): Promise<{ success: boolean; error?: stri
   const apiKeyForPoller = currentApiKey;
   const accessTokenForPoller = currentAccessToken;
   const apiUrlForPoller = currentApiUrl;
+  const collectionIdForPoller = currentCollectionId;
 
   try {
     if (captureClient) {
@@ -399,12 +401,13 @@ async function stopRecordingInternal(): Promise<{ success: boolean; error?: stri
 
     // Start export poller to detect when video is ready
     if (sessionIdForPoller && apiKeyForPoller && accessTokenForPoller) {
-      logger.info({ sessionId: sessionIdForPoller }, 'Starting export poller');
+      logger.info({ sessionId: sessionIdForPoller, collectionId: collectionIdForPoller }, 'Starting export poller');
       startExportPoller(
         sessionIdForPoller,
         apiKeyForPoller,
         accessTokenForPoller,
-        apiUrlForPoller
+        apiUrlForPoller,
+        collectionIdForPoller || undefined
       );
     } else {
       logger.warn('Missing session info for export poller');
@@ -415,6 +418,7 @@ async function stopRecordingInternal(): Promise<{ success: boolean; error?: stri
     currentApiKey = null;
     currentAccessToken = null;
     currentApiUrl = undefined;
+    currentCollectionId = null;
 
     return { success: true };
   } catch (error) {
@@ -429,6 +433,7 @@ async function stopRecordingInternal(): Promise<{ success: boolean; error?: stri
     currentApiKey = null;
     currentAccessToken = null;
     currentApiUrl = undefined;
+    currentCollectionId = null;
 
     return {
       success: false,
@@ -628,9 +633,10 @@ export function setupCaptureHandlers(): void {
         currentAccessToken = accessToken;
         currentApiUrl = apiUrl;
 
-        // Get API key from user record for export polling
+        // Get API key and collection ID from user record for export polling
         const user = getUserByAccessToken(accessToken);
         currentApiKey = user?.apiKey || null;
+        currentCollectionId = user?.collectionId || null;
 
         return {
           success: true,
@@ -797,6 +803,7 @@ export async function shutdownCaptureClient(): Promise<void> {
   currentApiKey = null;
   currentAccessToken = null;
   currentApiUrl = undefined;
+  currentCollectionId = null;
 
   if (captureClient) {
     logger.info('Shutting down CaptureClient before app quit');

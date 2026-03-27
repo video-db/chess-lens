@@ -22,6 +22,7 @@ interface ActivePoller {
   startTime: number;
   apiKey: string;
   apiUrl?: string;
+  collectionId?: string;
 }
 
 const activePollers = new Map<string, ActivePoller>();
@@ -33,14 +34,15 @@ export function startExportPoller(
   sessionId: string,
   apiKey: string,
   _accessToken: string, // Kept for API compatibility, not used
-  apiUrl?: string
+  apiUrl?: string,
+  collectionId?: string
 ): void {
   if (activePollers.has(sessionId)) {
     logger.debug({ sessionId }, 'Poller already active for session');
     return;
   }
 
-  logger.info({ sessionId }, 'Starting export poller');
+  logger.info({ sessionId, collectionId }, 'Starting export poller');
 
   const startTime = Date.now();
 
@@ -55,7 +57,7 @@ export function startExportPoller(
       return;
     }
 
-    const result = await checkSessionExport(sessionId, apiKey, apiUrl);
+    const result = await checkSessionExport(sessionId, apiKey, apiUrl, collectionId);
 
     logger.debug(
       { sessionId, status: result.status, exportedVideoId: result.videoId },
@@ -71,7 +73,8 @@ export function startExportPoller(
         result.videoId,
         apiKey,
         apiUrl,
-        true // trigger insights
+        true, // trigger insights
+        collectionId
       );
 
       if (!recovery.success) {
@@ -96,7 +99,7 @@ export function startExportPoller(
   pollForExport();
   const intervalId = setInterval(pollForExport, POLL_INTERVAL_MS);
 
-  activePollers.set(sessionId, { intervalId, startTime, apiKey, apiUrl });
+  activePollers.set(sessionId, { intervalId, startTime, apiKey, apiUrl, collectionId });
 }
 
 /**

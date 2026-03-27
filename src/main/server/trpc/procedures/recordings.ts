@@ -308,7 +308,8 @@ export const recordingsRouter = router({
 
       try {
         const runtimeConfig = loadRuntimeConfig();
-        const service = createVideoDBService(apiKey, runtimeConfig.apiUrl);
+        const collectionId = ctx.user?.collectionId || undefined;
+        const service = createVideoDBService(apiKey, runtimeConfig.apiUrl, collectionId);
         const result = await service.downloadVideo(recording.videoId, recording.meetingName || undefined);
         logger.info({ recordingId: input.recordingId, result }, 'Video download URL obtained');
         return result;

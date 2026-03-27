@@ -264,6 +264,7 @@ export function initDatabase(): ReturnType<typeof drizzle<typeof schema>> {
   ensureRecordingColumns();
   ensureNudgesHistorySchema();
   ensureMCPServerColumns();
+  ensureUserColumns();
 
   seedDefaultCueCards();
 
@@ -362,6 +363,21 @@ function ensureMCPServerColumns(): void {
   }
 }
 
+function ensureUserColumns(): void {
+  if (!sqlite) return;
+
+  const columns = sqlite
+    .prepare("PRAGMA table_info(users)")
+    .all() as { name: string }[];
+
+  const columnNames = columns.map((c) => c.name);
+
+  if (!columnNames.includes('collection_id')) {
+    sqlite.exec("ALTER TABLE users ADD COLUMN collection_id TEXT");
+    logger.info('Added collection_id column to users table');
+  }
+}
+
 export function getDatabase(): ReturnType<typeof drizzle<typeof schema>> {
   if (!db) {
     throw new Error('Database not initialized. Call initDatabase() first.');
@@ -390,6 +406,16 @@ export function getUserByAccessToken(accessToken: string) {
 export function createUser(data: schema.NewUser) {
   const database = getDatabase();
   return database.insert(schema.users).values(data).returning().get();
+}
+
+export function updateUser(id: number, data: Partial<schema.User>) {
+  const database = getDatabase();
+  return database
+    .update(schema.users)
+    .set(data)
+    .where(eq(schema.users.id, id))
+    .returning()
+    .get();
 }
 
 export function getRecordingById(id: number) {

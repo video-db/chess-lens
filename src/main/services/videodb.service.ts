@@ -17,10 +17,26 @@ let cachedConnection: CachedConnection | null = null;
 export class VideoDBService {
   private apiKey: string;
   private baseUrl?: string;
+  private collectionId?: string;
 
-  constructor(apiKey: string, baseUrl?: string) {
+  constructor(apiKey: string, baseUrl?: string, collectionId?: string) {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
+    this.collectionId = collectionId;
+  }
+
+  /**
+   * Set the collection ID to use for all operations
+   */
+  setCollectionId(collectionId: string): void {
+    this.collectionId = collectionId;
+  }
+
+  /**
+   * Get the collection ID being used
+   */
+  getCollectionId(): string | undefined {
+    return this.collectionId;
   }
 
   private getConnection(): Connection {
@@ -61,6 +77,44 @@ export class VideoDBService {
     }
   }
 
+  /**
+   * Find or create the "call.md" collection for this user.
+   * Returns the collection ID.
+   */
+  async findOrCreateCallMdCollection(): Promise<string> {
+    const conn = this.getConnection();
+    const COLLECTION_NAME = 'call.md Recordings';
+
+    logger.info('Looking for call.md collection...');
+
+    try {
+      // List all collections and find the one named "call.md"
+      const collections = await conn.getCollections();
+
+      for (const collection of collections) {
+        if (collection.name === COLLECTION_NAME) {
+          logger.info({ collectionId: collection.id }, 'Found existing call.md collection');
+          return collection.id;
+        }
+      }
+
+      // Collection not found, create it
+      logger.info('call.md collection not found, creating...');
+      const newCollection = await conn.createCollection(
+        COLLECTION_NAME,
+        'Meeting recordings from Call.md app',
+        false // isPublic
+      );
+
+      logger.info({ collectionId: newCollection.id }, 'Created call.md collection');
+      return newCollection.id;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error({ errorMessage }, 'Failed to find or create call.md collection');
+      throw error;
+    }
+  }
+
   async createSessionToken(
     userId: string = 'default-user',
     expiresIn: number = 86400
@@ -96,9 +150,10 @@ export class VideoDBService {
   }> {
     const conn = this.getConnection();
 
-    logger.info({ endUserId: params.endUserId }, 'Creating capture session');
+    logger.info({ endUserId: params.endUserId, collectionId: this.collectionId }, 'Creating capture session');
 
-    const collection = await conn.getCollection();
+    // Use the configured collection ID, or fall back to default
+    const collection = await conn.getCollection(this.collectionId);
 
     const sessionOptions: {
       endUserId: string;
@@ -113,7 +168,7 @@ export class VideoDBService {
 
     const session = await collection.createCaptureSession(sessionOptions);
 
-    logger.info({ sessionId: session.id }, 'Capture session created');
+    logger.info({ sessionId: session.id, collectionId: collection.id }, 'Capture session created');
 
     return {
       sessionId: session.id,
@@ -125,7 +180,7 @@ export class VideoDBService {
 
   async getVideo(videoId: string) {
     const conn = this.getConnection();
-    const collection = await conn.getCollection();
+    const collection = await conn.getCollection(this.collectionId);
     return collection.getVideo(videoId);
   }
 
@@ -137,9 +192,9 @@ export class VideoDBService {
   }
 
   async generateInsights(videoId: string, customPrompt?: string): Promise<string | null> {
-    logger.info({ videoId }, 'Generating AI insights');
+    logger.info({ videoId, collectionId: this.collectionId }, 'Generating AI insights');
     const conn = this.getConnection();
-    const collection = await conn.getCollection();
+    const collection = await conn.getCollection(this.collectionId);
     const video = await this.getVideo(videoId);
 
     // Fetch transcript text (like Python version)
@@ -216,6 +271,6 @@ ${transcriptText}`;
   }
 }
 
-export function createVideoDBService(apiKey: string, baseUrl?: string): VideoDBService {
-  return new VideoDBService(apiKey, baseUrl);
+export function createVideoDBService(apiKey: string, baseUrl?: string, collectionId?: string): VideoDBService {
+  return new VideoDBService(apiKey, baseUrl, collectionId);
 }

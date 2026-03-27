@@ -13,17 +13,19 @@ export interface InsightsResult {
 export class InsightsService {
   private apiKey: string;
   private baseUrl?: string;
+  private collectionId?: string;
 
-  constructor(apiKey: string, baseUrl?: string) {
+  constructor(apiKey: string, baseUrl?: string, collectionId?: string) {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
+    this.collectionId = collectionId;
   }
 
   async processRecording(
     recordingId: number,
     videoId: string
   ): Promise<InsightsResult> {
-    const videodbService = createVideoDBService(this.apiKey, this.baseUrl);
+    const videodbService = createVideoDBService(this.apiKey, this.baseUrl, this.collectionId);
 
     try {
       // Mark as processing
@@ -110,6 +112,6 @@ export class InsightsService {
   }
 }
 
-export function createInsightsService(apiKey: string, baseUrl?: string): InsightsService {
-  return new InsightsService(apiKey, baseUrl);
+export function createInsightsService(apiKey: string, baseUrl?: string, collectionId?: string): InsightsService {
+  return new InsightsService(apiKey, baseUrl, collectionId);
 }

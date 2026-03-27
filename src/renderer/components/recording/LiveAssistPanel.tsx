@@ -149,6 +149,7 @@ interface InsightSectionProps {
   variant: 'say' | 'ask';
   emptyText: string;
   scrollRef: React.RefObject<HTMLDivElement>;
+  className?: string;
 }
 
 function InsightSection({
@@ -160,11 +161,12 @@ function InsightSection({
   variant,
   emptyText,
   scrollRef,
+  className = '',
 }: InsightSectionProps) {
   return (
-    <div className="border border-[#efefef] rounded-[12px] overflow-hidden">
+    <div className={`border border-[#efefef] rounded-[12px] overflow-hidden flex flex-col ${className}`}>
       {/* Header */}
-      <div className="bg-[#f7f7f7] border-b border-[#efefef] px-[16px] py-[10px] flex items-center gap-[8px]">
+      <div className="bg-[#f7f7f7] border-b border-[#efefef] px-[16px] py-[10px] flex items-center gap-[8px] shrink-0">
         {icon}
         <span className="font-medium text-[15px] text-black">{title}</span>
       </div>
@@ -172,7 +174,7 @@ function InsightSection({
       {/* Content */}
       <div
         ref={scrollRef}
-        className="bg-white p-[16px] max-h-[200px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+        className="bg-white p-[16px] flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
       >
         {items.length > 0 ? (
           <div className="flex flex-col gap-[10px]">
@@ -364,7 +366,7 @@ export function LiveAssistPanel() {
       </div>
 
       {/* Panels */}
-      <div className="flex-1 flex flex-col gap-[20px] min-h-0 overflow-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <div className="flex-1 flex flex-col gap-[20px] min-h-0 overflow-hidden">
         {/* Say this section */}
         <InsightSection
           title="Say this"
@@ -375,6 +377,7 @@ export function LiveAssistPanel() {
           variant="say"
           emptyText="No suggestions yet - keep the conversation going"
           scrollRef={sayThisScrollRef}
+          className="flex-1 min-h-0"
         />
 
         {/* Ask this section */}
@@ -387,20 +390,21 @@ export function LiveAssistPanel() {
           variant="ask"
           emptyText="No questions yet - we'll suggest when relevant"
           scrollRef={askThisScrollRef}
+          className="flex-1 min-h-0"
         />
 
         {/* MCP Findings Section - only show if MCP servers are connected */}
         {connectedServerCount > 0 && (
-          <div className="border border-[#efefef] rounded-[12px] overflow-hidden flex-1 min-h-[100px]">
+          <div className="border border-[#efefef] rounded-[12px] overflow-hidden flex-1 min-h-0 flex flex-col">
             {/* MCP Findings Header */}
-            <div className="bg-[#f7f7f7] border-b border-[#efefef] px-[16px] py-[10px]">
+            <div className="bg-[#f7f7f7] border-b border-[#efefef] px-[16px] py-[10px] shrink-0">
               <span className="font-medium text-[14px] text-black tracking-[0.07px]">
                 MCP Findings
               </span>
             </div>
 
             {/* MCP Findings Content */}
-            <div className="bg-white p-[16px]">
+            <div className="bg-white p-[16px] flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               {mcpFindings ? (
                 <div className="prose prose-sm max-w-none text-[14px] text-black leading-[22px]">
                   <ReactMarkdown
