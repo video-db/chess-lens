@@ -8,6 +8,7 @@ export const users = sqliteTable('users', {
   name: text('name').notNull(),
   apiKey: text('api_key').notNull(),
   accessToken: text('access_token').notNull().unique(),
+  collectionId: text('collection_id'), // VideoDB collection ID for this user
 });
 
 export const recordings = sqliteTable('recordings', {

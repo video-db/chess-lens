@@ -32,6 +32,19 @@ export const authRouter = router({
         };
       }
 
+      // Find or create the call.md collection
+      let collectionId: string;
+      try {
+        collectionId = await videodbService.findOrCreateCallMdCollection();
+        logger.info({ collectionId }, 'Using call.md collection');
+      } catch (error) {
+        logger.error({ error, name }, 'Failed to setup call.md collection');
+        return {
+          success: false,
+          error: 'Failed to setup collection. Please try again.',
+        };
+      }
+
       // Generate access token
       const accessToken = uuidv4();
 
@@ -45,15 +58,16 @@ export const authRouter = router({
         });
       }
 
-      // Create user
+      // Create user with collection ID
       try {
         const user = createUser({
           name,
           apiKey,
           accessToken,
+          collectionId,
         });
 
-        logger.info({ userId: user.id, name }, 'User registered successfully');
+        logger.info({ userId: user.id, name, collectionId }, 'User registered successfully');
 
         return {
           success: true,

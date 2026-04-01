@@ -18,9 +18,9 @@ export const captureRouter = router({
 
       const runtimeConfig = loadRuntimeConfig();
 
-      logger.info({ userId: user.id }, '[Capture] Creating capture session');
+      logger.info({ userId: user.id, collectionId: user.collectionId }, '[Capture] Creating capture session');
 
-      const videodbService = createVideoDBService(user.apiKey, runtimeConfig.apiUrl);
+      const videodbService = createVideoDBService(user.apiKey, runtimeConfig.apiUrl, user.collectionId || undefined);
 
       const session = await videodbService.createCaptureSession({
         endUserId: `user-${user.id}`,

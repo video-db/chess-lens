@@ -35,11 +35,12 @@ export interface ExportRecoveryResult {
 export async function checkSessionExport(
   sessionId: string,
   apiKey: string,
-  apiUrl?: string
+  apiUrl?: string,
+  collectionId?: string
 ): Promise<ExportCheckResult> {
   try {
     const conn = connect(apiUrl ? { apiKey, baseUrl: apiUrl } : { apiKey });
-    const session: CaptureSessionFull = await conn.getCaptureSession(sessionId);
+    const session: CaptureSessionFull = await conn.getCaptureSession(sessionId, collectionId);
     await session.refresh();
 
     return {
@@ -67,11 +68,12 @@ export async function recoverExportedRecording(
   videoId: string,
   apiKey: string,
   apiUrl?: string,
-  _triggerInsights: boolean = true // deprecated, kept for API compatibility
+  _triggerInsights: boolean = true, // deprecated, kept for API compatibility
+  collectionId?: string
 ): Promise<ExportRecoveryResult> {
   try {
     const conn = connect(apiUrl ? { apiKey, baseUrl: apiUrl } : { apiKey });
-    const collection = await conn.getCollection();
+    const collection = await conn.getCollection(collectionId);
     const video = await collection.getVideo(videoId);
 
     // Parse duration from video.length
@@ -139,9 +141,10 @@ export async function checkAndRecoverSession(
   sessionId: string,
   apiKey: string,
   apiUrl?: string,
-  triggerInsights: boolean = true
+  triggerInsights: boolean = true,
+  collectionId?: string
 ): Promise<ExportRecoveryResult & { exported: boolean }> {
-  const checkResult = await checkSessionExport(sessionId, apiKey, apiUrl);
+  const checkResult = await checkSessionExport(sessionId, apiKey, apiUrl, collectionId);
 
   if (!checkResult.exported || !checkResult.videoId) {
     return {
@@ -156,7 +159,8 @@ export async function checkAndRecoverSession(
     checkResult.videoId,
     apiKey,
     apiUrl,
-    triggerInsights
+    triggerInsights,
+    collectionId
   );
 
   return {

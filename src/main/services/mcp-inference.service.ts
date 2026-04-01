@@ -53,7 +53,12 @@ Clean markdown the user can glance at mid-meeting. Lead with the data. Add a sug
 - Don't repeat a fetch already made this session unless explicitly asked again.
 - Don't summarize the meeting or narrate your reasoning.
 - If fetched data contains sensitive internals, flag it as not safe to share aloud.
-- Silence is your default. An empty response is correct.`;
+- Silence is your default. An empty response is correct.
+
+## META INFO
+Current time and date: ${new Date().toISOString()}
+
+`;
 
 interface TranscriptChunk {
   text: string;

@@ -5,7 +5,7 @@ fixPath();
 import { app, BrowserWindow, Menu } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { initDatabase, closeDatabase, getUserByAccessToken } from './db';
+import { initDatabase, closeDatabase, getUserByAccessToken, updateUser } from './db';
 import { startServer, stopServer } from './server';
 import {
   setupIpcHandlers,
@@ -15,6 +15,7 @@ import {
   setMCPMainWindow,
   setCalendarMainWindow,
   setLiveAssistWindow,
+  setWidgetMainWindow,
   sendToRenderer,
   shutdownCaptureClient,
 } from './ipc';
@@ -37,6 +38,7 @@ import { logger } from './lib/logger';
 import { applyVideoDBPatches } from './lib/videodb-patch';
 import { getLockFilePath } from './lib/paths';
 import { createSessionRecoveryService } from './services/session-recovery.service';
+import { createVideoDBService } from './services/videodb.service';
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = !app.isPackaged;
@@ -148,6 +150,7 @@ async function createWindow(): Promise<void> {
   setMCPMainWindow(mainWindow);
   setCalendarMainWindow(mainWindow);
   setLiveAssistWindow(mainWindow);
+  setWidgetMainWindow(mainWindow);
 
   if (isDev) {
     const VITE_DEV_PORT = 51730;
@@ -291,14 +294,16 @@ async function recoverPendingSessions(): Promise<void> {
   const appConfig = loadAppConfig();
   const runtimeConfig = loadRuntimeConfig();
 
-  // Try to get API key from app config first
+  // Try to get API key and collection ID from app config first
   let apiKey = appConfig.apiKey;
+  let collectionId: string | undefined;
 
   // If not in config, look up the user in the database using the access token
   if (!apiKey && appConfig.accessToken) {
     const user = getUserByAccessToken(appConfig.accessToken);
     if (user) {
       apiKey = user.apiKey;
+      collectionId = user.collectionId || undefined;
     }
   }
 
@@ -307,12 +312,13 @@ async function recoverPendingSessions(): Promise<void> {
     return;
   }
 
-  logger.info('Starting background session recovery...');
+  logger.info({ collectionId }, 'Starting background session recovery...');
 
   try {
     const recoveryService = createSessionRecoveryService(
       apiKey,
-      runtimeConfig.apiUrl
+      runtimeConfig.apiUrl,
+      collectionId
     );
 
     const result = await recoveryService.recoverPendingSessions();
@@ -326,6 +332,46 @@ async function recoverPendingSessions(): Promise<void> {
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error({ error: errorMsg }, 'Background session recovery failed');
+  }
+}
+
+/**
+ * Migrate existing users to use the call.md collection.
+ * For users who registered before this feature was added, find or create
+ * the collection and update their record.
+ */
+async function migrateExistingUserCollection(): Promise<void> {
+  const appConfig = loadAppConfig();
+  const runtimeConfig = loadRuntimeConfig();
+
+  if (!appConfig.accessToken) {
+    logger.debug('No access token, skipping collection migration');
+    return;
+  }
+
+  const user = getUserByAccessToken(appConfig.accessToken);
+  if (!user) {
+    logger.debug('User not found, skipping collection migration');
+    return;
+  }
+
+  // Already has a collection ID
+  if (user.collectionId) {
+    logger.debug({ collectionId: user.collectionId }, 'User already has collection ID');
+    return;
+  }
+
+  logger.info({ userId: user.id }, 'Migrating existing user to call.md collection');
+
+  try {
+    const videodbService = createVideoDBService(user.apiKey, runtimeConfig.apiUrl);
+    const collectionId = await videodbService.findOrCreateCallMdCollection();
+
+    updateUser(user.id, { collectionId });
+    logger.info({ userId: user.id, collectionId }, 'User migrated to call.md collection');
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error({ error: errorMsg, userId: user.id }, 'Failed to migrate user collection');
   }
 }
 
@@ -448,6 +494,11 @@ app.whenReady().then(async () => {
     }
 
     await autoRegister();
+
+    // Migrate existing users to call.md collection (fire and forget)
+    migrateExistingUserCollection().catch(() => {
+      // Error already logged in migrateExistingUserCollection
+    });
 
     // Start calendar polling if already authenticated
     if (hasTokens()) {

@@ -10,6 +10,16 @@ import { createChildLogger } from '../lib/logger';
 import { applyVideoDBPatches } from '../lib/videodb-patch';
 import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
 import { getUserByAccessToken } from '../db';
+import {
+  showWidgetWindow,
+  closeWidgetWindow,
+} from '../windows/widget.window';
+import {
+  setWidgetRecordingControls,
+  updateWidgetSessionState,
+  updateWidgetVisualAnalysis,
+  clearWidgetState,
+} from './widget';
 
 const logger = createChildLogger('ipc-capture');
 
@@ -37,6 +47,7 @@ let currentSessionId: string | null = null;
 let currentApiKey: string | null = null;
 let currentAccessToken: string | null = null;
 let currentApiUrl: string | undefined = undefined;
+let currentCollectionId: string | null = null;
 
 function ensureVideoDBPatched(): void {
   if (!app.isPackaged) return;
@@ -227,6 +238,9 @@ async function listenForVisualIndexMessages(ws: WebSocketConnection): Promise<vo
           event: 'visual_index',
           data: visualIndexEvent,
         });
+
+        // Also send to floating widget
+        updateWidgetVisualAnalysis(text);
       }
     }
   } catch (err) {
@@ -340,7 +354,127 @@ function removeCaptureEventListeners(): void {
   });
 }
 
+// Function to stop recording (used by widget and IPC handler)
+async function stopRecordingInternal(): Promise<{ success: boolean; error?: string }> {
+  logger.info('Stopping recording (internal)');
+
+  // Capture session info before cleanup
+  const sessionIdForPoller = currentSessionId;
+  const apiKeyForPoller = currentApiKey;
+  const accessTokenForPoller = currentAccessToken;
+  const apiUrlForPoller = currentApiUrl;
+  const collectionIdForPoller = currentCollectionId;
+
+  try {
+    if (captureClient) {
+      removeCaptureEventListeners();
+
+      await captureClient.stopSession();
+      logger.info('Capture session stopped');
+
+      await captureClient.shutdown();
+      logger.info('CaptureClient shutdown complete');
+      captureClient = null;
+
+      // Manually emit recording:stopped immediately
+      sendRecorderEvent({
+        event: 'recording:stopped',
+        data: {},
+      });
+
+      // Manually emit upload:complete
+      sendRecorderEvent({
+        event: 'upload:complete',
+        data: {},
+      });
+
+      // Close the floating widget window
+      clearWidgetState();
+      closeWidgetWindow();
+    } else {
+      logger.warn('No active capture client to stop');
+    }
+
+    await cleanupTranscriptWebSockets();
+    await cleanupVisualIndexWebSocket();
+    await cleanupSessionWebSocket();
+
+    // Start export poller to detect when video is ready
+    if (sessionIdForPoller && apiKeyForPoller && accessTokenForPoller) {
+      logger.info({ sessionId: sessionIdForPoller, collectionId: collectionIdForPoller }, 'Starting export poller');
+      startExportPoller(
+        sessionIdForPoller,
+        apiKeyForPoller,
+        accessTokenForPoller,
+        apiUrlForPoller,
+        collectionIdForPoller || undefined
+      );
+    } else {
+      logger.warn('Missing session info for export poller');
+    }
+
+    // Clear stored session info
+    currentSessionId = null;
+    currentApiKey = null;
+    currentAccessToken = null;
+    currentApiUrl = undefined;
+    currentCollectionId = null;
+
+    return { success: true };
+  } catch (error) {
+    logger.error({ error }, 'Failed to stop recording');
+    await cleanupTranscriptWebSockets();
+    await cleanupVisualIndexWebSocket();
+    await cleanupSessionWebSocket();
+    cleanupCapture();
+
+    // Clear stored session info on error too
+    currentSessionId = null;
+    currentApiKey = null;
+    currentAccessToken = null;
+    currentApiUrl = undefined;
+    currentCollectionId = null;
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
 export function setupCaptureHandlers(): void {
+  // Register widget recording controls
+  setWidgetRecordingControls(
+    // pause
+    async () => {
+      if (captureClient) {
+        await captureClient.pauseTracks(['mic', 'system_audio', 'screen'] as ('mic' | 'system_audio' | 'screen')[]);
+      }
+    },
+    // resume
+    async () => {
+      if (captureClient) {
+        await captureClient.resumeTracks(['mic', 'system_audio', 'screen'] as ('mic' | 'system_audio' | 'screen')[]);
+      }
+    },
+    // stop
+    async () => {
+      await stopRecordingInternal();
+    },
+    // muteMic
+    async () => {
+      if (captureClient) {
+        await captureClient.pauseTracks(['mic'] as ('mic' | 'system_audio' | 'screen')[]);
+      }
+    },
+    // unmuteMic
+    async () => {
+      if (captureClient) {
+        await captureClient.resumeTracks(['mic'] as ('mic' | 'system_audio' | 'screen')[]);
+      }
+    }
+  );
+
   ipcMain.handle(
     'recorder-start-recording',
     async (
@@ -486,14 +620,23 @@ export function setupCaptureHandlers(): void {
         });
         logger.info({ sessionId: config.sessionId }, 'recording:started event emitted');
 
+        // Show the floating widget window and update its state
+        updateWidgetSessionState({
+          isRecording: true,
+          isPaused: false,
+          startTime: Date.now(),
+        });
+        showWidgetWindow();
+
         // Store session info for export polling when recording stops
         currentSessionId = config.sessionId;
         currentAccessToken = accessToken;
         currentApiUrl = apiUrl;
 
-        // Get API key from user record for export polling
+        // Get API key and collection ID from user record for export polling
         const user = getUserByAccessToken(accessToken);
         currentApiKey = user?.apiKey || null;
+        currentCollectionId = user?.collectionId || null;
 
         return {
           success: true,
@@ -521,84 +664,8 @@ export function setupCaptureHandlers(): void {
   ipcMain.handle(
     'recorder-stop-recording',
     async (): Promise<{ success: boolean; error?: string }> => {
-      logger.info('Stopping recording');
-
-      // Capture session info before cleanup
-      const sessionIdForPoller = currentSessionId;
-      const apiKeyForPoller = currentApiKey;
-      const accessTokenForPoller = currentAccessToken;
-      const apiUrlForPoller = currentApiUrl;
-
-      try {
-        if (captureClient) {
-          removeCaptureEventListeners();
-
-          await captureClient.stopSession();
-          logger.info('Capture session stopped');
-
-          await captureClient.shutdown();
-          logger.info('CaptureClient shutdown complete');
-          captureClient = null;
-
-          // Manually emit recording:stopped immediately (ensures UI updates without waiting for SDK events)
-          sendRecorderEvent({
-            event: 'recording:stopped',
-            data: {},
-          });
-
-          // Manually emit upload:complete since we've already shutdown the client
-          // (the SDK event listener was removed before upload could complete)
-          sendRecorderEvent({
-            event: 'upload:complete',
-            data: {},
-          });
-        } else {
-          logger.warn('No active capture client to stop');
-        }
-
-        await cleanupTranscriptWebSockets();
-        await cleanupVisualIndexWebSocket();
-        await cleanupSessionWebSocket();
-
-        // Start export poller to detect when video is ready
-        // This replaces the unreliable WebSocket-based approach
-        if (sessionIdForPoller && apiKeyForPoller && accessTokenForPoller) {
-          logger.info({ sessionId: sessionIdForPoller }, 'Starting export poller');
-          startExportPoller(
-            sessionIdForPoller,
-            apiKeyForPoller,
-            accessTokenForPoller,
-            apiUrlForPoller
-          );
-        } else {
-          logger.warn('Missing session info for export poller');
-        }
-
-        // Clear stored session info
-        currentSessionId = null;
-        currentApiKey = null;
-        currentAccessToken = null;
-        currentApiUrl = undefined;
-
-        return { success: true };
-      } catch (error) {
-        logger.error({ error }, 'Failed to stop recording');
-        await cleanupTranscriptWebSockets();
-        await cleanupVisualIndexWebSocket();
-        await cleanupSessionWebSocket();
-        cleanupCapture();
-
-        // Clear stored session info on error too
-        currentSessionId = null;
-        currentApiKey = null;
-        currentAccessToken = null;
-        currentApiUrl = undefined;
-
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        };
-      }
+      logger.info('Stopping recording via IPC');
+      return stopRecordingInternal();
     }
   );
 
@@ -736,6 +803,7 @@ export async function shutdownCaptureClient(): Promise<void> {
   currentApiKey = null;
   currentAccessToken = null;
   currentApiUrl = undefined;
+  currentCollectionId = null;
 
   if (captureClient) {
     logger.info('Shutting down CaptureClient before app quit');

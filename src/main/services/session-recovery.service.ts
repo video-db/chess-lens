@@ -22,7 +22,8 @@ export interface RecoveryResult {
  */
 export async function recoverPendingSessions(
   apiKey: string,
-  apiUrl?: string
+  apiUrl?: string,
+  collectionId?: string
 ): Promise<RecoveryResult> {
   const result: RecoveryResult = {
     recovered: 0,
@@ -40,14 +41,15 @@ export async function recoverPendingSessions(
     return result;
   }
 
-  logger.info({ count: pendingRecordings.length }, 'Found pending recordings to recover');
+  logger.info({ count: pendingRecordings.length, collectionId }, 'Found pending recordings to recover');
 
   for (const recording of pendingRecordings) {
     const recovery = await checkAndRecoverSession(
       recording.sessionId,
       apiKey,
       apiUrl,
-      true // trigger insights
+      true, // trigger insights
+      collectionId
     );
 
     if (recovery.exported && recovery.success) {
@@ -76,8 +78,8 @@ export async function recoverPendingSessions(
 }
 
 // Factory function for backward compatibility
-export function createSessionRecoveryService(apiKey: string, apiUrl?: string) {
+export function createSessionRecoveryService(apiKey: string, apiUrl?: string, collectionId?: string) {
   return {
-    recoverPendingSessions: () => recoverPendingSessions(apiKey, apiUrl),
+    recoverPendingSessions: () => recoverPendingSessions(apiKey, apiUrl, collectionId),
   };
 }
