@@ -49,23 +49,6 @@ New tips are generated only when the board position changes (FEN signature dedup
 
 ---
 
-## Quick Install
-
-**macOS** (Apple Silicon & Intel):
-```bash
-curl -fsSL https://artifacts.videodb.io/chess-lens/install | bash
-```
-
-After installation:
-1. Open **Chess Lens** from Applications or Spotlight
-2. Grant **Microphone** and **Screen Recording** permissions when prompted
-3. Enter your [VideoDB API key](https://console.videodb.io)
-4. Start a chess session — the overlay appears automatically when recording begins
-
-> Currently available for macOS. Windows and Linux support coming soon.
-
----
-
 ## Prerequisites
 
 - **macOS 12+** (Monterey or later)
