@@ -27,7 +27,7 @@ export function createServer(port: number) {
   app.get('/api', (c) => {
     return c.json({
       status: 'ok',
-      message: 'Call.md Server Running',
+      message: 'Chess Lens Server Running',
     });
   });
 

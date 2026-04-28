@@ -592,7 +592,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory }: HomeViewProp
               <PermissionItem
                 icon={<NotificationIcon enabled={notificationsEnabled} />}
                 title="App notification"
-                description="Allow Pair Gaming Coach to send notifications and reminders"
+                description="Allow Chess Lens to send notifications and reminders"
                 enabled={notificationsEnabled}
                 onChange={handleToggleNotifications}
                 isLast

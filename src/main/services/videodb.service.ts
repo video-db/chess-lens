@@ -78,39 +78,39 @@ export class VideoDBService {
   }
 
   /**
-   * Find or create the "call.md" collection for this user.
+   * Find or create the "chess-lens" collection for this user.
    * Returns the collection ID.
    */
   async findOrCreateCallMdCollection(): Promise<string> {
     const conn = this.getConnection();
-    const COLLECTION_NAME = 'call.md Recordings';
+    const COLLECTION_NAME = 'Chess Lens Recordings';
 
-    logger.info('Looking for call.md collection...');
+    logger.info('Looking for chess-lens collection...');
 
     try {
-      // List all collections and find the one named "call.md"
+      // List all collections and find the one named "chess-lens"
       const collections = await conn.getCollections();
 
       for (const collection of collections) {
         if (collection.name === COLLECTION_NAME) {
-          logger.info({ collectionId: collection.id }, 'Found existing call.md collection');
+          logger.info({ collectionId: collection.id }, 'Found existing chess-lens collection');
           return collection.id;
         }
       }
 
       // Collection not found, create it
-      logger.info('call.md collection not found, creating...');
+      logger.info('chess-lens collection not found, creating...');
       const newCollection = await conn.createCollection(
         COLLECTION_NAME,
-        'Meeting recordings from Call.md app',
+        'Chess game recordings from Chess Lens app',
         false // isPublic
       );
 
-      logger.info({ collectionId: newCollection.id }, 'Created call.md collection');
+      logger.info({ collectionId: newCollection.id }, 'Created chess-lens collection');
       return newCollection.id;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error({ errorMessage }, 'Failed to find or create call.md collection');
+      logger.error({ errorMessage }, 'Failed to find or create chess-lens collection');
       throw error;
     }
   }
@@ -227,9 +227,23 @@ A brief 2-3 sentence executive summary of the meeting.
 
 Transcript:
 ${transcriptText}`;
-    const model = 'openai/gpt-5.4';
-    logger.info({ videoId, model }, 'Generating insights with VideoDB model');
-    const result = await collection.generateText(prompt, model);
+    const primaryModel = 'pro';
+    const fallbackModel = 'pro';
+    let result: unknown;
+    try {
+      logger.info({ videoId, model: primaryModel }, 'Generating insights with VideoDB model');
+      result = await collection.generateText(prompt, primaryModel);
+    } catch (primaryError) {
+      const msg = primaryError instanceof Error ? primaryError.message.toLowerCase() : String(primaryError).toLowerCase();
+      const isModelUnavailable = msg.includes('not found') || msg.includes('not available') ||
+        msg.includes('unsupported') || msg.includes('does not exist') || msg.includes('404');
+      if (isModelUnavailable) {
+        logger.warn({ videoId, primaryModel, fallbackModel }, 'Primary model unavailable, retrying with fallback model');
+        result = await collection.generateText(prompt, fallbackModel);
+      } else {
+        throw primaryError;
+      }
+    }
 
     logger.info({ videoId }, 'Insights generated successfully');
 

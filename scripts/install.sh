@@ -2,11 +2,11 @@
 set -e
 
 # Chess Lens Installer
-# Usage: curl -fsSL https://artifacts.videodb.io/call-md/install | bash
+# Usage: curl -fsSL https://artifacts.videodb.io/chess-lens/install | bash
 
-APP_NAME="Call.md"
+APP_NAME="Chess Lens"
 APP_DIR="/Applications/${APP_NAME}.app"
-BASE_URL="https://artifacts.videodb.io/call-md"
+BASE_URL="https://artifacts.videodb.io/chess-lens"
 # Version is read from package.json at build time; update here on each release.
 VERSION="1.0.2"
 
@@ -120,10 +120,10 @@ MOUNT_POINT=""
 # --- Done ---
 
 echo ""
-success "Call.md (Chess Lens) has been installed to /Applications!"
+success "Chess Lens has been installed to /Applications!"
 echo ""
 echo "  Next steps:"
-echo "    1. Open Call.md from Applications or Spotlight"
+echo "    1. Open Chess Lens from Applications or Spotlight"
 echo "    2. Grant Microphone and Screen Recording permissions when prompted"
 echo "    3. Enter your VideoDB API key (get one at https://console.videodb.io)"
 echo "    4. Start a chess session to get real-time move coaching"

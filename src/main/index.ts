@@ -43,7 +43,7 @@ import { createVideoDBService } from './services/videodb.service';
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = !app.isPackaged;
-const PROTOCOL_NAME = 'call-md';
+const PROTOCOL_NAME = 'chess-lens';
 
 const DEV_SERVER_HOST = process.env.VITE_DEV_SERVER_HOST ?? 'localhost';
 const DEV_SERVER_START_PORT = Number(process.env.VITE_DEV_SERVER_PORT ?? 51730);
@@ -62,7 +62,7 @@ export function getAppQuitting(): boolean {
 
 /**
  * Register custom protocol handler for OAuth callbacks
- * This allows OAuth providers to redirect back to the app via call-md://oauth/callback
+ * This allows OAuth providers to redirect back to the app via chess-lens://oauth/callback
  */
 function setupProtocolHandler(): void {
   // Register as default protocol handler (only works in packaged app)
@@ -139,7 +139,7 @@ async function createWindow(): Promise<void> {
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    title: 'Pair Gaming Coach',
+    title: 'Chess Lens',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
@@ -222,7 +222,7 @@ function isDevServerAvailable(url: string): Promise<boolean> {
 function createMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: 'Pair Gaming Coach',
+      label: 'Chess Lens',
       submenu: [
         { role: 'about' },
         { type: 'separator' },
@@ -379,7 +379,7 @@ async function recoverPendingSessions(): Promise<void> {
 }
 
 /**
- * Migrate existing users to use the call.md collection.
+ * Migrate existing users to use the chess-lens collection.
  * For users who registered before this feature was added, find or create
  * the collection and update their record.
  */
@@ -404,14 +404,14 @@ async function migrateExistingUserCollection(): Promise<void> {
     return;
   }
 
-  logger.info({ userId: user.id }, 'Migrating existing user to call.md collection');
+  logger.info({ userId: user.id }, 'Migrating existing user to chess-lens collection');
 
   try {
     const videodbService = createVideoDBService(user.apiKey, runtimeConfig.apiUrl);
     const collectionId = await videodbService.findOrCreateCallMdCollection();
 
     updateUser(user.id, { collectionId });
-    logger.info({ userId: user.id, collectionId }, 'User migrated to call.md collection');
+      logger.info({ userId: user.id, collectionId }, 'User migrated to chess-lens collection');
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error({ error: errorMsg, userId: user.id }, 'Failed to migrate user collection');
@@ -538,7 +538,7 @@ app.whenReady().then(async () => {
 
     await autoRegister();
 
-    // Migrate existing users to call.md collection (fire and forget)
+    // Migrate existing users to chess-lens collection (fire and forget)
     migrateExistingUserCollection().catch(() => {
       // Error already logged in migrateExistingUserCollection
     });

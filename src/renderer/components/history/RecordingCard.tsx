@@ -4,7 +4,7 @@ import type { Recording } from '../../../shared/schemas/recording.schema';
 import { formatDate, formatDurationMinutes, stripMarkdown, cn } from '../../lib/utils';
 import { Tooltip } from '../ui/Tooltip';
 
-// Generate the call_md folder path for a recording
+// Generate the chess_lens folder path for a recording
 function getCallMdPath(recording: Recording): string {
   const date = new Date(recording.createdAt);
   const year = date.getFullYear();
@@ -18,7 +18,7 @@ function getCallMdPath(recording: Recording): string {
     .toLowerCase()
     .slice(0, 100);
 
-  return `~/.call_md/sessions/${year}/${month}/${day}/${name}`;
+  return `~/.chess_lens/sessions/${year}/${month}/${day}/${name}`;
 }
 
 interface RecordingCardProps {
@@ -141,7 +141,7 @@ function OpenFolderButton({ recording }: { recording: Recording }) {
 
     // Use shell.openPath via IPC - the main process will resolve ~ to home dir
     try {
-      await window.electronAPI?.app?.openCallMdFolder?.(path);
+      await window.electronAPI?.app?.openChessLensFolder?.(path);
     } catch (err) {
       console.error('Failed to open folder:', err);
     }

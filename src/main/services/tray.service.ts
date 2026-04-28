@@ -38,7 +38,7 @@ class TrayService {
     }
 
     this.tray = new Tray(icon);
-    this.tray.setToolTip('Pair Gaming Coach');
+    this.tray.setToolTip('Chess Lens');
 
     // On macOS, clicking tray icon should show context menu (default behavior)
     // On Windows/Linux, double-click opens the app
@@ -59,7 +59,7 @@ class TrayService {
     });
 
     poller.on('auth-required', () => {
-      this.tray?.setToolTip('Pair Gaming Coach - Reconnect needed');
+      this.tray?.setToolTip('Chess Lens - Reconnect needed');
     });
 
     log.info('Tray created');
@@ -116,7 +116,7 @@ class TrayService {
     menuItems.push({ type: 'separator' });
 
     menuItems.push({
-      label: 'Open Pair Gaming Coach',
+      label: 'Open Chess Lens',
       click: () => {
         this.showMainWindow();
       },
@@ -140,12 +140,12 @@ class TrayService {
       const next = events[0];
       const mins = next.minutesUntil;
       if (mins <= 60) {
-        this.tray.setToolTip(`Pair Gaming Coach - "${next.summary}" in ${mins}m`);
+        this.tray.setToolTip(`Chess Lens - "${next.summary}" in ${mins}m`);
       } else {
-        this.tray.setToolTip('Pair Gaming Coach');
+        this.tray.setToolTip('Chess Lens');
       }
     } else {
-      this.tray.setToolTip('Pair Gaming Coach');
+      this.tray.setToolTip('Chess Lens');
     }
   }
 

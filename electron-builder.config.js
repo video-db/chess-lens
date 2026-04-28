@@ -16,8 +16,8 @@ function getTargetArchName(arch) {
  * @type {import('electron-builder').Configuration}
  */
 const config = {
-  appId: 'com.videodb.call-md',
-  productName: 'Call.md',
+  appId: 'com.videodb.chess-lens',
+  productName: 'Chess Lens',
   directories: {
     output: 'release',
     buildResources: 'resources',
@@ -65,14 +65,14 @@ const config = {
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.plist',
     extendInfo: {
-      NSMicrophoneUsageDescription: 'Call.md needs microphone access to record audio.',
-      NSCameraUsageDescription: 'Call.md needs camera access to record video.',
+      NSMicrophoneUsageDescription: 'Chess Lens needs microphone access to record audio.',
+      NSCameraUsageDescription: 'Chess Lens needs camera access to record video.',
       NSScreenCaptureUsageDescription:
-        'Call.md needs screen capture access to record your screen.',
+        'Chess Lens needs screen capture access to record your screen.',
     },
   },
   dmg: {
-    title: 'Call.md ${version}${arch}',
+    title: 'Chess Lens ${version}${arch}',
     icon: 'resources/icon.icns',
     window: {
       width: 540,

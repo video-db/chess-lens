@@ -46,22 +46,22 @@ export function setupAppHandlers(): void {
     }
   });
 
-  ipcMain.handle('open-call-md-folder', async (_event, folderPath: string): Promise<void> => {
+  ipcMain.handle('open-chess-lens-folder', async (_event, folderPath: string): Promise<void> => {
     // Expand ~ to home directory
     const expandedPath = folderPath.replace(/^~/, os.homedir());
     const absolutePath = path.resolve(expandedPath);
 
-    // Security check: only allow paths under ~/.call_md
-    const callMdRoot = path.join(os.homedir(), '.call_md');
-    if (!absolutePath.startsWith(callMdRoot)) {
-      logger.warn({ path: absolutePath }, 'Attempted to open folder outside .call_md');
+    // Security check: only allow paths under ~/.chess_lens
+    const chessLensRoot = path.join(os.homedir(), '.chess_lens');
+    if (!absolutePath.startsWith(chessLensRoot)) {
+      logger.warn({ path: absolutePath }, 'Attempted to open folder outside .chess_lens');
       return;
     }
 
     try {
       await shell.openPath(absolutePath);
     } catch (error) {
-      logger.error({ error, path: absolutePath }, 'Failed to open call_md folder');
+      logger.error({ error, path: absolutePath }, 'Failed to open chess_lens folder');
     }
   });
 
@@ -82,7 +82,7 @@ export function setupAppHandlers(): void {
     const playerWindow = new BrowserWindow({
       width: 1024,
       height: 768,
-      title: 'Call.md - Player',
+      title: 'Chess Lens - Player',
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,

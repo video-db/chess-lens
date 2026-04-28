@@ -2,10 +2,9 @@
  * Markdown Export Service
  *
  * Exports meeting transcripts, summaries, visual analysis, and metrics to markdown files
- * in a globally accessible folder structure (~/.call_md/) for AI agents and other tools.
+ * in a globally accessible folder structure (~/.chess_lens/) for AI agents and other tools.
  *
- * Directory structure:
- *   ~/.call_md/
+ *   ~/.chess_lens/
  *     ├── index.md (list of all meetings)
  *     └── meetings/
  *         └── 2024/
@@ -28,9 +27,9 @@ import { getGameCoachingProfile, type SupportedGameId } from '../../shared/confi
 
 const logger = createChildLogger('markdown-export');
 
-const CALL_MD_DIR = path.join(os.homedir(), '.call_md');
-const MEETINGS_DIR = path.join(CALL_MD_DIR, 'meetings');
-const INDEX_FILE = path.join(CALL_MD_DIR, 'index.md');
+const CHESS_LENS_DIR = path.join(os.homedir(), '.chess_lens');
+const MEETINGS_DIR = path.join(CHESS_LENS_DIR, 'meetings');
+const INDEX_FILE = path.join(CHESS_LENS_DIR, 'index.md');
 
 export interface MeetingExportData {
   recordingId: number;
@@ -382,7 +381,7 @@ function updateIndex(data: MeetingExportData, relativePath: string): void {
   entries.sort((a, b) => b.date.localeCompare(a.date));
 
   const lines: string[] = [];
-  lines.push('# Call.md Meeting Index');
+  lines.push('# Chess Lens Session Index');
   lines.push('');
   lines.push('A chronological index of all recorded meetings.');
   lines.push('');
@@ -423,7 +422,7 @@ export async function exportMeetingToMarkdown(data: MeetingExportData): Promise<
 
     logger.info({ folderPath, meetingName: data.meetingName, gameId: data.gameId, sceneCount: scenes.length }, 'Session exported to markdown');
 
-    const relativePath = path.relative(CALL_MD_DIR, folderPath);
+    const relativePath = path.relative(CHESS_LENS_DIR, folderPath);
     updateIndex(data, relativePath);
 
     return folderPath;
@@ -435,22 +434,22 @@ export async function exportMeetingToMarkdown(data: MeetingExportData): Promise<
 }
 
 /**
- * Get the .call_md directory path
+ * Get the .chess_lens directory path
  */
 export function getCallMdDir(): string {
-  return CALL_MD_DIR;
+  return CHESS_LENS_DIR;
 }
 
 /**
- * Initialize the .call_md directory structure
+ * Initialize the .chess_lens directory structure
  */
 export function initializeCallMdDir(): void {
-  ensureDirectoryExists(CALL_MD_DIR);
+  ensureDirectoryExists(CHESS_LENS_DIR);
   ensureDirectoryExists(MEETINGS_DIR);
 
   if (!fs.existsSync(INDEX_FILE)) {
     const initialContent = [
-      '# Call.md Meeting Index',
+      '# Chess Lens Session Index',
       '',
       'A chronological index of all recorded meetings.',
       '',
@@ -462,6 +461,6 @@ export function initializeCallMdDir(): void {
     ].join('\n');
 
     fs.writeFileSync(INDEX_FILE, initialContent, 'utf-8');
-    logger.info({ path: CALL_MD_DIR }, 'Initialized .call_md directory');
+    logger.info({ path: CHESS_LENS_DIR }, 'Initialized .chess_lens directory');
   }
 }

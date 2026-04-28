@@ -18,7 +18,7 @@ export function getDbPath(): string {
     fs.mkdirSync(dbDir, { recursive: true });
   }
 
-  return path.join(dbDir, 'call-md.db');
+  return path.join(dbDir, 'chess-lens.db');
 }
 
 export function initDatabase(): ReturnType<typeof drizzle<typeof schema>> {

@@ -50,7 +50,7 @@ export const useConfigStore = create<ConfigState>()(
       },
     }),
     {
-      name: 'call-md-config',
+      name: 'chess-lens-config',
       partialize: (state) => ({
         accessToken: state.accessToken,
         userName: state.userName,

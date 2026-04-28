@@ -40,7 +40,7 @@ import { useNotificationPermission } from './hooks/useNotificationPermission';
 type Tab = 'home' | 'history' | 'settings';
 
 function LogoIcon() {
-  return <img src={logoIcon} width={50} height={50} alt="Pair Gaming Coach" />;
+  return <img src={logoIcon} width={50} height={50} alt="Chess Lens" />;
 }
 
 // System audio icon

@@ -51,7 +51,7 @@ import {
 import { exportMeetingToMarkdown } from '../markdown-export.service';
 
 
-const log = logger.child({ module: 'call-md' });
+const log = logger.child({ module: 'chess-lens' });
 
 // Types
 
@@ -444,7 +444,7 @@ export class MeetingCopilotService extends EventEmitter {
   }
 
   /**
-   * Export meeting to markdown files in ~/.call_md/
+   * Export session to markdown files in ~/.chess_lens/
    */
   private async exportToMarkdown(
     recordingId: number,

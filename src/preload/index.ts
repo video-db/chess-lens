@@ -387,7 +387,7 @@ const api: IpcApi = {
     showNotification: (title: string, body: string) =>
       ipcRenderer.invoke('show-notification', title, body),
     openPlayerWindow: (url: string) => ipcRenderer.invoke('open-player-window', url),
-    openCallMdFolder: (path: string) => ipcRenderer.invoke('open-call-md-folder', path),
+    openChessLensFolder: (path: string) => ipcRenderer.invoke('open-chess-lens-folder', path),
   },
 
   on: {

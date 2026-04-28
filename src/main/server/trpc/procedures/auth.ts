@@ -32,13 +32,13 @@ export const authRouter = router({
         };
       }
 
-      // Find or create the call.md collection
+      // Find or create the chess-lens collection
       let collectionId: string;
       try {
         collectionId = await videodbService.findOrCreateCallMdCollection();
-        logger.info({ collectionId }, 'Using call.md collection');
+        logger.info({ collectionId }, 'Using chess-lens collection');
       } catch (error) {
-        logger.error({ error, name }, 'Failed to setup call.md collection');
+        logger.error({ error, name }, 'Failed to setup chess-lens collection');
         return {
           success: false,
           error: 'Failed to setup collection. Please try again.',

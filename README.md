@@ -1,321 +1,334 @@
-<!-- PROJECT SHIELDS -->
-[![Electron][electron-shield]][electron-url]
-[![Node][node-shield]][node-url]
-[![React][react-shield]][react-url]
-[![TypeScript][typescript-shield]][typescript-url]
-[![License][license-shield]][license-url]
-[![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
-[![Website][website-shield]][website-url]
+# Chess Lens
 
-<!-- PROJECT LOGO -->
-<br />
-<p align="center">
-  <a href="https://github.com/video-db/call.md">
-    <img src="resources/wordmark-color-black-bg.png" alt="Call.md Logo" width="300" height="">
-  </a>
+**Real-time chess analysis and move coaching — directly on your screen.**
 
-  <h1 align="center">Call.md</h1>
+Chess Lens is a desktop application that watches your chess game through screen capture, extracts the board position as a FEN, queries a chess engine for the best move and evaluation, and delivers a concise coaching tip to a floating overlay — all within seconds of each move.
 
-  <p align="center">
-    Turn meetings into live agent loops. Record, transcribe, and analyze meetings with real-time AI intelligence — before, during, and after calls.
-    <br />
-    <a href="https://docs.videodb.io"><strong>Explore the docs »</strong></a>
-    <br />
-    <br />
-    <a href="#demo">View Demo</a>
-    ·
-    <a href="#quick-install">Install</a>
-    ·
-    <a href="https://github.com/video-db/call.md/issues">Report Bug</a>
-  </p>
-</p>
+[![Electron](https://img.shields.io/badge/Electron-34-47848F?style=for-the-badge&logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
 ---
 
-## Demo
+## How It Works
 
+```
+Screen capture
+    ↓ every 3 seconds
+VideoDB visual indexing (reads the board, outputs FEN)
+    ↓
+chess-api.com engine (best move + evaluation + top lines)
+    ↓
+LLM coaching layer (explains the move in plain language)
+    ↓
+Floating overlay (coaching tip appears on screen)
+```
 
-https://github.com/user-attachments/assets/94470e99-c0f6-4e35-9d03-b28efa362b3b
+1. **Screen capture** — Chess Lens records your display continuously using the VideoDB capture SDK.
+2. **Board extraction** — Every 3 seconds a frame is sent to VideoDB's visual indexing pipeline with a chess-specific prompt. The model scans the board row-by-row, determines perspective (white or black at the bottom), and outputs a raw FEN board string.
+3. **FEN validation** — The app validates the extracted FEN for structural correctness, piece count sanity, and pawn placement rules before using it.
+4. **Engine analysis** — The validated FEN is sent to [chess-api.com](https://chess-api.com) with depth 12, returning the best move in SAN/LAN, centipawn evaluation, mate distance, and top 5 continuation lines.
+5. **LLM coaching** — The board context and engine output are passed to an LLM (via VideoDB's OpenAI-compatible proxy) which writes a concise paragraph explaining *why* the best move is strong — threats, king safety, piece activity, forcing lines.
+6. **Overlay display** — The coaching tip appears in a frameless, always-on-top floating window that stays visible over your chess client without stealing focus.
 
+New tips are generated only when the board position changes (FEN signature deduplication), so you get one tip per move, not a stream of noise.
 
+---
+
+## Features
+
+- **Automatic FEN extraction** — Reads any chess board from a screenshot. Works with chess.com, lichess, ChessBase, or any client displayed on screen. Handles both white-bottom and black-bottom perspectives.
+- **Engine-backed tips** — Every tip is grounded in actual engine analysis (best move, eval, top lines) rather than generic advice.
+- **LLM explanation** — The engine output is translated into readable coaching language: tactical motifs, positional ideas, and concrete threats.
+- **Floating HUD overlay** — Transparent, frameless, always-on-top window. Draggable, position-persisted across sessions. Never steals focus from your game.
+- **Position deduplication** — Tips are only regenerated when the board position genuinely changes. The same position never triggers duplicate tips.
+- **Engine fallback** — If the LLM is unavailable, the raw engine summary (best move + eval) is shown directly so you always have something useful.
+- **Session history** — All sessions are saved locally. Browse past games, review coaching tips, and replay the visual index.
+- **Local-first storage** — SQLite database on your machine. No data leaves your device except for the API calls to VideoDB and chess-api.com.
+
+---
 
 ## Quick Install
 
 **macOS** (Apple Silicon & Intel):
 ```bash
-curl -fsSL https://artifacts.videodb.io/call.md/install | bash
+curl -fsSL https://artifacts.videodb.io/chess-lens/install | bash
 ```
 
-<p>
-  <em>Currently available for macOS and Windows — Linux support coming soon</em>
-</p>
-
 After installation:
-1. Launch Call.md from Applications or Spotlight
-2. Grant system permissions when prompted (Microphone and Screen Recording required)
-3. Register with your VideoDB API key ([get one free](https://console.videodb.io))
+1. Open **Chess Lens** from Applications or Spotlight
+2. Grant **Microphone** and **Screen Recording** permissions when prompted
+3. Enter your [VideoDB API key](https://console.videodb.io)
+4. Start a chess session — the overlay appears automatically when recording begins
+
+> Currently available for macOS. Windows and Linux support coming soon.
 
 ---
 
-## Overview
-
-Call.md turns meetings into live agent loops. It records locally, transcribes in real-time (you vs them), and provides live intelligence during calls. When the meeting ends, it generates summaries with action items and can send data to your workflow automation platforms.
-
-## Features
-
-### During the Meeting (Live Intelligence)
-- **Dual-Channel Transcription** - Separate transcription for you (mic) vs them (system audio), powered by VideoDB
-- **Live Assist** - AI generates contextual suggestions: things to say, questions to ask
-- **Conversation Metrics** - Real-time monitoring of talk ratio, speaking pace (WPM), questions asked, monologue detection
-- **Coaching Nudges** - Gentle rate-limited alerts when conversation needs steering
-- **MCP Auto-Triggering** - Detects information needs from conversation and calls your MCP tools automatically
-- **MCP Results Panel** - Inline display of tool outputs (markdown, links, structured data) during meetings
-- **Bookmarking** - Mark important moments for easy reference later
-
-### Post-Meeting Intelligence
-- **AI-Generated Summaries** - Three parallel extractions:
-  - Short overview (narrative summary)
-  - Key points by topic (attributed to participants)
-  - Action items (concrete next steps)
-- **Structured Export** - Markdown export with full transcript, summary, and metrics
-- **Workflow Webhooks** - Auto-send meeting data to n8n, Zapier, or CRMs when meeting ends
-
-### Meeting Preparation
-- **Meeting Setup Wizard** - AI-generated probing questions based on meeting description
-- **Dynamic Checklist** - AI creates discussion checklist from meeting context
-- **Google Calendar Integration** - Sync upcoming meetings
-
-### Privacy & Storage
-- **Local-First** - SQLite database, all data stored on your machine
-- **Screen & Audio Recording** - Capture screen, microphone, and system audio simultaneously
-- **Recording History** - Browse and review past recordings with full transcripts
-- **VideoDB Integration** - Transcription and AI features require internet connectivity
-
-## How It Works
-
-**During Recording:**
-- Captures dual-channel audio (you vs them) and sends to VideoDB for real-time transcription via WebSocket
-- Runs live intelligence: metrics tracking, coaching nudges, and AI-generated assists
-- MCP agent automatically detects information needs and triggers relevant tools
-
-**After Recording:**
-- Generates three-part summary: narrative overview, key points, and action items
-- Sends meeting data to workflow automation platforms (n8n, Zapier, CRMs)
-- Exports to markdown with full transcript and intelligence
-
-## Tech Stack
-
-- **Electron 34** - Desktop application framework
-- **TypeScript 5.8** - Full type safety across main and renderer processes
-- **React 19** - Modern UI framework with concurrent features
-- **Tailwind CSS + shadcn/ui** - Utility-first styling with high-quality component primitives
-- **tRPC 11** - End-to-end type-safe API layer between main and renderer
-- **Hono** - Fast HTTP server for tRPC API endpoints
-- **Drizzle ORM + SQLite** - Type-safe database operations with local storage
-- **Zustand** - Lightweight state management
-- **VideoDB SDK** (0.2.4) - Screen recording, transcription, and video processing
-- **MCP SDK** (1.0.0) - Model Context Protocol for tool integrations
-- **OpenAI SDK** (6.19.0) - LLM calls via VideoDB's OpenAI-compatible API
-- **Vite** - Fast frontend bundling and hot module replacement
-
 ## Prerequisites
 
-- macOS 12+ (Monterey or later)
-- VideoDB API Key ([console.videodb.io](https://console.videodb.io))
-- System permissions: Microphone and Screen Recording
+- **macOS 12+** (Monterey or later)
+- **VideoDB API key** — [console.videodb.io](https://console.videodb.io) (free tier available)
+- **Permissions** — Microphone and Screen Recording (required for capture)
 
 For development: Node.js 18+ and npm 10+
-
-## Getting Started (Users)
-
-1. **Install:**
-   ```bash
-   curl -fsSL https://artifacts.videodb.io/call.md/install | bash
-   ```
-
-2. **Launch** the app and enter your VideoDB API key ([get one free](https://console.videodb.io))
-
-3. **Grant permissions** when prompted (Microphone and Screen Recording)
-
-4. **Start Recording** - Click "New Meeting" and begin your first session
-
-The app will transcribe in real-time, show live assists, and generate a summary when you're done.
 
 ---
 
 ## Getting Started (Developers)
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/video-db/call.md.git
-   cd call-md
-   ```
+**1. Clone and install:**
+```bash
+git clone https://github.com/video-db/chess-lens.git
+cd chess-lens
+npm install
+```
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+**2. Rebuild native modules for Electron:**
+```bash
+npm run rebuild
+```
 
-3. **Rebuild native modules for Electron:**
-   ```bash
-   npm run rebuild
-   ```
+**3. Start development mode:**
+```bash
+npm run dev
+```
 
-4. **Start development mode:**
-   ```bash
-   npm run dev
-   ```
-
-5. **Register with your VideoDB API key** when the app opens
+**4. Register** with your VideoDB API key when the app opens.
 
 ### Available Scripts
 
 | Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development mode (main + renderer with hot reload) |
+|---|---|
+| `npm run dev` | Start dev mode (main + renderer with hot reload) |
 | `npm run build` | Build TypeScript and React for production |
-| `npm run dist:mac` | Build macOS distributable DMG |
-| `npm run typecheck` | Run TypeScript type checking |
+| `npm run dist:mac` | Package macOS DMG |
+| `npm run typecheck` | Run TypeScript type checking across all targets |
 | `npm run lint` | Run ESLint |
-| `npm run rebuild` | Rebuild native modules for Electron |
-| `npm run db:generate` | Generate database migration files |
+| `npm run rebuild` | Rebuild native modules for Electron's Node ABI |
+| `npm run db:generate` | Generate Drizzle migration files |
 | `npm run db:migrate` | Apply database migrations |
 
-## MCP Server Setup
+---
 
-Connect MCP servers in **Settings → MCP Servers**:
+## Architecture
 
-1. Click **Add Server**
-2. Choose transport: **stdio** (local) or **http** (remote)
-3. Configure and click **Connect**
+Chess Lens is a multi-process Electron application with three runtime contexts:
 
-The MCP agent runs automatically during meetings, detects information needs from conversation, and triggers relevant tools. Results appear inline in the **MCP Results** panel.
+```
+┌─────────────────────────────────────────────────────────┐
+│  Main Process (Node.js / CommonJS)                      │
+│  Services → IPC Handlers → Hono/tRPC HTTP :51731        │
+│  SQLite (Drizzle ORM)                                   │
+└──────────────┬──────────────────────────┬───────────────┘
+    contextBridge (IPC events)    HTTP tRPC (CRUD)
+┌──────────────┴──────────────────────────┴───────────────┐
+│  Renderer (React + Vite, sandboxed)                     │
+│  Zustand stores ← hooks ← IPC events / tRPC queries     │
+└──────────────┬──────────────────────────────────────────┘
+    widgetAPI contextBridge
+┌──────────────┴──────────────────────────────────────────┐
+│  Widget Window (always-on-top, transparent HUD)         │
+│  Floating chess coaching overlay                        │
+└─────────────────────────────────────────────────────────┘
+```
 
-## Development
+**Communication patterns:**
+- **tRPC over HTTP** — typed CRUD operations (recordings, settings, auth)
+- **IPC** — event push from main to renderer (visual index events, coaching tips, recorder state)
+- **EventEmitter** — internal service decoupling within the main process
+- **WebSocket** — VideoDB SDK streams for visual indexing
 
 ### Project Structure
 
 ```
 src/
-├── main/                   # Electron Main Process
-│   ├── db/                 # Database layer (Drizzle + SQLite)
-│   ├── ipc/                # IPC handlers
-│   ├── lib/                # Utilities (logger, paths, permissions)
-│   ├── server/             # HTTP server (Hono + tRPC)
-│   │   └── trpc/           # tRPC router and procedures
-│   └── services/           # Business logic
-│       ├── copilot/        # Meeting intelligence services
-│       │   ├── context-manager.service.ts
-│       │   ├── conversation-metrics.service.ts
-│       │   ├── nudge-engine.service.ts
-│       │   ├── sales-copilot.service.ts  # Core orchestrator
-│       │   ├── summary-generator.service.ts
-│       │   └── transcript-buffer.service.ts
-│       ├── mcp/            # MCP orchestration and tool execution
-│       │   ├── connection-orchestrator.service.ts
-│       │   ├── intent-detector.service.ts
-│       │   ├── mcp-agent.service.ts
-│       │   ├── tool-aggregator.service.ts
-│       │   └── result-handler.service.ts
-│       ├── live-assist.service.ts
-│       ├── mcp-inference.service.ts
-│       ├── llm.service.ts
-│       └── videodb.service.ts
-├── preload/                # Preload scripts (IPC bridge)
-├── renderer/               # React Frontend
-│   ├── api/                # tRPC client
-│   ├── components/         # UI components
-│   │   ├── auth/           # Authentication modal
-│   │   ├── calendar/       # Calendar integration UI
-│   │   ├── copilot/        # Meeting intelligence UI
-│   │   ├── history/        # Recording history views
-│   │   ├── home/           # Home screen
-│   │   ├── icons/          # Icon components
-│   │   ├── layout/         # App layout (sidebar, titlebar)
-│   │   ├── mcp/            # MCP results/status components
-│   │   ├── meeting-setup/  # Meeting prep wizard
-│   │   ├── recording/      # Recording controls & live assist
-│   │   ├── settings/       # Settings editors
-│   │   ├── transcription/  # Live transcription panel
-│   │   └── ui/             # shadcn/ui components
-│   ├── hooks/              # Custom React hooks
-│   ├── lib/                # Utilities
-│   └── stores/             # Zustand state stores (session, copilot, mcp)
-└── shared/                 # Shared types & schemas
-    ├── schemas/            # Zod validation schemas
-    └── types/              # TypeScript types
+├── main/                        # Electron main process
+│   ├── db/                      # Drizzle ORM schema + all CRUD operations
+│   ├── ipc/                     # IPC handlers (capture, live-assist, widget, …)
+│   ├── lib/                     # Logger, config, paths, VideoDB patches
+│   ├── server/                  # Hono HTTP server + tRPC router
+│   │   └── trpc/procedures/     # auth, capture, recordings, transcription,
+│   │                            #   visualIndex, settings, token, meetingSetup
+│   └── services/
+│       ├── chess-engine.service.ts   # chess-api.com wrapper (FEN → best move)
+│       ├── live-assist.service.ts    # Core coaching engine (FEN extraction,
+│       │                             #   engine calls, LLM, overlay events)
+│       ├── llm.service.ts            # OpenAI SDK via VideoDB proxy
+│       ├── videodb.service.ts        # VideoDB SDK wrapper
+│       └── copilot/                  # Post-session summary generation
+├── preload/                     # contextBridge scripts (main window + widget)
+├── renderer/                    # React frontend
+│   ├── components/
+│   │   ├── recording/           # Recording controls, live assist panel
+│   │   ├── history/             # Session history and review
+│   │   ├── settings/            # Settings view
+│   │   └── …
+│   ├── hooks/                   # useSession, useLiveAssist, useGlobalRecorderEvents, …
+│   ├── stores/                  # Zustand (session, live-assist, visual-index, …)
+│   └── widget/                  # Floating HUD overlay app (separate entry point)
+│       └── components/
+│           └── PairCompactOverlay.tsx   # Main overlay UI
+└── shared/                      # Shared between main + renderer
+    ├── config/game-coaching.ts  # Chess coaching profile (prompts, timing)
+    ├── schemas/                 # Zod validation schemas
+    └── types/                   # TypeScript type definitions
 ```
 
-### IPC API
+### Key Files
 
-The app exposes IPC APIs through the preload script:
+| File | Role |
+|---|---|
+| `src/main/services/live-assist.service.ts` | Core coaching engine — FEN extraction, engine calls, LLM, tip deduplication |
+| `src/main/services/chess-engine.service.ts` | HTTP client for chess-api.com |
+| `src/shared/config/game-coaching.ts` | Chess visual indexing prompt and timing parameters |
+| `src/renderer/widget/components/PairCompactOverlay.tsx` | Floating HUD overlay UI |
+| `src/main/server/trpc/procedures/visual-index.ts` | Visual indexing tRPC procedure (start/pause/resume/clear) |
+| `src/main/ipc/capture.ts` | Recording engine — CaptureClient lifecycle, WebSocket streams |
 
-- `window.electronAPI.mcp.*` - MCP server and tool operations
-- `window.electronAPI.mcpOn.*` - MCP event subscriptions
+---
 
-## Permissions (macOS)
+## The Coaching Pipeline in Detail
 
-The app requires the following permissions:
-- **Microphone** - For voice recording
-- **Screen Recording** - For screen capture
+### FEN Extraction
 
-Grant these in **System Preferences > Privacy & Security**.
+The visual indexing prompt instructs the model to:
+1. Determine board perspective (`<perspective>white</perspective>` or `black`)
+2. Scan each row visually from top to bottom, left to right
+3. Output each row as a FEN rank string inside `<board_mapping>` tags
+4. Combine rows into a raw board string inside `<raw_board>` tags
 
-## Troubleshooting
+The app then:
+- Parses the `<raw_board>` tag and verifies each rank sums to exactly 8 squares
+- Applies perspective correction (flips rank order and reverses each rank for black-bottom boards)
+- Validates the resulting FEN for structural correctness (piece symbols, king count, pawn placement)
+- Adds synthetic side-to-move / castling / en-passant fields (`w - - 0 1`) since these cannot be reliably inferred from a single frame
 
-**Recording not starting:**
-- Check microphone and screen recording permissions in System Settings
-- Verify VideoDB API key is valid
+### Position Deduplication
 
-**Transcription not appearing:**
-- Ensure mic and system audio are enabled in settings
-- Wait 5-10 seconds for first transcripts
-- Check internet connectivity
+To avoid generating identical tips on every poll interval, the app tracks a **chess signature** — the board portion of the FEN (before the space). A new tip is only generated when:
 
-**Development issues:**
-- Rebuild native modules: `npm run rebuild`
-- Check Node.js version (requires 18+)
-- Review logs: `~/Library/Application Support/call-md/logs/`
+1. A valid FEN is visible in the current frame window
+2. The board signature differs from the last generated tip's signature
+3. The same new signature has been seen at least twice consecutively (stabilisation check to filter transient mis-reads)
+
+### Engine Call
+
+```
+chess-api.com POST /v1
+  { fen, variants: 5, depth: 12, maxThinkingTime: 50 }
+
+Response:
+  { san, lan, eval, mate, continuationArr, variants: [...] }
+```
+
+The engine summary passed to the LLM includes: best move in SAN, centipawn evaluation, mate distance (if applicable), and top 5 continuation lines.
+
+### LLM Coaching
+
+The LLM receives:
+- The raw visual index text (recent frames)
+- The validated FEN
+- The engine summary (best move + eval + top lines)
+
+It returns a JSON object:
+```json
+{
+  "say_this": "paragraph explaining the best move and its idea",
+  "ask_this": "one short drill sentence"
+}
+```
+
+`say_this` is displayed as the main coaching tip in the overlay. `ask_this` is shown below as a drill prompt.
+
+---
 
 ## Data Storage
 
-Application data is stored in:
+All application data is stored locally:
+
 ```
-~/Library/Application Support/call-md/
+~/Library/Application Support/chess-lens/
 ├── data/
-│   └── call-md.db    # SQLite database
-└── logs/
-    └── app-YYYY-MM-DD.log  # Daily log files
+│   └── chess-lens.db          # SQLite database (recordings, transcripts, visual index)
+├── logs/
+│   └── app-YYYY-MM-DD.log  # Daily log files
+├── config.json             # App configuration
+├── google_tokens.enc       # Google OAuth tokens (encrypted)
+└── .mcp-encryption-key     # AES-256-GCM key for MCP credentials
 ```
+
+Nothing is uploaded to any server except:
+- Screen frames → VideoDB visual indexing API (for FEN extraction)
+- FEN strings → chess-api.com (for engine analysis)
+- Coaching prompts → LLM via VideoDB proxy
+
+---
+
+## Permissions (macOS)
+
+| Permission | Why |
+|---|---|
+| **Screen Recording** | Capture screen frames for board extraction |
+| **Microphone** | Optional — for session audio recording |
+
+Grant in **System Settings → Privacy & Security**.
+
+---
+
+## Troubleshooting
+
+**Overlay not showing coaching tips:**
+- Ensure Screen Recording permission is granted
+- Check that the chess board is clearly visible and not obscured
+- Wait for the first tip — FEN extraction and engine calls take ~5 seconds on first move
+- Check logs at `~/Library/Application Support/chess-lens/logs/`
+
+**"Unauthorized access to session" on start:**
+- Your session token may be stale — stop and restart the recording
+- Verify your VideoDB API key is valid at [console.videodb.io](https://console.videodb.io)
+
+**FEN not being extracted:**
+- The board must be at least ~400px wide on screen
+- Ensure no overlays (menus, modals) are covering the board at the moment of capture
+- Both white-at-bottom and black-at-bottom perspectives are supported
+
+**Development — native module errors:**
+```bash
+npm run rebuild
+```
+
+**Development — app won't start:**
+- Ensure Node.js 18+ is installed
+- Delete `dist/` and re-run `npm run dev`
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Desktop shell | Electron 34 |
+| Language | TypeScript 5.8 |
+| Frontend | React 19, Vite 6, Tailwind CSS 3.4, shadcn/ui |
+| State | Zustand 5, TanStack Query 5 |
+| Backend | Hono 4, tRPC 11 |
+| Database | Drizzle ORM + better-sqlite3 (SQLite) |
+| Capture | `@videodb/recorder` (native binary), VideoDB SDK 0.2.4 |
+| Chess engine | chess-api.com REST API |
+| LLM | OpenAI SDK 6 via VideoDB proxy |
+| Logging | Pino + pino-pretty |
+
+---
 
 ## Community & Support
 
-- **Documentation:** [docs.videodb.io](https://docs.videodb.io)
-- **Issues:** [GitHub Issues](https://github.com/video-db/call.md/issues)
-- **Discord:** [Join community](https://discord.gg/py9P639jGz)
+- **Issues:** [GitHub Issues](https://github.com/video-db/chess-lens/issues)
+- **Discord:** [Join the VideoDB community](https://discord.gg/py9P639jGz)
 - **API Key:** [VideoDB Console](https://console.videodb.io)
+- **Docs:** [docs.videodb.io](https://docs.videodb.io)
 
 ---
 
-<p align="center">Made with ❤️ by the <a href="https://videodb.io">VideoDB</a> team</p>
-
----
-
-<!-- MARKDOWN LINKS & IMAGES -->
-[electron-shield]: https://img.shields.io/badge/Electron-34-47848F?style=for-the-badge&logo=electron&logoColor=white
-[electron-url]: https://www.electronjs.org/
-[node-shield]: https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white
-[node-url]: https://nodejs.org/
-[react-shield]: https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black
-[react-url]: https://reactjs.org/
-[typescript-shield]: https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white
-[typescript-url]: https://www.typescriptlang.org/
-[license-shield]: https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge
-[license-url]: https://opensource.org/licenses/MIT
-[stars-shield]: https://img.shields.io/github/stars/video-db/call.md.svg?style=for-the-badge
-[stars-url]: https://github.com/video-db/call.md/stargazers
-[issues-shield]: https://img.shields.io/github/issues/video-db/call.md.svg?style=for-the-badge
-[issues-url]: https://github.com/video-db/call.md/issues
-[website-shield]: https://img.shields.io/website?url=https%3A%2F%2Fvideodb.io%2F&style=for-the-badge&label=videodb.io
-[website-url]: https://videodb.io/
+<p align="center">Built with the <a href="https://videodb.io">VideoDB</a> platform</p>

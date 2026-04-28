@@ -17,6 +17,33 @@ import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
 
 const log = logger.child({ module: 'llm-service' });
 
+const PRIMARY_MODEL = 'openai/gpt-5.4';
+const FALLBACK_MODEL = 'pro';
+
+/** Returns true when the error indicates the requested model is unavailable. */
+function isModelUnavailableError(error: unknown): boolean {
+  if (error instanceof OpenAI.APIError) {
+    // 404 = model not found
+    if (error.status === 404) return true;
+    // Explicit model_not_found error code (e.g. VideoDB proxy returns this)
+    if (error.code === 'model_not_found') return true;
+    // 400 with a message indicating the model is not supported/available
+    if (error.status === 400) {
+      const msg = error.message.toLowerCase();
+      return msg.includes('model') && (
+        msg.includes('not found') ||
+        msg.includes('not exist') ||
+        msg.includes('not available') ||
+        msg.includes('not supported') ||
+        msg.includes('is not supported') ||
+        msg.includes('unsupported') ||
+        msg.includes('does not support')
+      );
+    }
+  }
+  return false;
+}
+
 export interface LLMConfig {
   apiKey: string;
   apiBase: string;
@@ -96,7 +123,7 @@ export class LLMService {
     this.config = {
       apiKey: config?.apiKey || appConfig.apiKey || '',
       apiBase: config?.apiBase || runtimeConfig.apiUrl || 'https://api.videodb.io',
-      model: config?.model || 'openai/gpt-5.4',
+      model: config?.model || PRIMARY_MODEL,
       maxTokens: config?.maxTokens || 4096,
       temperature: config?.temperature || 0.7,
     };
@@ -201,63 +228,77 @@ export class LLMService {
       messagePreview,
     }, 'LLM request starting');
 
-    try {
-      const response = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: this.formatMessages(messages),
-        max_tokens: this.config.maxTokens,
-        temperature: this.config.temperature,
-      });
+    const attemptWithModel = async (model: string): Promise<LLMResponse> => {
+      try {
+        const response = await this.client.chat.completions.create({
+          model,
+          messages: this.formatMessages(messages),
+          max_tokens: this.config.maxTokens,
+          temperature: this.config.temperature,
+        });
 
-      const elapsed = Date.now() - startTime;
-      const content = response.choices[0]?.message?.content || '';
-      const usage = response.usage;
+        const elapsed = Date.now() - startTime;
+        const content = response.choices[0]?.message?.content || '';
+        const usage = response.usage;
 
-      log.info({
-        elapsedMs: elapsed,
-        contentLength: content.length,
-        promptTokens: usage?.prompt_tokens,
-        completionTokens: usage?.completion_tokens,
-        totalTokens: usage?.total_tokens,
-        finishReason: response.choices[0]?.finish_reason,
-      }, 'LLM request completed');
-
-      return {
-        content,
-        success: true,
-        usage: usage ? {
-          promptTokens: usage.prompt_tokens || 0,
-          completionTokens: usage.completion_tokens || 0,
-          totalTokens: usage.total_tokens || 0,
-        } : undefined,
-      };
-    } catch (error) {
-      const elapsed = Date.now() - startTime;
-      const errMsg = error instanceof Error ? error.message : 'Unknown error';
-
-      // OpenAI SDK provides structured errors
-      if (error instanceof OpenAI.APIError) {
-        log.error({
-          status: error.status,
-          code: error.code,
-          type: error.type,
-          message: error.message,
+        log.info({
           elapsedMs: elapsed,
-        }, 'LLM API error');
+          model,
+          contentLength: content.length,
+          promptTokens: usage?.prompt_tokens,
+          completionTokens: usage?.completion_tokens,
+          totalTokens: usage?.total_tokens,
+          finishReason: response.choices[0]?.finish_reason,
+        }, 'LLM request completed');
+
+        return {
+          content,
+          success: true,
+          usage: usage ? {
+            promptTokens: usage.prompt_tokens || 0,
+            completionTokens: usage.completion_tokens || 0,
+            totalTokens: usage.total_tokens || 0,
+          } : undefined,
+        };
+      } catch (error) {
+        const elapsed = Date.now() - startTime;
+        const errMsg = error instanceof Error ? error.message : 'Unknown error';
+
+        if (error instanceof OpenAI.APIError) {
+          log.error({
+            status: error.status,
+            code: error.code,
+            type: error.type,
+            message: error.message,
+            model,
+            elapsedMs: elapsed,
+          }, 'LLM API error');
+          return {
+            content: '',
+            success: false,
+            error: `API error ${error.status}: ${error.message}`,
+            _isModelUnavailable: isModelUnavailableError(error),
+          } as LLMResponse & { _isModelUnavailable?: boolean };
+        }
+
+        log.error({ err: error, errorMessage: errMsg, model, elapsedMs: elapsed }, 'LLM request error');
         return {
           content: '',
           success: false,
-          error: `API error ${error.status}: ${error.message}`,
+          error: errMsg,
         };
       }
+    };
 
-      log.error({ err: error, errorMessage: errMsg, elapsedMs: elapsed }, 'LLM request error');
-      return {
-        content: '',
-        success: false,
-        error: errMsg,
-      };
+    const primaryResult = await attemptWithModel(this.config.model) as LLMResponse & { _isModelUnavailable?: boolean };
+
+    if (!primaryResult.success && primaryResult._isModelUnavailable && this.config.model !== FALLBACK_MODEL) {
+      log.warn({ primaryModel: this.config.model, fallbackModel: FALLBACK_MODEL }, 'Primary model unavailable, retrying with fallback model');
+      return attemptWithModel(FALLBACK_MODEL);
     }
+
+    delete (primaryResult as unknown as Record<string, unknown>)._isModelUnavailable;
+    return primaryResult;
   }
 
   async chatCompletionJSON<T = unknown>(
@@ -323,85 +364,98 @@ export class LLMService {
 
     const startTime = Date.now();
 
-    try {
-      const formattedMessages = this.formatMessages(messages);
-      const formattedTools = tools.length > 0 ? this.formatTools(tools) : undefined;
+    const attemptWithModel = async (model: string): Promise<ToolCallResponse & { _isModelUnavailable?: boolean }> => {
+      try {
+        const formattedMessages = this.formatMessages(messages);
+        const formattedTools = tools.length > 0 ? this.formatTools(tools) : undefined;
 
-      const response = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: formattedMessages,
-        tools: formattedTools,
-        tool_choice: formattedTools ? 'auto' : undefined,
-        max_tokens: this.config.maxTokens,
-        temperature: this.config.temperature,
-      });
+        const response = await this.client.chat.completions.create({
+          model,
+          messages: formattedMessages,
+          tools: formattedTools,
+          tool_choice: formattedTools ? 'auto' : undefined,
+          max_tokens: this.config.maxTokens,
+          temperature: this.config.temperature,
+        });
 
-      const elapsed = Date.now() - startTime;
-      const message = response.choices[0]?.message;
-      const finishReason = response.choices[0]?.finish_reason;
+        const elapsed = Date.now() - startTime;
+        const message = response.choices[0]?.message;
+        const finishReason = response.choices[0]?.finish_reason;
 
-      // Convert OpenAI tool_calls to our format (filter for function type only)
-      const toolCalls: ToolCall[] | null = message?.tool_calls
-        ? message.tool_calls
-            .filter((tc): tc is typeof tc & { type: 'function'; function: { name: string; arguments: string } } =>
-              tc.type === 'function' && 'function' in tc
-            )
-            .map(tc => ({
-              id: tc.id,
-              type: 'function' as const,
-              function: {
-                name: tc.function.name,
-                arguments: tc.function.arguments,
-              },
-            }))
-        : null;
+        const toolCalls: ToolCall[] | null = message?.tool_calls
+          ? message.tool_calls
+              .filter((tc): tc is typeof tc & { type: 'function'; function: { name: string; arguments: string } } =>
+                tc.type === 'function' && 'function' in tc
+              )
+              .map(tc => ({
+                id: tc.id,
+                type: 'function' as const,
+                function: {
+                  name: tc.function.name,
+                  arguments: tc.function.arguments,
+                },
+              }))
+          : null;
 
-      log.info({
-        elapsedMs: elapsed,
-        hasContent: !!message?.content,
-        contentPreview: message?.content?.slice(0, 100),
-        toolCallCount: toolCalls?.length || 0,
-        toolCallNames: toolCalls?.map(tc => tc.function.name),
-        finishReason,
-        promptTokens: response.usage?.prompt_tokens,
-        completionTokens: response.usage?.completion_tokens,
-      }, 'LLM tool call request completed');
-
-      return {
-        content: message?.content || null,
-        tool_calls: toolCalls,
-        success: true,
-        finishReason: finishReason || undefined,
-      };
-    } catch (error) {
-      const elapsed = Date.now() - startTime;
-
-      // OpenAI SDK provides structured errors
-      if (error instanceof OpenAI.APIError) {
-        log.error({
-          status: error.status,
-          code: error.code,
-          type: error.type,
-          message: error.message,
+        log.info({
           elapsedMs: elapsed,
-        }, 'LLM tool call API error');
+          model,
+          hasContent: !!message?.content,
+          contentPreview: message?.content?.slice(0, 100),
+          toolCallCount: toolCalls?.length || 0,
+          toolCallNames: toolCalls?.map(tc => tc.function.name),
+          finishReason,
+          promptTokens: response.usage?.prompt_tokens,
+          completionTokens: response.usage?.completion_tokens,
+        }, 'LLM tool call request completed');
+
+        return {
+          content: message?.content || null,
+          tool_calls: toolCalls,
+          success: true,
+          finishReason: finishReason || undefined,
+        };
+      } catch (error) {
+        const elapsed = Date.now() - startTime;
+
+        if (error instanceof OpenAI.APIError) {
+          log.error({
+            status: error.status,
+            code: error.code,
+            type: error.type,
+            message: error.message,
+            model,
+            elapsedMs: elapsed,
+          }, 'LLM tool call API error');
+          return {
+            content: null,
+            tool_calls: null,
+            success: false,
+            error: `API error ${error.status}: ${error.message}`,
+            _isModelUnavailable: isModelUnavailableError(error),
+          };
+        }
+
+        const errMsg = error instanceof Error ? error.message : 'Unknown error';
+        log.error({ err: error, errorMessage: errMsg, model, elapsedMs: elapsed }, 'LLM tool call request error');
         return {
           content: null,
           tool_calls: null,
           success: false,
-          error: `API error ${error.status}: ${error.message}`,
+          error: errMsg,
         };
       }
+    };
 
-      const errMsg = error instanceof Error ? error.message : 'Unknown error';
-      log.error({ err: error, errorMessage: errMsg, elapsedMs: elapsed }, 'LLM tool call request error');
-      return {
-        content: null,
-        tool_calls: null,
-        success: false,
-        error: errMsg,
-      };
+    const primaryResult = await attemptWithModel(this.config.model);
+
+    if (!primaryResult.success && primaryResult._isModelUnavailable && this.config.model !== FALLBACK_MODEL) {
+      log.warn({ primaryModel: this.config.model, fallbackModel: FALLBACK_MODEL }, 'Primary model unavailable, retrying with fallback model');
+      return attemptWithModel(FALLBACK_MODEL);
     }
+
+    delete (primaryResult as unknown as Record<string, unknown>)._isModelUnavailable;
+    return primaryResult;
   }
 
   async complete(prompt: string, systemPrompt?: string): Promise<LLMResponse> {

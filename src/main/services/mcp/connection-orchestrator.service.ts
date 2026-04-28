@@ -476,7 +476,7 @@ export class ConnectionOrchestratorService extends EventEmitter {
    */
   private createDefaultAuthProvider(serverId: string, serverName: string) {
     const authService = this.authService;
-    const redirectUri = 'call-md://oauth/callback';
+    const redirectUri = 'chess-lens://oauth/callback';
 
     return {
       get redirectUrl() {
@@ -485,7 +485,7 @@ export class ConnectionOrchestratorService extends EventEmitter {
 
       get clientMetadata() {
         return {
-          client_name: 'Call.md',
+          client_name: 'Chess Lens',
           redirect_uris: [redirectUri],
         };
       },
