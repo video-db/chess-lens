@@ -15,6 +15,7 @@ let widgetSessionState = {
   isPaused: false,
   isMicMuted: false,
   startTime: null as number | null,
+  gameId: '' as string,
 };
 
 let widgetLiveAssist = {
@@ -28,11 +29,71 @@ let widgetVisualAnalysis = {
 
 let widgetNudge: { id: string; message: string; type: 'info' | 'warning' | 'action'; timestamp: number } | null = null;
 
+const NON_ACTIONABLE_PATTERN = /no actionable gameplay moment(?: in this frame)?\.?/i;
+
+function isNonActionableText(text: string): boolean {
+  return NON_ACTIONABLE_PATTERN.test(text.trim());
+}
+
+function sanitizeWidgetText(text: string): string {
+  const sanitized = text
+    .replace(/\*\*/g, '')
+    .replace(/__+/g, '')
+    .replace(/`+/g, '')
+    .replace(/^\s*(say|ask)\s*:\s*/i, '')
+    .replace(/(No actionable gameplay moment in this frame\.\s*){2,}/gi, 'No actionable gameplay moment in this frame.')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const tryParse = (input: string): string | null => {
+    try {
+      const parsed = JSON.parse(input) as unknown;
+      if (typeof parsed === 'string') return parsed;
+      if (parsed && typeof parsed === 'object') {
+        const data = parsed as Record<string, unknown>;
+        const headingTip = typeof data.heading_tip === 'string' ? data.heading_tip : '';
+        const tip = typeof data.tip === 'string' ? data.tip : '';
+        const analysis = typeof data.analysis === 'string' ? data.analysis : '';
+        const combined = [headingTip, tip, analysis].filter(Boolean).join(' ||| ').trim();
+        return combined || null;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
+  const parsedDirect = tryParse(sanitized);
+  if (parsedDirect) {
+    const compact = parsedDirect
+      .replace(/\s*\|\|\|\s*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return isNonActionableText(compact) ? '' : parsedDirect;
+  }
+
+  const start = sanitized.indexOf('{');
+  const end = sanitized.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    const parsedSlice = tryParse(sanitized.slice(start, end + 1));
+    if (parsedSlice) {
+      const compact = parsedSlice
+        .replace(/\s*\|\|\|\s*/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return isNonActionableText(compact) ? '' : parsedSlice;
+    }
+  }
+
+  return isNonActionableText(sanitized) ? '' : sanitized;
+}
+
 let pauseRecordingFn: (() => Promise<void>) | null = null;
 let resumeRecordingFn: (() => Promise<void>) | null = null;
 let stopRecordingFn: (() => Promise<void>) | null = null;
 let muteMicFn: (() => Promise<void>) | null = null;
 let unmuteMicFn: (() => Promise<void>) | null = null;
+let widgetStopInFlight = false;
 
 export function setWidgetRecordingControls(
   pause: () => Promise<void>,
@@ -46,6 +107,13 @@ export function setWidgetRecordingControls(
   stopRecordingFn = stop;
   muteMicFn = muteMic;
   unmuteMicFn = unmuteMic;
+}
+
+export function syncWidgetState(): void {
+  sendToWidget('widget:session-state', widgetSessionState);
+  sendToWidget('widget:live-assist', widgetLiveAssist);
+  sendToWidget('widget:visual-analysis', widgetVisualAnalysis);
+  sendToWidget('widget:nudge', widgetNudge);
 }
 
 export function setupWidgetIpcHandlers(): void {
@@ -68,10 +136,33 @@ export function setupWidgetIpcHandlers(): void {
   });
 
   ipcMain.handle('widget:stop', async () => {
-    if (stopRecordingFn) {
-      await stopRecordingFn();
-      closeWidgetWindow();
+    if (widgetStopInFlight) {
+      logger.debug('Ignoring duplicate widget stop request (already in flight)');
+      return;
     }
+
+    widgetStopInFlight = true;
+    updateWidgetSessionState({
+      isRecording: false,
+      isPaused: false,
+    });
+
+    if (stopRecordingFn) {
+      void stopRecordingFn()
+        .then(() => {
+          closeWidgetWindow();
+        })
+        .catch((error) => {
+          logger.error({ error }, 'Widget stop request failed');
+        })
+        .finally(() => {
+          widgetStopInFlight = false;
+        });
+
+      return;
+    }
+
+    widgetStopInFlight = false;
   });
 
   ipcMain.handle('widget:mute-mic', async () => {
@@ -109,10 +200,7 @@ export function setupWidgetIpcHandlers(): void {
   ipcMain.handle('widget:request-initial-state', async () => {
     const window = getWidgetWindow();
     if (window) {
-      sendToWidget('widget:session-state', widgetSessionState);
-      sendToWidget('widget:live-assist', widgetLiveAssist);
-      sendToWidget('widget:visual-analysis', widgetVisualAnalysis);
-      sendToWidget('widget:nudge', widgetNudge);
+      syncWidgetState();
     }
   });
 
@@ -152,26 +240,52 @@ export function updateWidgetSessionState(state: Partial<typeof widgetSessionStat
   sendToWidget('widget:session-state', widgetSessionState);
 }
 
-export function updateWidgetLiveAssist(data: { sayThis?: string[]; askThis?: string[] }): void {
+export function updateWidgetLiveAssist(data: { sayThis?: string[] | string; askThis?: string[] | string; clearExisting?: boolean }): void {
   const timestamp = Date.now();
 
-  logger.info({ sayCount: data.sayThis?.length || 0, askCount: data.askThis?.length || 0 }, 'Updating widget live assist');
+  const normalizeList = (value?: string[] | string): string[] => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+    if (typeof value === 'string') return [value];
+    return [];
+  };
 
-  if (data.sayThis) {
-    const newCards = data.sayThis.map((text, i) => ({
-      id: `say-${timestamp}-${i}`,
-      text,
-      timestamp,
-    }));
+  const sayThisList = normalizeList(data.sayThis);
+  const askThisList = normalizeList(data.askThis);
+
+  logger.info(
+    {
+      sayCount: data.sayThis?.length || 0,
+      askCount: data.askThis?.length || 0,
+      clearExisting: !!data.clearExisting,
+    },
+    'Updating widget live assist'
+  );
+
+  if (data.clearExisting) {
+    widgetLiveAssist.sayThis = [];
+    widgetLiveAssist.askThis = [];
+  }
+
+  if (sayThisList.length > 0) {
+    const newCards = sayThisList
+      .map((text, i) => ({
+        id: `say-${timestamp}-${i}`,
+        text: sanitizeWidgetText(text),
+        timestamp,
+      }))
+      .filter((card) => !!card.text);
     widgetLiveAssist.sayThis = [...newCards, ...widgetLiveAssist.sayThis].slice(0, 5);
   }
 
-  if (data.askThis) {
-    const newCards = data.askThis.map((text, i) => ({
-      id: `ask-${timestamp}-${i}`,
-      text,
-      timestamp,
-    }));
+  if (askThisList.length > 0) {
+    const newCards = askThisList
+      .map((text, i) => ({
+        id: `ask-${timestamp}-${i}`,
+        text: sanitizeWidgetText(text),
+        timestamp,
+      }))
+      .filter((card) => !!card.text);
     widgetLiveAssist.askThis = [...newCards, ...widgetLiveAssist.askThis].slice(0, 5);
   }
 
@@ -180,7 +294,8 @@ export function updateWidgetLiveAssist(data: { sayThis?: string[]; askThis?: str
 }
 
 export function updateWidgetVisualAnalysis(description: string): void {
-  widgetVisualAnalysis = { description };
+  const sanitized = sanitizeWidgetText(description);
+  widgetVisualAnalysis = { description: sanitized };
   sendToWidget('widget:visual-analysis', widgetVisualAnalysis);
 }
 
@@ -199,6 +314,7 @@ export function clearWidgetState(): void {
     isPaused: false,
     isMicMuted: false,
     startTime: null,
+    gameId: '',
   };
   widgetLiveAssist = { sayThis: [], askThis: [] };
   widgetVisualAnalysis = { description: '' };

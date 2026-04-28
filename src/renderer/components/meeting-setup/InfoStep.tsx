@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import {
+  type SupportedGameId,
+} from '../../../shared/config/game-coaching';
 
 // Icons
 function MeetingIcon() {
@@ -56,8 +59,8 @@ interface InfoStepProps {
   isGenerating: boolean;
   isSkipping?: boolean;
   onBack: () => void;
-  onNext: (name: string, description: string) => void;
-  onSkip: (name: string, description: string) => void;
+  onNext: (name: string, description: string, gameId: SupportedGameId) => void;
+  onSkip: (name: string, description: string, gameId: SupportedGameId) => void;
 }
 
 export function InfoStep({
@@ -71,14 +74,15 @@ export function InfoStep({
 }: InfoStepProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
+  const gameId: SupportedGameId = 'chess';
 
-  const canContinue = name.trim().length > 0 && description.trim().length >= 10;
+  const canContinue = name.trim().length > 0;
   const isDisabled = isGenerating || isSkipping;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (canContinue && !isDisabled) {
-      onNext(name.trim(), description.trim());
+      onNext(name.trim(), description.trim(), gameId);
     }
   };
 
@@ -119,7 +123,7 @@ export function InfoStep({
         {/* Description */}
         <div className="flex flex-col gap-[8px]">
           <label htmlFor="meeting-description" className="text-[14px] font-medium text-[#141420]">
-            Description
+            Description <span className="text-[#969696] font-normal">(optional)</span>
           </label>
           <textarea
             id="meeting-description"
@@ -131,9 +135,7 @@ export function InfoStep({
             className="w-full px-[16px] py-[14px] bg-white border border-[#e0e0e8] rounded-[12px] text-[14px] text-black placeholder:text-[#969696] focus:outline-none focus:border-[#ec5b16] focus:ring-1 focus:ring-[#ec5b16] disabled:opacity-50 disabled:cursor-not-allowed transition-colors resize-none"
           />
           <p className="text-[12px] text-[#969696]">
-            {description.length < 10
-              ? `At least ${10 - description.length} more characters needed`
-              : 'Good description!'}
+            Add details if you want better probing questions, or leave it blank to start faster.
           </p>
         </div>
 
@@ -174,7 +176,7 @@ export function InfoStep({
             type="button"
             onClick={() => {
               console.log('[InfoStep] Skip clicked, passing name:', name.trim(), 'description:', description.trim());
-              onSkip(name.trim(), description.trim());
+              onSkip(name.trim(), description.trim(), gameId);
             }}
             disabled={isDisabled}
             className="w-full flex items-center justify-center gap-[6px] px-[20px] py-[12px] bg-transparent border border-dashed border-[#c0c0c8] rounded-[12px] text-[14px] font-medium text-[#464646] hover:border-[#ec5b16] hover:text-[#ec5b16] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"

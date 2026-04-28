@@ -1,3 +1,5 @@
+import type { SupportedGameId } from '../config/game-coaching';
+
 /**
  * Meeting Setup Types
  * Types for the multi-step meeting setup flow
@@ -13,6 +15,7 @@ export interface ProbingQuestion {
 export interface MeetingSetup {
   name: string;
   description: string;
+  gameId: SupportedGameId;
   questions: ProbingQuestion[];
   checklist: string[];
 }

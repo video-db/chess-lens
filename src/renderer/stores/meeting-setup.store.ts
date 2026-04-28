@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
+import {
+  DEFAULT_GAME_ID,
+  type SupportedGameId,
+} from '../../shared/config/game-coaching';
 
 export type MeetingSetupStep = 'sources' | 'info' | 'questions' | 'checklist' | 'ready';
 
@@ -7,6 +11,7 @@ interface MeetingSetupState {
   step: MeetingSetupStep;
   name: string;
   description: string;
+  gameId: SupportedGameId;
   questions: ProbingQuestion[];
   checklist: string[];
   isGenerating: boolean;
@@ -15,6 +20,7 @@ interface MeetingSetupState {
   // Actions
   setStep: (step: MeetingSetupStep) => void;
   setInfo: (name: string, description: string) => void;
+  setGameId: (gameId: SupportedGameId) => void;
   setQuestions: (questions: ProbingQuestion[]) => void;
   setQuestionAnswer: (index: number, answer: string, customAnswer?: string) => void;
   setChecklist: (checklist: string[]) => void;
@@ -27,6 +33,7 @@ interface MeetingSetupState {
   getMeetingSetupData: () => {
     name: string;
     description: string;
+    gameId: SupportedGameId;
     questions: ProbingQuestion[];
     checklist: string[];
   };
@@ -36,6 +43,7 @@ const initialState = {
   step: 'sources' as MeetingSetupStep,
   name: '',
   description: '',
+  gameId: DEFAULT_GAME_ID,
   questions: [] as ProbingQuestion[],
   checklist: [] as string[],
   isGenerating: false,
@@ -48,6 +56,8 @@ export const useMeetingSetupStore = create<MeetingSetupState>((set, get) => ({
   setStep: (step) => set({ step, error: null }),
 
   setInfo: (name, description) => set({ name, description }),
+
+  setGameId: (gameId) => set({ gameId }),
 
   setQuestions: (questions) => set({ questions }),
 
@@ -86,6 +96,7 @@ export const useMeetingSetupStore = create<MeetingSetupState>((set, get) => ({
     return {
       name: state.name,
       description: state.description,
+      gameId: state.gameId,
       questions: state.questions,
       checklist: state.checklist,
     };

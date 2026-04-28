@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { createChildLogger } from '../../../lib/logger';
 import { loadRuntimeConfig } from '../../../lib/config';
+import { getGameVisualIndexTiming, getGameIndexingPrompt, SUPPORTED_GAME_IDS } from '../../../../shared/config/game-coaching';
 import { connect } from 'videodb';
 import type { CaptureSessionFull, RTStream } from 'videodb';
 
@@ -17,6 +18,8 @@ const activeSceneIndexes = new Map<string, {
 
 const MAX_RETRIES = 60;
 const RETRY_DELAY_MS = 2000;
+const DEFAULT_INDEXING_PROMPT = 'Return ONLY valid minified JSON with exactly two keys: {"heading_tip":"string","tip":"string"}. No markdown, no prose, no code fences. `heading_tip` is a short headline (max 90 chars). `tip` is full scenario/details in plain text. Describe actionable gameplay only and ignore menus/loading/scoreboards/overlays. Do not repeat the obvious visible state as the tip; if the player is already holding a spot like mid doors, do not say hold mid doors. Instead give the next adjustment, timing cue, angle change, utility play, or rotation. If no actionable gameplay moment is visible return exactly: {"heading_tip":"No actionable gameplay moment","tip":"No actionable gameplay moment in this frame."}.';
+const MODEL_NAME = 'pro';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -81,6 +84,8 @@ export const visualIndexRouter = router({
     .input(z.object({
       sessionId: z.string(),
       screenWsConnectionId: z.string(),
+      gameId: z.enum(SUPPORTED_GAME_IDS).optional(),
+      prompt: z.string().optional(),
     }))
     .output(z.object({
       success: z.boolean(),
@@ -88,7 +93,9 @@ export const visualIndexRouter = router({
       message: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { sessionId, screenWsConnectionId } = input;
+      const { sessionId, screenWsConnectionId, gameId, prompt } = input;
+      const timing = getGameVisualIndexTiming(gameId);
+      const effectivePrompt = prompt?.trim() || getGameIndexingPrompt(gameId) || DEFAULT_INDEXING_PROMPT;
 
       logger.info({ sessionId, screenWsConnectionId }, '[VisualIndex] Starting visual indexing');
 
@@ -136,10 +143,11 @@ export const visualIndexRouter = router({
         const sceneIndex = await screenStream.indexVisuals({
           batchConfig: {
             type: 'time',
-            value: 20,
-            frameCount: 3,
+            value: timing.visualIndexBatchSeconds,
+            frameCount: timing.visualIndexFrameCount,
           },
-          prompt: 'Describe what is visible on the screen. Focus on any presentations, documents, charts, dashboards, or important visual content. Be concise.',
+          prompt: effectivePrompt,
+          modelName: MODEL_NAME,
           socketId: screenWsConnectionId,
         });
 

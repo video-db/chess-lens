@@ -11,6 +11,7 @@ import { checkSessionExport, recoverExportedRecording } from './recording-export
 import { triggerWorkflowWebhooks, type MeetingCompletionData } from './workflow-webhook.service';
 
 const logger = createChildLogger('export-poller');
+const VIDEODB_FAILED_MARKER = '__videodb_api_failed__';
 
 // Polling configuration
 const POLL_INTERVAL_MS = 3000; // 3 seconds
@@ -50,12 +51,20 @@ export function startExportPoller(
     const elapsed = Date.now() - startTime;
 
     // Check timeout
-    if (elapsed > MAX_POLL_DURATION_MS) {
-      logger.warn({ sessionId, elapsedMs: elapsed }, 'Polling timed out');
-      stopExportPoller(sessionId);
-      updateRecordingBySessionId(sessionId, { status: 'failed' });
-      return;
-    }
+      if (elapsed > MAX_POLL_DURATION_MS) {
+        logger.warn({ sessionId, elapsedMs: elapsed }, 'Polling timed out');
+        stopExportPoller(sessionId);
+        // By default, keep as processing to avoid false "Error" in UI for sessions that are stopped but not exported yet.
+        // If `EXPORT_POLLER_MARK_FAILED_ON_TIMEOUT` is set, mark the recording as failed so UI doesn't stay stuck.
+        const markFailed = process.env.EXPORT_POLLER_MARK_FAILED_ON_TIMEOUT === '1';
+        if (markFailed) {
+          logger.info({ sessionId }, 'Marking recording as failed due to export poll timeout (env override)');
+          updateRecordingBySessionId(sessionId, { status: 'failed', insightsStatus: 'failed' });
+        } else {
+          updateRecordingBySessionId(sessionId, { status: 'processing' });
+        }
+        return;
+      }
 
     const result = await checkSessionExport(sessionId, apiKey, apiUrl, collectionId);
 
@@ -88,7 +97,11 @@ export function startExportPoller(
     } else if (result.status === 'failed') {
       logger.error({ sessionId }, 'Session failed on VideoDB');
       stopExportPoller(sessionId);
-      updateRecordingBySessionId(sessionId, { status: 'failed' });
+      updateRecordingBySessionId(sessionId, {
+        status: 'failed',
+        insightsStatus: 'failed',
+        insights: VIDEODB_FAILED_MARKER,
+      });
     } else if (result.error) {
       // Transient error, keep polling
       logger.debug({ sessionId, error: result.error }, 'Poll error, will retry');

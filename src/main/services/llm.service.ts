@@ -96,7 +96,7 @@ export class LLMService {
     this.config = {
       apiKey: config?.apiKey || appConfig.apiKey || '',
       apiBase: config?.apiBase || runtimeConfig.apiUrl || 'https://api.videodb.io',
-      model: config?.model || 'ultra',
+      model: config?.model || 'openai/gpt-5.4',
       maxTokens: config?.maxTokens || 4096,
       temperature: config?.temperature || 0.7,
     };

@@ -1,4 +1,9 @@
 import { create } from 'zustand';
+import {
+  DEFAULT_GAME_ID,
+  getGameIndexingPrompt,
+  type SupportedGameId,
+} from '../../shared/config/game-coaching';
 
 export type SessionStatus = 'idle' | 'starting' | 'recording' | 'stopping' | 'processing';
 
@@ -20,11 +25,20 @@ interface SessionState {
   isPaused: boolean;
   error: string | null;
   screenWsConnectionId: string | null; // For visual indexing
+  selectedGameId: SupportedGameId;
+  visualIndexPrompt: string;
 
   // Actions
   setStatus: (status: SessionStatus) => void;
   setRecordingId: (id: number | null) => void;
-  startSession: (sessionId: string, sessionToken: string, expiresAt: number, screenWsConnectionId?: string) => void;
+  startSession: (
+    sessionId: string,
+    sessionToken: string,
+    expiresAt: number,
+    screenWsConnectionId?: string,
+    selectedGameId?: SupportedGameId,
+    visualIndexPrompt?: string,
+  ) => void;
   stopSession: () => void;
   setSessionToken: (token: string, expiresAt: number) => void;
   setElapsedTime: (time: number) => void;
@@ -55,12 +69,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   isPaused: false,
   error: null,
   screenWsConnectionId: null,
+  selectedGameId: DEFAULT_GAME_ID,
+  visualIndexPrompt: getGameIndexingPrompt(DEFAULT_GAME_ID),
 
   setStatus: (status) => set({ status }),
 
   setRecordingId: (id) => set({ recordingId: id }),
 
-  startSession: (sessionId, sessionToken, expiresAt, screenWsConnectionId) => {
+  startSession: (
+    sessionId,
+    sessionToken,
+    expiresAt,
+    screenWsConnectionId,
+    selectedGameId,
+    visualIndexPrompt,
+  ) => {
     set({
       status: 'recording',
       sessionId,
@@ -71,6 +94,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       isPaused: false,
       error: null,
       screenWsConnectionId: screenWsConnectionId || null,
+      selectedGameId: selectedGameId || DEFAULT_GAME_ID,
+      visualIndexPrompt: visualIndexPrompt || getGameIndexingPrompt(selectedGameId || DEFAULT_GAME_ID),
     });
   },
 
@@ -82,6 +107,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       elapsedTime: 0,
       isPaused: false,
       screenWsConnectionId: null,
+      selectedGameId: DEFAULT_GAME_ID,
+      visualIndexPrompt: getGameIndexingPrompt(DEFAULT_GAME_ID),
     });
   },
 
@@ -129,6 +156,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       streams: initialStreams,
       isPaused: false,
       error: null,
+      selectedGameId: DEFAULT_GAME_ID,
+      visualIndexPrompt: getGameIndexingPrompt(DEFAULT_GAME_ID),
     });
   },
 

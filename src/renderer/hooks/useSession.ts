@@ -9,10 +9,16 @@ import { useLiveAssistStore } from '../stores/live-assist.store';
 import { trpc } from '../api/trpc';
 import { getElectronAPI } from '../api/ipc';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
+import {
+  DEFAULT_GAME_ID,
+  getGameIndexingPrompt,
+  type SupportedGameId,
+} from '../../shared/config/game-coaching';
 
 interface MeetingSetupData {
   name: string;
   description: string;
+  gameId: SupportedGameId;
   questions: ProbingQuestion[];
   checklist: string[];
 }
@@ -29,6 +35,7 @@ export function useSession() {
   const startRecordingMutation = trpc.recordings.start.useMutation();
   const stopRecordingMutation = trpc.recordings.stop.useMutation();
   const startTranscriptionMutation = trpc.transcription.start.useMutation();
+  const startVisualIndexMutation = trpc.visualIndex.start.useMutation();
 
   // Recorder events are global to prevent transcript loss on navigation.
 
@@ -77,15 +84,13 @@ export function useSession() {
     useMCPStore.getState().clearResults();
 
     try {
-      let sessionToken = sessionStore.sessionToken;
-      let tokenExpiresAt = sessionStore.tokenExpiresAt;
-
-      if (sessionStore.isTokenExpired()) {
-        const tokenResult = await generateTokenMutation.mutateAsync({});
-        sessionToken = tokenResult.sessionToken;
-        tokenExpiresAt = tokenResult.expiresAt;
-        sessionStore.setSessionToken(sessionToken, tokenExpiresAt);
-      }
+      // Always generate a fresh session token before creating a new capture session.
+      // Reusing a cached token causes 403 "Unauthorized access to session" because
+      // the VideoDB server only authorises sessions created within the same token context.
+      const tokenResult = await generateTokenMutation.mutateAsync({});
+      const sessionToken = tokenResult.sessionToken;
+      const tokenExpiresAt = tokenResult.expiresAt;
+      sessionStore.setSessionToken(sessionToken, tokenExpiresAt);
 
       if (!sessionToken) {
         throw new Error('Failed to get session token');
@@ -103,18 +108,20 @@ export function useSession() {
         throw new Error('No streams enabled for recording');
       }
 
-      const result = await api.capture.startRecording({
-        config: {
-          sessionId: captureSession.sessionId,
-          streams: streamsConfig,
-        },
-        sessionToken,
-        accessToken,
-        apiUrl: apiUrl || undefined,
-        enableTranscription: transcriptionStore.enabled,
-        // Always create screen WebSocket when screen is enabled - user controls indexing via toggle
-        enableVisualIndex: streamsConfig.screen,
-      });
+       const result = await api.capture.startRecording({
+         config: {
+           sessionId: captureSession.sessionId,
+           streams: streamsConfig,
+         },
+         sessionToken,
+         accessToken,
+         apiUrl: apiUrl || undefined,
+         enableTranscription: transcriptionStore.enabled,
+         // Always create screen WebSocket when screen is enabled - user controls indexing via toggle
+         enableVisualIndex: streamsConfig.screen,
+         // Used by the floating widget overlay to render game-specific UI (e.g. detailed chess tips).
+         gameId: meetingSetup?.gameId || DEFAULT_GAME_ID,
+       });
 
       if (!result.success) {
         throw new Error(result.error || 'Failed to start recording');
@@ -123,6 +130,7 @@ export function useSession() {
       // Start recording with meeting setup data if provided
       const recordingResult = await startRecordingMutation.mutateAsync({
         sessionId: captureSession.sessionId,
+        gameId: meetingSetup?.gameId || DEFAULT_GAME_ID,
         meetingName: meetingSetup?.name,
         meetingDescription: meetingSetup?.description,
         probingQuestions: meetingSetup?.questions,
@@ -135,7 +143,9 @@ export function useSession() {
       }
 
       const hasTranscription = transcriptionStore.enabled && (result.micWsConnectionId || result.sysAudioWsConnectionId);
-      const hasVisualIndex = useVisualIndexStore.getState().enabled && result.screenWsConnectionId;
+      const hasVisualIndex = !!result.screenWsConnectionId;
+      const selectedGameId = meetingSetup?.gameId || DEFAULT_GAME_ID;
+      const visualIndexPrompt = getGameIndexingPrompt(selectedGameId);
 
       if (hasTranscription || hasVisualIndex) {
         await startTranscriptionMutation.mutateAsync({
@@ -144,6 +154,26 @@ export function useSession() {
           sysAudioWsConnectionId: transcriptionStore.enabled ? result.sysAudioWsConnectionId : undefined,
           screenWsConnectionId: hasVisualIndex ? result.screenWsConnectionId : undefined,
         });
+      }
+
+      if (hasVisualIndex && result.screenWsConnectionId) {
+        try {
+          const visualStart = await startVisualIndexMutation.mutateAsync({
+            sessionId: captureSession.sessionId,
+            screenWsConnectionId: result.screenWsConnectionId,
+            gameId: selectedGameId,
+            prompt: visualIndexPrompt,
+          });
+
+          if (visualStart.success && visualStart.sceneIndexId) {
+            const visualIndexStore = useVisualIndexStore.getState();
+            visualIndexStore.setEnabled(true);
+            visualIndexStore.setSceneIndexId(visualStart.sceneIndexId);
+            visualIndexStore.setRunning(true);
+          }
+        } catch (visualError) {
+          console.warn('[useSession] Failed to auto-start visual index:', visualError);
+        }
       }
 
       if (transcriptionStore.enabled && recordingResult?.id) {
@@ -161,7 +191,14 @@ export function useSession() {
       }
 
       console.log('[useSession] Recording started successfully, sessionId:', captureSession.sessionId);
-      sessionStore.startSession(captureSession.sessionId, sessionToken!, tokenExpiresAt!, result.screenWsConnectionId);
+      sessionStore.startSession(
+        captureSession.sessionId,
+        sessionToken!,
+        tokenExpiresAt!,
+        result.screenWsConnectionId,
+        selectedGameId,
+        visualIndexPrompt,
+      );
     } catch (error) {
       console.log('[useSession] Error starting recording:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to start recording';
@@ -182,6 +219,7 @@ export function useSession() {
     createSessionMutation,
     startRecordingMutation,
     startTranscriptionMutation,
+    startVisualIndexMutation,
   ]);
 
   const stopRecording = useCallback(async () => {

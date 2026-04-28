@@ -19,7 +19,7 @@ export const meetingSetupRouter = router({
     .input(
       z.object({
         name: z.string().min(1, 'Meeting name is required'),
-        description: z.string().min(1, 'Meeting description is required'),
+        description: z.string().optional().default(''),
       })
     )
     .mutation(async ({ input }) => {
@@ -31,7 +31,7 @@ export const meetingSetupRouter = router({
     .input(
       z.object({
         name: z.string().min(1),
-        description: z.string().min(1),
+        description: z.string().optional().default(''),
         questions: z.array(probingQuestionSchema),
       })
     )

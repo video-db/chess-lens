@@ -168,7 +168,7 @@ export function NewSidebar({ activeTab, onTabChange }: NewSidebarProps) {
     <div className="flex flex-col h-full bg-white border-r border-[rgba(0,0,0,0.1)]">
       {/* Top section with logo and nav */}
       <div className="flex-1 flex flex-col items-center gap-[20px] p-[20px]">
-        <img src={logoIcon} width={40} height={40} alt="Call.md" className="rounded-[9px]" />
+        <img src={logoIcon} width={40} height={40} alt="Pair Gaming Coach" className="rounded-[9px]" />
 
         {/* Navigation items */}
         {tabs.map(({ id, icon, label }) => (

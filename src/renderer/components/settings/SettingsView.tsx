@@ -1,13 +1,12 @@
 /**
  * Settings View Component
  *
- * Main settings page with tabs for Account, Notifications, MCP Servers, and Workflows.
+ * Main settings page with tabs for Account and Notifications.
  * Redesigned based on Figma specs.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Calendar,
   Eye,
   EyeOff,
   Copy,
@@ -15,18 +14,14 @@ import {
   LogOut,
   Check,
   Loader2,
-  AlertCircle,
 } from 'lucide-react';
 import { useConfigStore } from '../../stores/config.store';
-import { MCPServersPanel } from './MCPServersPanel';
 import { NotificationsPanel } from './NotificationsPanel';
-import { WorkflowsPanel } from './WorkflowsPanel';
 
-type SettingsTab = 'account' | 'notifications' | 'mcpServers' | 'workflows';
+type SettingsTab = 'account' | 'notifications';
 
 interface SettingsViewProps {
   initialTab?: SettingsTab | null;
-  onClearInitialTab?: () => void;
 }
 
 // Tab navigation component
@@ -40,8 +35,6 @@ function SettingsTabs({
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: 'account', label: 'Account' },
     { id: 'notifications', label: 'Notifications' },
-    { id: 'mcpServers', label: 'MCP Servers' },
-    { id: 'workflows', label: 'Workflows' },
   ];
 
   return (
@@ -113,31 +106,6 @@ function CardRow({
   );
 }
 
-// Google Calendar icon SVG
-function GoogleCalendarIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M13.5 2.25H4.5C3.67157 2.25 3 2.92157 3 3.75V14.25C3 15.0784 3.67157 15.75 4.5 15.75H13.5C14.3284 15.75 15 15.0784 15 14.25V3.75C15 2.92157 14.3284 2.25 13.5 2.25Z" stroke="#4285F4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M12 1.5V3" stroke="#4285F4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M6 1.5V3" stroke="#4285F4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M3 6H15" stroke="#4285F4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <rect x="5.25" y="8.25" width="2.25" height="2.25" rx="0.5" fill="#EA4335"/>
-      <rect x="7.875" y="8.25" width="2.25" height="2.25" rx="0.5" fill="#FBBC05"/>
-      <rect x="10.5" y="8.25" width="2.25" height="2.25" rx="0.5" fill="#34A853"/>
-      <rect x="5.25" y="10.875" width="2.25" height="2.25" rx="0.5" fill="#4285F4"/>
-    </svg>
-  );
-}
-
-// Calendar icon for empty state
-function CalendarEmptyIcon() {
-  return (
-    <div className="w-[50px] h-[50px] bg-[rgba(255,64,0,0.1)] border border-[rgba(236,91,22,0.13)] rounded-[8px] flex items-center justify-center">
-      <Calendar className="w-[25px] h-[25px] text-[#ec5b16]" />
-    </div>
-  );
-}
-
 // Logout icon SVG
 function LogoutIcon() {
   return (
@@ -157,64 +125,6 @@ function AccountPanel() {
   const [newApiKey, setNewApiKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-
-  // Calendar state
-  const [calendarStatus, setCalendarStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
-  const [isLoadingCalendar, setIsLoadingCalendar] = useState(true);
-
-  // Check calendar auth status on mount
-  useEffect(() => {
-    checkCalendarStatus();
-
-    // Listen for auth required
-    const unsubAuthRequired = window.electronAPI.calendarOn.onAuthRequired(() => {
-      setCalendarStatus('error');
-    });
-
-    return () => {
-      unsubAuthRequired();
-    };
-  }, []);
-
-  const checkCalendarStatus = async () => {
-    setIsLoadingCalendar(true);
-    try {
-      const result = await window.electronAPI.calendar.isSignedIn();
-      if (result.success && result.isSignedIn) {
-        setCalendarStatus('connected');
-        // Could store email if available
-      } else {
-        setCalendarStatus('disconnected');
-      }
-    } catch (err) {
-      setCalendarStatus('error');
-    } finally {
-      setIsLoadingCalendar(false);
-    }
-  };
-
-  const handleConnectCalendar = async () => {
-    setCalendarStatus('connecting');
-    try {
-      const result = await window.electronAPI.calendar.signIn();
-      if (result.success) {
-        setCalendarStatus('connected');
-      } else {
-        setCalendarStatus('error');
-      }
-    } catch (err) {
-      setCalendarStatus('error');
-    }
-  };
-
-  const handleDisconnectCalendar = async () => {
-    try {
-      await window.electronAPI.calendar.signOut();
-      setCalendarStatus('disconnected');
-    } catch (err) {
-      // Ignore error
-    }
-  };
 
   const maskApiKey = (key: string) => {
     if (!key) return '';
@@ -332,50 +242,6 @@ function AccountPanel() {
         </CardRow>
       </SettingsCard>
 
-      {/* Calendar Connection Card */}
-      <SettingsCard>
-        <CardHeader title="Calendar Connection" />
-        <div className="flex flex-col items-center gap-[14px] py-[21px]">
-          {isLoadingCalendar ? (
-            <Loader2 className="w-[32px] h-[32px] text-[#ec5b16] animate-spin" />
-          ) : calendarStatus === 'connected' ? (
-            <>
-              <div className="flex items-center gap-[8px] p-[12px] bg-[#ecfdf5] rounded-[10px]">
-                <Check className="w-[18px] h-[18px] text-[#059669]" />
-                <span className="text-[14px] font-medium text-[#059669]">
-                  Calendar connected
-                </span>
-              </div>
-              <button
-                onClick={handleDisconnectCalendar}
-                className="px-[25px] py-[13px] bg-white border border-[#d0d0d8] rounded-[12px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.06)] text-[14px] font-medium text-[#464646] hover:bg-[#f7f7f7] transition-colors"
-              >
-                Disconnect Calendar
-              </button>
-            </>
-          ) : (
-            <>
-              <CalendarEmptyIcon />
-              <p className="text-[13px] text-[#969696] text-center max-w-[320px]">
-                Connect calendars to auto-detect meetings
-              </p>
-              <button
-                onClick={handleConnectCalendar}
-                disabled={calendarStatus === 'connecting'}
-                className="flex items-center gap-[8px] px-[25px] py-[13px] bg-white border border-[#d0d0d8] rounded-[12px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.06)] text-[14px] font-medium text-black hover:bg-[#f7f7f7] transition-colors disabled:opacity-50"
-              >
-                {calendarStatus === 'connecting' ? (
-                  <Loader2 className="w-[18px] h-[18px] animate-spin" />
-                ) : (
-                  <GoogleCalendarIcon />
-                )}
-                <span>Connect Google Calendar</span>
-              </button>
-            </>
-          )}
-        </div>
-      </SettingsCard>
-
       {/* Log out Button */}
       <button
         onClick={handleLogout}
@@ -388,16 +254,8 @@ function AccountPanel() {
   );
 }
 
-export function SettingsView({ initialTab, onClearInitialTab }: SettingsViewProps) {
+export function SettingsView({ initialTab }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab || 'account');
-
-  // Apply initial tab when it changes
-  useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
-      onClearInitialTab?.();
-    }
-  }, [initialTab, onClearInitialTab]);
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -405,10 +263,6 @@ export function SettingsView({ initialTab, onClearInitialTab }: SettingsViewProp
         return <AccountPanel />;
       case 'notifications':
         return <NotificationsPanel />;
-      case 'mcpServers':
-        return <MCPServersPanel />;
-      case 'workflows':
-        return <WorkflowsPanel />;
       default:
         return null;
     }

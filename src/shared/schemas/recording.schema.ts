@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SUPPORTED_GAME_IDS } from '../config/game-coaching';
 
 export const RecordingStatusSchema = z.enum(['recording', 'processing', 'available', 'failed']);
 export const InsightsStatusSchema = z.enum(['pending', 'processing', 'ready', 'failed']);
@@ -76,6 +77,7 @@ export const RecordingSchema = z.object({
   streamUrl: z.string().nullable(),
   playerUrl: z.string().nullable(),
   sessionId: z.string(),
+  gameId: z.string().nullable().optional(),
   duration: z.number().nullable(),
   createdAt: z.string(),
   status: RecordingStatusSchema,
@@ -98,6 +100,7 @@ export const RecordingSchema = z.object({
 
 export const CreateRecordingInputSchema = z.object({
   sessionId: z.string(),
+  gameId: z.enum(SUPPORTED_GAME_IDS).optional(),
   // Meeting Setup data
   meetingName: z.string().optional(),
   meetingDescription: z.string().optional(),

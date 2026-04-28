@@ -227,8 +227,9 @@ A brief 2-3 sentence executive summary of the meeting.
 
 Transcript:
 ${transcriptText}`;
-
-    const result = await collection.generateText(prompt, 'ultra');
+    const model = 'openai/gpt-5.4';
+    logger.info({ videoId, model }, 'Generating insights with VideoDB model');
+    const result = await collection.generateText(prompt, model);
 
     logger.info({ videoId }, 'Insights generated successfully');
 

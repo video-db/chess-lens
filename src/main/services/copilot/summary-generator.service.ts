@@ -9,7 +9,8 @@
 
 import { logger } from '../../lib/logger';
 import { getLLMService } from '../llm.service';
-import { getTranscriptSegmentsByRecording } from '../../db';
+import { getTranscriptSegmentsByRecording, getVisualIndexItemsByRecording } from '../../db';
+import { getGameCoachingProfile, getGameIndexingPrompt, type SupportedGameId } from '../../../shared/config/game-coaching';
 
 const log = logger.child({ module: 'summary-generator' });
 
@@ -36,97 +37,68 @@ export interface ProbingQA {
 export interface MeetingContext {
   meetingName?: string;
   meetingDescription?: string;
+  gameId?: SupportedGameId;
   probingQuestions?: ProbingQA[];
   checklist?: string[];
 }
 
 // System Prompts
 
-const SHORT_OVERVIEW_SYSTEM_PROMPT = `You are an expert meeting summarizer. Given a meeting transcript along
-with its name, description, and checklist, produce a short narrative
-summary of what happened in the meeting.
+function buildGameSummarySystemPrompt(gameId: SupportedGameId, section: 'overview' | 'keyPoints' | 'checklist'): string {
+  const profile = getGameCoachingProfile(gameId);
+  const gameName = profile.name;
+
+  if (section === 'overview') {
+    return `You are a ${gameName} post-game analyst. This is a gameplay session, not a meeting.
+Summarize what happened in the session using gameplay language only.
 
 Rules:
-- Write a single flowing paragraph. No bullet points, no headers,
-  no numbered lists.
-- The summary should read like a brief written by a sharp colleague
-  who sat in on the meeting - it tells you who was there, what the
-  meeting was about, and what the main threads of discussion were.
-- Mention participants by name and what they contributed, but keep it
-  high-level. Do not quote anyone verbatim.
-- Do not editorialize or add opinions. Stick to what actually happened.
-- Aim for 3-5 sentences. Never exceed 120 words.
-- Write in past tense, third person.
+- Write 3-5 short sentences.
+- Focus on rounds, fights, mistakes, advantages, clutch moments, positioning, and decision-making.
+- Do not mention meetings, discussions, colleagues, agenda, or action items.
+- Be concrete and game-specific.
+- Use past tense.
 
-Respond ONLY with the summary paragraph - no explanation, no headers,
-no preamble.`;
+Return only the summary paragraph.`;
+  }
 
-const KEY_POINTS_SYSTEM_PROMPT = `You are an expert meeting summarizer. Given a meeting transcript along
-with its name, description, and checklist, produce a detailed breakdown
-of the key discussion points from the meeting.
+  if (section === 'keyPoints') {
+    return `You are a ${gameName} post-game analyst. This is a gameplay session, not a meeting.
+Return the key gameplay takeaways as JSON.
 
 Rules:
-- Identify the major topics or themes that were discussed. Group related
-  points under a clear, short topic heading.
-- Under each topic, write individual points attributed to the person
-  who raised them. Use the format: "Name did/said/raised/confirmed..."
-- Each point should be one concrete sentence capturing what was said,
-  decided, or proposed. No filler, no fluff.
-- Stay factual - report what happened, do not add interpretation or
-  recommendations.
-- Write in past tense, third person.
-- Aim for 2-5 topics, with 2-5 points each. Let the actual content of
-  the meeting dictate the count - do not pad or compress artificially.
-- If the checklist items were addressed in the meeting, naturally weave
-  that into the relevant topic. Do not create a separate "checklist
-  review" section.
-
-Respond ONLY with the JSON object below - no explanation, no markdown
-fences, no preamble.
+- Group by gameplay themes such as Aim, Positioning, Decision-making, Movement, and Game sense.
+- Each point should describe a concrete in-game moment or repeated pattern.
+- Do not mention meetings, discussions, attendees, or agenda items.
+- Use short topic names and concrete points.
 
 Output format:
 {
   "key_points": [
     {
       "topic": "Topic Name",
-      "points": [
-        "Person did/said something specific.",
-        "Another person confirmed/raised another point."
-      ]
+      "points": ["Concrete gameplay point."]
     }
   ]
 }`;
+  }
 
-const POST_MEETING_CHECKLIST_SYSTEM_PROMPT = `You are an expert meeting analyst. Given a meeting transcript, extract
-all action items, follow-ups, open questions, and tasks that need to be
-handled AFTER the meeting ends.
+  return `You are a ${gameName} post-game analyst. This is a gameplay session, not a meeting.
+Extract the next-match goals, drills, and corrections from the session.
 
 Rules:
-- Extract concrete, actionable items that emerged from the conversation.
-- Include: tasks assigned to people, decisions that need follow-up,
-  questions that were left unanswered, commitments made, deadlines
-  mentioned, and next steps discussed.
-- Each item should be a clear, actionable statement. Include the
-  responsible person if mentioned.
-- Good: "John to send the proposal by Friday"
-- Good: "Schedule follow-up meeting with design team"
-- Good: "Clarify budget allocation with finance"
-- Bad: "Discussed the project" (not actionable)
-- Order by priority/urgency if discernible, otherwise by order mentioned.
-- Generate between 3-10 items. Only include genuine action items from
-  the conversation - do not pad or invent items.
-- If no clear action items were discussed, return an empty array.
-
-Respond ONLY with the JSON object below - no explanation, no markdown
-fences, no preamble.
+- Return 3-10 concise items.
+- Make each item a gameplay correction or training goal.
+- Do not mention meetings, discussions, coworkers, or follow-up calls.
+- Prefer drills and behavior changes over vague advice.
 
 Output format:
 {
   "checklist": [
-    "Action item 1",
-    "Action item 2"
+    "Actionable gameplay goal"
   ]
 }`;
+}
 
 // Summary Generator Service
 
@@ -145,19 +117,20 @@ export class SummaryGeneratorService {
 
     if (!dbSegments || dbSegments.length === 0) {
       log.warn({ recordingId }, 'No transcript segments found for recording');
-      return this.emptyResults();
+      return this.visualFallbackResults(recordingId, context);
     }
 
     log.info({ recordingId, segmentCount: dbSegments.length }, 'Generating post-meeting summaries');
 
     const transcript = this.formatTranscript(dbSegments);
     const userPrompt = this.buildUserPrompt(transcript, context);
+    const gameId: SupportedGameId = context.gameId || 'chess';
 
-    // Generate all summaries in parallel
+    // Generate all summaries in parallel using chess coaching prompts
     const [shortOverview, keyPoints, postMeetingChecklist] = await Promise.all([
-      this.generateShortOverview(userPrompt),
-      this.generateKeyPoints(userPrompt),
-      this.generatePostMeetingChecklist(userPrompt),
+      this.generateGameOverview(userPrompt, gameId),
+      this.generateGameKeyPoints(userPrompt, gameId),
+      this.generateGameChecklist(userPrompt, gameId),
     ]);
 
     return {
@@ -168,68 +141,55 @@ export class SummaryGeneratorService {
     };
   }
 
-  /**
-   * Generate short overview (narrative paragraph)
-   */
-  private async generateShortOverview(userPrompt: string): Promise<string> {
+  private async generateGameOverview(userPrompt: string, gameId: SupportedGameId): Promise<string> {
     const llm = getLLMService();
 
     try {
-      const response = await llm.complete(userPrompt, SHORT_OVERVIEW_SYSTEM_PROMPT);
+      const response = await llm.complete(userPrompt, buildGameSummarySystemPrompt(gameId, 'overview'));
 
       if (response.success && response.content) {
-        log.info('Short overview generated successfully');
         return response.content.trim();
       }
     } catch (error) {
-      log.error({ error }, 'Short overview generation failed');
+      log.error({ error, gameId }, 'Game overview generation failed');
     }
 
-    return 'Unable to generate meeting summary.';
+    return 'Unable to generate gameplay summary.';
   }
 
-  /**
-   * Generate key points (structured JSON)
-   */
-  private async generateKeyPoints(userPrompt: string): Promise<KeyPoint[]> {
+  private async generateGameKeyPoints(userPrompt: string, gameId: SupportedGameId): Promise<KeyPoint[]> {
     const llm = getLLMService();
 
     try {
-      const response = await llm.complete(userPrompt, KEY_POINTS_SYSTEM_PROMPT);
+      const response = await llm.complete(userPrompt, buildGameSummarySystemPrompt(gameId, 'keyPoints'));
 
       if (response.success && response.content) {
-        // Parse the JSON response
         const parsed = this.parseKeyPointsResponse(response.content);
         if (parsed) {
-          log.info({ topicCount: parsed.length }, 'Key points generated successfully');
           return parsed;
         }
       }
     } catch (error) {
-      log.error({ error }, 'Key points generation failed');
+      log.error({ error, gameId }, 'Game key points generation failed');
     }
 
     return [];
   }
 
-  /**
-   * Generate post-meeting checklist (action items)
-   */
-  private async generatePostMeetingChecklist(userPrompt: string): Promise<string[]> {
+  private async generateGameChecklist(userPrompt: string, gameId: SupportedGameId): Promise<string[]> {
     const llm = getLLMService();
 
     try {
-      const response = await llm.complete(userPrompt, POST_MEETING_CHECKLIST_SYSTEM_PROMPT);
+      const response = await llm.complete(userPrompt, buildGameSummarySystemPrompt(gameId, 'checklist'));
 
       if (response.success && response.content) {
         const parsed = this.parseChecklistResponse(response.content);
         if (parsed) {
-          log.info({ itemCount: parsed.length }, 'Post-meeting checklist generated successfully');
           return parsed;
         }
       }
     } catch (error) {
-      log.error({ error }, 'Post-meeting checklist generation failed');
+      log.error({ error, gameId }, 'Game checklist generation failed');
     }
 
     return [];
@@ -292,8 +252,8 @@ export class SummaryGeneratorService {
    * Build the user prompt with meeting context
    */
   private buildUserPrompt(transcript: string, context: MeetingContext): string {
-    const meetingName = context.meetingName || 'Untitled Meeting';
-    const meetingDescription = context.meetingDescription || 'No description provided';
+    const title = context.meetingName || (context.gameId ? `${getGameCoachingProfile(context.gameId).name} Session` : 'Chess Session');
+    const description = context.meetingDescription || 'Gameplay session';
 
     // Format probing questions and answers
     const probingQA = context.probingQuestions?.length
@@ -309,10 +269,10 @@ export class SummaryGeneratorService {
       ? context.checklist.map((item, i) => `${i + 1}. ${item}`).join('\n')
       : 'No checklist';
 
-    return `Meeting Name: ${meetingName}
-Meeting Description: ${meetingDescription}
+    return `Game Session Title: ${title}
+  Session Context: ${description}
 
-Pre-Meeting Context (Q&A):
+Pre-Session Context (Q&A):
 ${probingQA}
 
 Checklist:
@@ -347,6 +307,141 @@ ${transcript}`;
   /**
    * Return empty results
    */
+  private visualFallbackResults(recordingId: number, context: MeetingContext): PostMeetingSummary {
+    const visualItems = getVisualIndexItemsByRecording(recordingId);
+    const gameName = context.gameId ? getGameCoachingProfile(context.gameId).name : 'game';
+
+    const coachingBuckets = {
+      positioning: [] as string[],
+      timing: [] as string[],
+      decisionMaking: [] as string[],
+      awareness: [] as string[],
+    };
+
+    for (const item of visualItems || []) {
+      const text = item.text.replace(/\s+/g, ' ').trim();
+      const lower = text.toLowerCase();
+
+      if (!text || /no actionable gameplay moment/i.test(lower)) continue;
+
+      if (/angle|cover|exposed|off[- ]angle|high ground|peek|hold|position|crosshair|flank/.test(lower)) {
+        coachingBuckets.positioning.push(text);
+        continue;
+      }
+
+      if (/rotate|timing|utility|flash|smoke|molotov|nade|ult|ability|cooldown|tempo/.test(lower)) {
+        coachingBuckets.timing.push(text);
+        continue;
+      }
+
+      if (/push|commit|fight|trade|chase|take|save|reset|engage|escape|peek again/.test(lower)) {
+        coachingBuckets.decisionMaking.push(text);
+        continue;
+      }
+
+      coachingBuckets.awareness.push(text);
+    }
+
+    if (!visualItems || visualItems.length === 0) {
+      const shortOverview = context.gameId
+        ? `No transcript was captured for this ${gameName} session, but the coach can still help. For the next match, focus on cleaner positioning, earlier rotations, and tighter fight selection so the replay has more actionable moments.`
+        : 'No transcript was captured for this session. Start recording with game audio/mic enabled for richer post-session analysis.';
+
+      return {
+        shortOverview,
+        keyPoints: context.gameId
+          ? [
+              {
+                topic: 'Next Match Priorities',
+                points: [
+                  'Hold tighter positions and use cover before taking fights.',
+                  'Rotate earlier when the round state becomes unfavorable.',
+                  'Take fewer low-value fights and look for cleaner trade setups.',
+                ],
+              },
+            ]
+          : [],
+        postMeetingChecklist: context.gameId
+          ? [
+              'Review one lost round and identify the first safer position you could have taken.',
+              'Practice slowing down before peeking so you can choose better fights.',
+              'Track one round where an earlier rotate or reset would have improved the outcome.',
+            ]
+          : [],
+        generatedAt: Date.now(),
+      };
+    }
+
+    const uniqueTips = Array.from(
+      new Set(
+        visualItems
+          .map((item) => item.text.replace(/\s+/g, ' ').trim())
+          .filter((text) => !!text && !/no actionable gameplay moment/i.test(text))
+      )
+    ).slice(0, 4);
+
+    const positioningPoints = Array.from(new Set(coachingBuckets.positioning)).slice(0, 3);
+    const timingPoints = Array.from(new Set(coachingBuckets.timing)).slice(0, 3);
+    const decisionPoints = Array.from(new Set(coachingBuckets.decisionMaking)).slice(0, 3);
+    const awarenessPoints = Array.from(new Set(coachingBuckets.awareness)).slice(0, 3);
+
+    const keyPoints: KeyPoint[] = [];
+
+    if (positioningPoints.length > 0) {
+      keyPoints.push({
+        topic: 'Positioning & Cover',
+        points: positioningPoints,
+      });
+    }
+
+    if (timingPoints.length > 0) {
+      keyPoints.push({
+        topic: 'Timing & Utility',
+        points: timingPoints,
+      });
+    }
+
+    if (decisionPoints.length > 0) {
+      keyPoints.push({
+        topic: 'Decision-Making',
+        points: decisionPoints,
+      });
+    }
+
+    if (awarenessPoints.length > 0) {
+      keyPoints.push({
+        topic: 'Awareness & Fight Sense',
+        points: awarenessPoints,
+      });
+    }
+
+    if (keyPoints.length === 0 && uniqueTips.length > 0) {
+      keyPoints.push({
+        topic: 'Visual Gameplay Highlights',
+        points: uniqueTips,
+      });
+    }
+
+    const shortOverview = keyPoints.length > 0
+      ? `This ${gameName} session showed a few repeatable improvement areas: tighter positioning, cleaner timing, and better fight selection. The strongest opportunities were around when to commit, when to reset, and how to turn visible advantages into safer rounds.`
+      : `Visual analysis captured mostly non-actionable moments in this ${gameName} session. Keep recording active in-round gameplay so the coach can produce sharper strategy and tactics feedback.`;
+
+    const checklist = keyPoints.length > 0
+      ? [
+          'Pick one round and review whether a safer position or earlier rotate would have improved the outcome.',
+          'Practice one drill around the most common timing mistake from this session.',
+          'Aim to convert one advantage state into a cleaner finish instead of forcing a risky fight.',
+        ]
+      : [];
+
+    return {
+      shortOverview,
+      keyPoints,
+      postMeetingChecklist: checklist,
+      generatedAt: Date.now(),
+    };
+  }
+
   private emptyResults(): PostMeetingSummary {
     return {
       shortOverview: 'No transcript available to summarize.',

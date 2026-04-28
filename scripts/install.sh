@@ -1,13 +1,14 @@
 #!/bin/bash
 set -e
 
-# Call.md Installer
+# Chess Lens Installer
 # Usage: curl -fsSL https://artifacts.videodb.io/call-md/install | bash
 
 APP_NAME="Call.md"
 APP_DIR="/Applications/${APP_NAME}.app"
 BASE_URL="https://artifacts.videodb.io/call-md"
-VERSION="1.0.0"
+# Version is read from package.json at build time; update here on each release.
+VERSION="1.0.2"
 
 # Colors
 RED='\033[0;31m'
@@ -36,16 +37,16 @@ fi
 
 ARCH="$(uname -m)"
 case "$ARCH" in
-  arm64) DMG_FILE="call-md-${VERSION}-arm64.dmg" ;;
-  x86_64) DMG_FILE="call-md-${VERSION}-x64.dmg" ;;
+  arm64) DMG_FILE="${APP_NAME}-${VERSION}-arm64.dmg" ;;
+  x86_64) DMG_FILE="${APP_NAME}-${VERSION}-x64.dmg" ;;
   *) error "Unsupported architecture: $ARCH" ;;
 esac
 
 DMG_URL="${BASE_URL}/${DMG_FILE}"
 
 echo ""
-printf "${BOLD}  Call.md Installer${NC}\n"
-echo "  ────────────────"
+printf "${BOLD}  Chess Lens Installer${NC}\n"
+echo "  ────────────────────"
 echo ""
 info "Detected architecture: $ARCH"
 info "Downloading ${DMG_FILE}..."
@@ -119,10 +120,11 @@ MOUNT_POINT=""
 # --- Done ---
 
 echo ""
-success "Call.md has been installed to /Applications!"
+success "Call.md (Chess Lens) has been installed to /Applications!"
 echo ""
 echo "  Next steps:"
 echo "    1. Open Call.md from Applications or Spotlight"
 echo "    2. Grant Microphone and Screen Recording permissions when prompted"
 echo "    3. Enter your VideoDB API key (get one at https://console.videodb.io)"
+echo "    4. Start a chess session to get real-time move coaching"
 echo ""

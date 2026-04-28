@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { IpcApi, RecorderEvent, PermissionStatus, StartRecordingParams } from '../shared/types/ipc.types';
+import type { IpcApi, LiveAssistMeetingContext, RecorderEvent, PermissionStatus, StartRecordingParams } from '../shared/types/ipc.types';
 import type { Channel } from '../shared/schemas/capture.schema';
 import type {
   CalendarApi,
@@ -331,7 +331,7 @@ const api: IpcApi = {
   },
 
   liveAssist: {
-    start: (context?: { name?: string; description?: string; questions?: Array<{ question: string; answer: string }>; checklist?: string[] }) =>
+    start: (context?: LiveAssistMeetingContext) =>
       ipcRenderer.invoke('live-assist:start', context),
     stop: () => ipcRenderer.invoke('live-assist:stop'),
     addTranscript: (text: string, source: 'mic' | 'system_audio') =>
@@ -342,7 +342,7 @@ const api: IpcApi = {
   },
 
   liveAssistOn: {
-    onUpdate: (callback: (data: { insights: { say_this: string[]; ask_this: string[] }; processedAt: number }) => void) => {
+    onUpdate: (callback: (data: { insights: { say_this: string[]; ask_this: string[] }; processedAt: number; clearExisting?: boolean }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
       ipcRenderer.on('live-assist:update', listener);
       return () => ipcRenderer.removeListener('live-assist:update', listener);

@@ -13,4 +13,5 @@ export interface LiveInsights {
 export interface LiveInsightsEvent {
   insights: LiveInsights;
   processedAt: number;
+  clearExisting?: boolean;
 }

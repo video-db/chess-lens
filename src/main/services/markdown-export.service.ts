@@ -24,6 +24,7 @@ import os from 'os';
 import { createChildLogger } from '../lib/logger';
 import type { PostMeetingSummary } from './copilot/summary-generator.service';
 import type { ConversationMetrics } from './copilot/conversation-metrics.service';
+import { getGameCoachingProfile, type SupportedGameId } from '../../shared/config/game-coaching';
 
 const logger = createChildLogger('markdown-export');
 
@@ -35,6 +36,7 @@ export interface MeetingExportData {
   recordingId: number;
   meetingName: string;
   meetingDescription?: string;
+  gameId?: SupportedGameId;
   startedAt: Date;
   duration: number; // seconds
   summary: PostMeetingSummary;
@@ -143,22 +145,24 @@ function generateSummaryMarkdown(data: MeetingExportData): string {
     minute: '2-digit',
   });
 
-  lines.push(`# ${data.meetingName}`);
+  const isGameSession = !!data.gameId;
+  const gameLabel = data.gameId ? getGameCoachingProfile(data.gameId).name : null;
+  lines.push(`# ${isGameSession ? `${gameLabel} Session` : data.meetingName}`);
   lines.push('');
   lines.push(`**Date:** ${dateStr}`);
   lines.push(`**Time:** ${timeStr}`);
   lines.push(`**Duration:** ${formatDuration(data.duration)}`);
-  if (data.meetingDescription) {
+  if (data.meetingDescription && !isGameSession) {
     lines.push(`**Description:** ${data.meetingDescription}`);
   }
   lines.push('');
-  lines.push('## Overview');
+  lines.push(isGameSession ? '## Match Overview' : '## Overview');
   lines.push('');
   lines.push(data.summary.shortOverview);
   lines.push('');
 
   if (data.summary.keyPoints && data.summary.keyPoints.length > 0) {
-    lines.push('## Key Discussion Points');
+    lines.push(isGameSession ? '## Key Plays' : '## Key Discussion Points');
     lines.push('');
     for (const kp of data.summary.keyPoints) {
       lines.push(`### ${kp.topic}`);
@@ -171,7 +175,7 @@ function generateSummaryMarkdown(data: MeetingExportData): string {
   }
 
   if (data.summary.postMeetingChecklist && data.summary.postMeetingChecklist.length > 0) {
-    lines.push('## Action Items');
+    lines.push(isGameSession ? '## Next-Match Goals' : '## Action Items');
     lines.push('');
     for (const item of data.summary.postMeetingChecklist) {
       lines.push(`- [ ] ${item}`);
@@ -190,8 +194,10 @@ function generateSummaryMarkdown(data: MeetingExportData): string {
  */
 function generateTranscriptMarkdown(data: MeetingExportData): string {
   const lines: string[] = [];
+  const isGameSession = !!data.gameId;
+  const gameLabel = data.gameId ? getGameCoachingProfile(data.gameId).name : null;
 
-  lines.push(`# Transcript: ${data.meetingName}`);
+  lines.push(`# ${isGameSession ? `${gameLabel} Transcript` : `Transcript: ${data.meetingName}`}`);
   lines.push('');
   lines.push(`**Date:** ${data.startedAt.toISOString().split('T')[0]}`);
   lines.push(`**Duration:** ${formatDuration(data.duration)}`);
@@ -221,8 +227,10 @@ function generateTranscriptMarkdown(data: MeetingExportData): string {
  */
 function generateVisualMarkdown(data: MeetingExportData, scenes: SceneData[]): string {
   const lines: string[] = [];
+  const isGameSession = !!data.gameId;
+  const gameLabel = data.gameId ? getGameCoachingProfile(data.gameId).name : null;
 
-  lines.push(`# Visual Context: ${data.meetingName}`);
+  lines.push(`# ${isGameSession ? `${gameLabel} Visual Context` : `Visual Context: ${data.meetingName}`}`);
   lines.push('');
   lines.push(`**Date:** ${data.startedAt.toISOString().split('T')[0]}`);
   lines.push(`**Scenes Captured:** ${scenes.length}`);
@@ -258,8 +266,10 @@ function generateVisualMarkdown(data: MeetingExportData, scenes: SceneData[]): s
  */
 function generateMetricsMarkdown(data: MeetingExportData): string {
   const lines: string[] = [];
+  const isGameSession = !!data.gameId;
+  const gameLabel = data.gameId ? getGameCoachingProfile(data.gameId).name : null;
 
-  lines.push(`# Conversation Metrics: ${data.meetingName}`);
+  lines.push(`# ${isGameSession ? `${gameLabel} Metrics` : `Conversation Metrics: ${data.meetingName}`}`);
   lines.push('');
   lines.push(`**Date:** ${data.startedAt.toISOString().split('T')[0]}`);
   lines.push(`**Duration:** ${formatDuration(data.duration)}`);
@@ -398,7 +408,8 @@ export async function exportMeetingToMarkdown(data: MeetingExportData): Promise<
   initializeCallMdDir();
 
   try {
-    const folderPath = getMeetingFolderPath(data.meetingName, data.startedAt);
+    const folderName = data.gameId ? `${getGameCoachingProfile(data.gameId).name} Session` : data.meetingName;
+    const folderPath = getMeetingFolderPath(folderName, data.startedAt);
     ensureDirectoryExists(folderPath);
 
     // Fetch visual analysis from local database
@@ -410,7 +421,7 @@ export async function exportMeetingToMarkdown(data: MeetingExportData): Promise<
     fs.writeFileSync(path.join(folderPath, 'visual.md'), generateVisualMarkdown(data, scenes), 'utf-8');
     fs.writeFileSync(path.join(folderPath, 'metrics.md'), generateMetricsMarkdown(data), 'utf-8');
 
-    logger.info({ folderPath, meetingName: data.meetingName, sceneCount: scenes.length }, 'Meeting exported to markdown');
+    logger.info({ folderPath, meetingName: data.meetingName, gameId: data.gameId, sceneCount: scenes.length }, 'Session exported to markdown');
 
     const relativePath = path.relative(CALL_MD_DIR, folderPath);
     updateIndex(data, relativePath);
@@ -418,7 +429,7 @@ export async function exportMeetingToMarkdown(data: MeetingExportData): Promise<
     return folderPath;
   } catch (error) {
     const err = error as Error;
-    logger.error({ error: err.message, meetingName: data.meetingName }, 'Failed to export meeting to markdown');
+    logger.error({ error: err.message, meetingName: data.meetingName, gameId: data.gameId }, 'Failed to export session to markdown');
     throw error;
   }
 }

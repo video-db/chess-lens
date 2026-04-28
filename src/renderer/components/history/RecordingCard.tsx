@@ -10,7 +10,7 @@ function getCallMdPath(recording: Recording): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  const name = (recording.meetingName || 'untitled-meeting')
+  const name = (recording.meetingName || 'untitled-session')
     .replace(/[/\\?%*:|"<>]/g, '-')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
@@ -18,12 +18,25 @@ function getCallMdPath(recording: Recording): string {
     .toLowerCase()
     .slice(0, 100);
 
-  return `~/.call_md/meetings/${year}/${month}/${day}/${name}`;
+  return `~/.call_md/sessions/${year}/${month}/${day}/${name}`;
 }
 
 interface RecordingCardProps {
   recording: Recording;
   onClick: () => void;
+}
+
+function parseCreatedAtMs(createdAt: string): number {
+  const normalized = createdAt.includes('T') ? createdAt : createdAt.replace(' ', 'T');
+  const hasTimeZone = /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(normalized);
+  const utcCandidate = hasTimeZone ? normalized : `${normalized}Z`;
+  const parsedUtc = Date.parse(utcCandidate);
+
+  if (Number.isFinite(parsedUtc)) {
+    return parsedUtc;
+  }
+
+  return Date.parse(createdAt);
 }
 
 type RecordingStatus = 'recording' | 'processing' | 'available' | 'failed';
@@ -158,21 +171,34 @@ function OpenFolderButton({ recording }: { recording: Recording }) {
 }
 
 export function RecordingCard({ recording, onClick }: RecordingCardProps) {
-  const config = statusConfigs[recording.status] || statusConfigs.available;
+  const displayStatus: RecordingStatus = recording.status as RecordingStatus;
 
-  // Get the title - prefer meetingName, fallback to date-based title
+  const config = statusConfigs[displayStatus] || statusConfigs.available;
+
+  // Get the title - prefer session name, fallback to date-based title
   const title = recording.meetingName || `Recording - ${formatDate(recording.createdAt)}`;
 
   // Get the description - prefer shortOverview, fallback to insights
+  const normalizeGameDescription = (text: string): string => {
+    if (!recording.gameId) return text;
+
+    return text
+      .replace(/\bIn the meeting titled\b/gi, 'In this match titled')
+      .replace(/\bmeeting\b/gi, 'session')
+      .replace(/\bagenda\b/gi, 'gameplan')
+      .replace(/\bchecklist\b/gi, 'goals')
+      .replace(/\baction items\b/gi, 'next-match goals');
+  };
+
   const getDescription = (): string => {
     if (recording.shortOverview) {
-      return recording.shortOverview;
+      return normalizeGameDescription(recording.shortOverview);
     }
     if (recording.insights) {
-      return stripMarkdown(recording.insights);
+      return normalizeGameDescription(stripMarkdown(recording.insights));
     }
     if (recording.meetingDescription) {
-      return recording.meetingDescription;
+      return normalizeGameDescription(recording.meetingDescription);
     }
     return 'No summary available yet.';
   };
@@ -194,7 +220,7 @@ export function RecordingCard({ recording, onClick }: RecordingCardProps) {
       <div className="flex flex-col gap-[10px]">
         {/* Status Badge and Action Buttons */}
         <div className="flex items-start justify-between">
-          <StatusBadge status={recording.status} />
+          <StatusBadge status={displayStatus} />
           <div className="flex items-center gap-[8px]">
             <CopyPathButton recording={recording} />
             <OpenFolderButton recording={recording} />

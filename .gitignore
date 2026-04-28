@@ -4,12 +4,24 @@ node_modules/
 # Build output
 dist/
 release/
+out/
+
+# Packaged app artifacts
+*.dmg
+*.zip
+*.exe
+*.AppImage
+*.deb
+*.rpm
+*.snap
 
 # Database
 data/
 *.db
+*.db-shm
+*.db-wal
 
-# Drizzle
+# Drizzle migrations (generated output)
 drizzle/
 
 # Logs
@@ -18,22 +30,50 @@ logs/
 
 # OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*.sublime-project
+*.sublime-workspace
 
 # Environment
 .env
 .env.local
 .env.*.local
 
-# Config files with secrets
+# Runtime config & secrets (written at runtime in userData)
 config.json
 auth_config.json
+runtime_config.json
+google_tokens.json
+google_tokens.enc
+.mcp-encryption-key
+
+# OAuth credentials with client secrets
+resources/google_oauth.json
+
+# Screenshot / temporary media
+screenshot.png
+*.tmp
 
 # TypeScript cache
 *.tsbuildinfo
+
+# Electron builder cache
+.electron-builder-cache/
+
+# Vite cache
+.vite/
+
+# package-lock (optional — remove this line if you want to track it)
+# package-lock.json

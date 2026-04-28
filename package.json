@@ -1,8 +1,8 @@
 {
-	"name": "call-md",
+	"name": "pair-gaming-coach",
 	"version": "1.0.2",
 	"type": "commonjs",
-	"description": "Call.md - Record meetings with real-time transcription and AI-powered insights",
+	"description": "Chess Lens - real-time chess analysis and live move coaching",
 	"author": {
 		"name": "VideoDB",
 		"email": "support@videodb.io",
@@ -25,7 +25,9 @@
 		"typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
 		"lint": "eslint src --ext .ts,.tsx",
 		"db:generate": "drizzle-kit generate",
-		"db:migrate": "drizzle-kit migrate"
+		"db:migrate": "drizzle-kit migrate",
+		"tools:check-export": "ts-node ./tools/checkSessionExport.ts",
+		"tools:recover-session": "ts-node ./tools/recoverSession.ts"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.14.1",

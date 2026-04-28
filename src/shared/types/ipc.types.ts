@@ -1,3 +1,4 @@
+import type { SupportedGameId } from '../config/game-coaching';
 import type { CaptureConfig, Channel } from '../schemas/capture.schema';
 import type {
   CalendarApi,
@@ -13,6 +14,7 @@ export interface StartRecordingParams {
   apiUrl?: string;
   enableTranscription?: boolean;
   enableVisualIndex?: boolean;
+  gameId?: string;
 }
 
 export interface RecorderEvent {
@@ -171,6 +173,7 @@ export interface CopilotConfig {
 export interface LiveAssistMeetingContext {
   name?: string;
   description?: string;
+  gameId?: SupportedGameId;
   questions?: Array<{ question: string; answer: string }>;
   checklist?: string[];
 }
@@ -184,7 +187,7 @@ export interface LiveAssistApi {
 }
 
 export interface LiveAssistEvents {
-  onUpdate: (callback: (data: { insights: { say_this: string[]; ask_this: string[] }; processedAt: number }) => void) => () => void;
+  onUpdate: (callback: (data: { insights: { say_this: string[]; ask_this: string[] }; processedAt: number; clearExisting?: boolean }) => void) => () => void;
 }
 
 export interface WorkflowsApi {

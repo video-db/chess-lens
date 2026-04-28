@@ -3,6 +3,7 @@ import fixPath from 'fix-path';
 fixPath();
 
 import { app, BrowserWindow, Menu } from 'electron';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { initDatabase, closeDatabase, getUserByAccessToken, updateUser } from './db';
@@ -43,6 +44,10 @@ import { createVideoDBService } from './services/videodb.service';
 let mainWindow: BrowserWindow | null = null;
 const isDev = !app.isPackaged;
 const PROTOCOL_NAME = 'call-md';
+
+const DEV_SERVER_HOST = process.env.VITE_DEV_SERVER_HOST ?? 'localhost';
+const DEV_SERVER_START_PORT = Number(process.env.VITE_DEV_SERVER_PORT ?? 51730);
+const DEV_SERVER_PORT_RANGE = Number(process.env.VITE_DEV_SERVER_PORT_RANGE ?? 10);
 
 // Track if app is quitting (for hide-to-tray behavior)
 let isAppQuitting = false;
@@ -134,7 +139,7 @@ async function createWindow(): Promise<void> {
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    title: 'Call.md',
+    title: 'Pair Gaming Coach',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
@@ -153,8 +158,8 @@ async function createWindow(): Promise<void> {
   setWidgetMainWindow(mainWindow);
 
   if (isDev) {
-    const VITE_DEV_PORT = 51730;
-    await mainWindow.loadURL(`http://localhost:${VITE_DEV_PORT}`);
+    const devServerUrl = await resolveDevServerUrl();
+    await mainWindow.loadURL(devServerUrl);
   } else {
     await mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   }
@@ -176,10 +181,48 @@ async function createWindow(): Promise<void> {
   });
 }
 
+async function resolveDevServerUrl(): Promise<string> {
+  const explicitUrl = process.env.VITE_DEV_SERVER_URL;
+  if (explicitUrl) {
+    logger.info({ explicitUrl }, 'Using explicit dev server URL');
+    return explicitUrl;
+  }
+
+  for (let offset = 0; offset <= DEV_SERVER_PORT_RANGE; offset += 1) {
+    const port = DEV_SERVER_START_PORT + offset;
+    const candidateUrl = `http://${DEV_SERVER_HOST}:${port}`;
+    // eslint-disable-next-line no-await-in-loop
+    if (await isDevServerAvailable(candidateUrl)) {
+      logger.info({ candidateUrl }, 'Resolved dev server URL');
+      return candidateUrl;
+    }
+  }
+
+  const fallbackUrl = `http://${DEV_SERVER_HOST}:${DEV_SERVER_START_PORT}`;
+  logger.warn({ fallbackUrl }, 'Dev server URL not detected; falling back');
+  return fallbackUrl;
+}
+
+function isDevServerAvailable(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const request = http.get(url, (response) => {
+      response.resume();
+      const status = response.statusCode ?? 0;
+      resolve(status >= 200 && status < 500);
+    });
+
+    request.on('error', () => resolve(false));
+    request.setTimeout(750, () => {
+      request.destroy();
+      resolve(false);
+    });
+  });
+}
+
 function createMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: app.name,
+      label: 'Pair Gaming Coach',
       submenu: [
         { role: 'about' },
         { type: 'separator' },

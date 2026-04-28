@@ -31,10 +31,8 @@ import { useCopilotStore } from './stores/copilot.store';
 import { useMeetingSetupStore } from './stores/meeting-setup.store';
 import { useSessionLifecycle, resetAllSessionStores } from './hooks/useSessionLifecycle';
 import { SettingsView } from './components/settings/SettingsView';
-import { CalendarAuthBanner } from './components/calendar';
 import { MeetingSetupFlow } from './components/meeting-setup';
 import { StepIndicators } from './components/auth/AuthView';
-import { CalendarSetupView } from './components/auth/CalendarSetupView';
 import { RecordingPreferencesView } from './components/auth/RecordingPreferencesView';
 import { RecordingHeader, MetricsBar, LiveAssistPanel, MeetingAgendaPanel } from './components/recording';
 import { useNotificationPermission } from './hooks/useNotificationPermission';
@@ -42,7 +40,7 @@ import { useNotificationPermission } from './hooks/useNotificationPermission';
 type Tab = 'home' | 'history' | 'settings';
 
 function LogoIcon() {
-  return <img src={logoIcon} width={50} height={50} alt="Call.md" />;
+  return <img src={logoIcon} width={50} height={50} alt="Pair Gaming Coach" />;
 }
 
 // System audio icon
@@ -368,7 +366,7 @@ function RecordingView({ onBack }: RecordingViewProps) {
   const { checklist } = meetingSetupStore;
   const hasChecklist = checklist.length > 0;
 
-  // Get insights from nudge history (for Live Assist panel)
+  // Get insights from nudge history (for coaching panel)
   const insights = nudgeHistory
     .filter((n) => n.type === 'suggestion' || n.type === 'question')
     .map((n) => n.message)
@@ -458,7 +456,7 @@ function RecordingView({ onBack }: RecordingViewProps) {
 
       {/* Main Container */}
       <div className="flex-1 bg-white border border-[#efefef] rounded-t-[20px] mx-[10px] p-[20px] flex gap-[30px] overflow-hidden">
-        {/* Left Column - Live Assist Panel */}
+        {/* Left Column - Coaching Panel */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <LiveAssistPanel />
         </div>
@@ -470,10 +468,10 @@ function RecordingView({ onBack }: RecordingViewProps) {
 
           {/* Right Panel with scrollable content */}
           <div className="flex-1 bg-[#f7f7f7] border border-[#efefef] rounded-[16px] p-[12px] flex flex-col gap-[16px] overflow-hidden min-h-0">
-            {/* Meeting Agenda - only show if checklist exists */}
+            {/* Session Goals - only show if checklist exists */}
             {hasChecklist && <MeetingAgendaPanel checklist={checklist} />}
 
-            {/* Meeting Transcript */}
+            {/* Gameplay Transcript */}
             <TranscriptionPanel />
           </div>
         </div>
@@ -486,14 +484,8 @@ export function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [showRecordingPrefs, setShowRecordingPrefs] = useState(false);
   const [showMeetingSetup, setShowMeetingSetup] = useState(false);
-  const [pendingOverlap, setPendingOverlap] = useState<{
-    currentMeeting?: { id: string; summary: string };
-    nextMeeting: { id: string; summary: string; description?: string };
-  } | null>(null);
   // Recording ID to navigate to after recording ends
   const [pendingRecordingNavigation, setPendingRecordingNavigation] = useState<number | null>(null);
-  // Settings tab to show when navigating to settings
-  const [initialSettingsTab, setInitialSettingsTab] = useState<'account' | 'notifications' | 'mcpServers' | 'workflows' | null>(null);
   // Pending tab change when user needs to confirm discarding meeting setup
   const [pendingTabChange, setPendingTabChange] = useState<Tab | null>(null);
 
@@ -553,124 +545,19 @@ export function App() {
   const cancelDiscardMeetingSetup = () => {
     setPendingTabChange(null);
   };
-  const { status: sessionStatus, startRecording, stopRecording } = useSession();
+  const { status: sessionStatus, startRecording } = useSession();
   const { allGranted, loading: permissionsLoading, checkPermissions } = usePermissions();
-  const { prepareNewSession, prepareNewSessionWithInfo, waitForIdle } = useSessionLifecycle();
+  const { prepareNewSession } = useSessionLifecycle();
 
   // Global listener for recorder events - persists during navigation
   useGlobalRecorderEvents();
 
   const isAuthenticated = configStore.isAuthenticated();
 
-  // Listen for calendar notification events
-  React.useEffect(() => {
-    if (!isAuthenticated) return;
-
-    // Handle "open meeting setup" from notification/tray click
-    const unsubOpenSetup = window.electronAPI.calendarOn.onOpenMeetingSetup((meeting) => {
-      // Clear all stale state and pre-fill meeting info
-      prepareNewSessionWithInfo(meeting.summary, meeting.description || '');
-
-      // Switch to home tab and show meeting setup
-      setActiveTab('home');
-      setShowMeetingSetup(true);
-    });
-
-    // Handle "auto-start recording" from notification or default_record behavior
-    const unsubAutoStart = window.electronAPI.calendarOn.onAutoStartRecording(async (meeting) => {
-      // Clear ALL stale state (including old call summaries) before starting new recording
-      prepareNewSessionWithInfo(meeting.summary, meeting.description || '');
-
-      // Ensure we're on home tab
-      setActiveTab('home');
-
-      // Notify main process about which meeting we're recording (for overlapping detection)
-      await window.electronAPI.calendar.setRecordingMeeting(meeting.id);
-
-      // Start recording directly with meeting data
-      await startRecording({
-        name: meeting.summary,
-        description: meeting.description || '',
-        questions: [],
-        checklist: [],
-      });
-    });
-
-    // Handle overlapping meeting notification
-    const unsubOverlap = window.electronAPI.calendarOn.onOverlappingMeeting((data) => {
-      // Store the overlap data for handling
-      setPendingOverlap({
-        currentMeeting: data.currentMeeting ? {
-          id: data.currentMeeting.id,
-          summary: data.currentMeeting.summary,
-        } : undefined,
-        nextMeeting: {
-          id: data.nextMeeting.id,
-          summary: data.nextMeeting.summary,
-          description: data.nextMeeting.description,
-        },
-      });
-    });
-
-    return () => {
-      unsubOpenSetup();
-      unsubAutoStart();
-      unsubOverlap();
-    };
-  }, [isAuthenticated, startRecording, prepareNewSessionWithInfo]);
-
-  // Handle pending overlap action (stop current, start next)
-  React.useEffect(() => {
-    const handleOverlap = async () => {
-      if (!pendingOverlap) return;
-
-      const { nextMeeting } = pendingOverlap;
-
-      // Stop current recording
-      await stopRecording();
-
-      // Clear the current recording meeting
-      await window.electronAPI.calendar.setRecordingMeeting(null);
-
-      // Wait for session to properly reach idle state (no arbitrary timeout)
-      await waitForIdle();
-
-      // Clear all stale state before starting next meeting
-      prepareNewSessionWithInfo(nextMeeting.summary, nextMeeting.description || '');
-
-      // Notify main process about new meeting we're recording
-      await window.electronAPI.calendar.setRecordingMeeting(nextMeeting.id);
-
-      // Start recording with next meeting
-      await startRecording({
-        name: nextMeeting.summary,
-        description: nextMeeting.description || '',
-        questions: [],
-        checklist: [],
-      });
-
-      setPendingOverlap(null);
-    };
-
-    if (pendingOverlap) {
-      handleOverlap();
-    }
-  }, [pendingOverlap, stopRecording, startRecording, waitForIdle, prepareNewSessionWithInfo]);
-
-  // Clear recording meeting when session becomes idle
-  React.useEffect(() => {
-    if (sessionStatus === 'idle') {
-      window.electronAPI.calendar.setRecordingMeeting(null);
-    }
-  }, [sessionStatus]);
-
   // Handle clearing session errors
   const handleDismissError = () => {
     sessionStore.setError(null);
   };
-
-  // Check if we need to show calendar setup (onboarding not complete)
-  const needsCalendarSetup = isAuthenticated && allGranted && !configStore.onboardingComplete;
 
   // Check if actively recording or processing
   const isActivelyRecording = sessionStatus === 'recording' || sessionStatus === 'processing' || sessionStatus === 'stopping' || sessionStatus === 'starting';
@@ -740,17 +627,7 @@ export function App() {
       return <PermissionsView onContinue={checkPermissions} />;
     }
 
-    // Step 2: Calendar setup (only on home tab and during onboarding)
-    if (needsCalendarSetup && activeTab === 'home' && !showRecordingPrefs) {
-      return (
-        <CalendarSetupView
-          onConnected={() => setShowRecordingPrefs(true)}
-          onSkip={() => {}}
-        />
-      );
-    }
-
-    // Step 3: Recording preferences (after calendar connected)
+    // Step 2: Recording preferences (optional onboarding step)
     if (showRecordingPrefs && activeTab === 'home') {
       return (
         <RecordingPreferencesView
@@ -785,10 +662,6 @@ export function App() {
           <HomeView
             onStartRecording={handleStartRecording}
             onNavigateToHistory={() => setActiveTab('history')}
-            onNavigateToSettings={(tab) => {
-              if (tab) setInitialSettingsTab(tab);
-              setActiveTab('settings');
-            }}
           />
         );
       case 'history':
@@ -800,17 +673,14 @@ export function App() {
         );
       case 'settings':
         return (
-          <SettingsView
-            initialTab={initialSettingsTab}
-            onClearInitialTab={() => setInitialSettingsTab(null)}
-          />
+          <SettingsView />
         );
     }
   };
 
-  // Determine if we're in the setup flow (auth, permissions, calendar setup, or recording prefs)
+  // Determine if we're in the setup flow (auth, permissions, or recording prefs)
   const isSetupFlow = !isAuthenticated ||
-    (activeTab === 'home' && (permissionsLoading || !allGranted || needsCalendarSetup || showRecordingPrefs));
+    (activeTab === 'home' && (permissionsLoading || !allGranted || showRecordingPrefs));
 
   return (
     <div className="flex flex-col h-screen bg-white">
@@ -825,9 +695,6 @@ export function App() {
         {/* Space for traffic lights */}
         <div className="absolute left-0 w-20 shrink-0" />
       </div>
-
-      {/* Calendar Auth Banner (shows when calendar needs reconnection) */}
-      {isAuthenticated && !isSetupFlow && <CalendarAuthBanner />}
 
       {/* Main layout below titlebar */}
       <div className="flex flex-1 overflow-hidden">

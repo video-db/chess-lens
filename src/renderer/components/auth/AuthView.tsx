@@ -13,7 +13,7 @@ import { getElectronAPI } from '../../api/ipc';
 import logoIcon from '../../../../resources/icon-color-black-bg.png';
 
 function LogoIcon() {
-  return <img src={logoIcon} width={50} height={50} alt="Call.md" />;
+  return <img src={logoIcon} width={50} height={50} alt="Pair Gaming Coach" />;
 }
 
 // Step indicators component - exported for use in other setup views
@@ -106,10 +106,10 @@ export function AuthView() {
           <LogoIcon />
           <div className="flex flex-col items-center gap-[8px]">
             <h1 className="text-[22px] font-semibold text-black text-center tracking-[-0.44px] leading-[33px]">
-              Welcome to Call.md
+              Welcome to Pair Gaming Coach
             </h1>
             <p className="text-[14px] font-normal text-[#464646] text-center leading-[21px]">
-              Record, transcribe, and get AI insights from every meeting.
+              Capture live chess games and get real-time move coaching and analysis.
             </p>
           </div>
         </div>

@@ -5,14 +5,15 @@ import { trpc } from '../../api/trpc';
 import { InfoStep } from './InfoStep';
 import { QuestionsStep } from './QuestionsStep';
 import { ChecklistStep } from './ChecklistStep';
+import type { SupportedGameId } from '../../../shared/config/game-coaching';
 
 interface MeetingSetupFlowProps {
   onCancel: () => void;
 }
 
 /**
- * Generate a default meeting name based on current time
- * Format: "Meeting at 10:30 AM"
+ * Generate a default session name based on current time
+ * Format: "Session at 10:30 AM"
  */
 function generateDefaultMeetingName(): string {
   const now = new Date();
@@ -21,7 +22,7 @@ function generateDefaultMeetingName(): string {
     minute: '2-digit',
     hour12: true,
   });
-  return `Meeting at ${timeStr}`;
+  return `Session at ${timeStr}`;
 }
 
 export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
@@ -29,12 +30,14 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
     step,
     name,
     description,
+    gameId,
     questions,
     checklist,
     isGenerating,
     error,
     setStep,
     setInfo,
+    setGameId,
     setQuestions,
     setQuestionAnswer,
     setChecklist,
@@ -56,12 +59,18 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
   // Skip setup and start recording
   // If description or answered questions exist, generate checklist first
   // Otherwise skip directly to recording
-  const handleSkipAndRecord = async (overrideName?: string, overrideDescription?: string) => {
+  const handleSkipAndRecord = async (
+    overrideName?: string,
+    overrideDescription?: string,
+    overrideGameId?: SupportedGameId,
+  ) => {
     const finalName = (overrideName ?? name).trim() || generateDefaultMeetingName();
     const finalDescription = (overrideDescription ?? description).trim();
+    const finalGameId = overrideGameId ?? gameId;
 
     // Update store so RecordingHeader can display the correct name
     setInfo(finalName, finalDescription);
+    setGameId(finalGameId);
 
     const answeredQuestions = questions.filter(q => q.answer);
     const hasContext = finalDescription || answeredQuestions.length > 0;
@@ -83,6 +92,7 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
           await startRecording({
             name: finalName,
             description: finalDescription,
+            gameId: finalGameId,
             questions: answeredQuestions,
             checklist: result.checklist,
           });
@@ -91,6 +101,7 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
           await startRecording({
             name: finalName,
             description: finalDescription,
+            gameId: finalGameId,
             questions: answeredQuestions,
             checklist: [],
           });
@@ -100,6 +111,7 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
         await startRecording({
           name: finalName,
           description: finalDescription,
+          gameId: finalGameId,
           questions: answeredQuestions,
           checklist: [],
         });
@@ -111,14 +123,20 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
       await startRecording({
         name: finalName,
         description: finalDescription,
+        gameId: finalGameId,
         questions: [],
         checklist: [],
       });
     }
   };
 
-  const handleInfoNext = async (newName: string, newDescription: string) => {
+  const handleInfoNext = async (
+    newName: string,
+    newDescription: string,
+    selectedGameId: SupportedGameId,
+  ) => {
     setInfo(newName, newDescription);
+    setGameId(selectedGameId);
     setIsGenerating(true);
     setError(null);
 

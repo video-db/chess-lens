@@ -26,8 +26,12 @@ valid JSON in this exact format - no explanation, no markdown fences:
 {"questions":[{"question":"...","options":["...","...","...","..."]}]}`;
 
 export function buildProbingQuestionsUserPrompt(name: string, description: string): string {
-  return `Meeting Name: ${name}
+  if (description.trim()) {
+    return `Meeting Name: ${name}
 Meeting Description: ${description}`;
+  }
+
+  return `Meeting Name: ${name}`;
 }
 
 export const CHECKLIST_SYSTEM_PROMPT = `You are an expert meeting strategist. Given everything you know about an
@@ -66,9 +70,10 @@ export function buildChecklistUserPrompt(
     })
     .join('\n\n');
 
-  return `Meeting Name: ${name}
-Meeting Description: ${description}
+  const descriptionBlock = description.trim() ? `Meeting Description: ${description}\n` : '';
 
+  return `Meeting Name: ${name}
+${descriptionBlock}
 Probing Questions & User's Answers:
 ${questionsText}`;
 }

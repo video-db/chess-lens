@@ -3,6 +3,7 @@ export interface WidgetSessionState {
   isPaused: boolean;
   isMicMuted: boolean;
   startTime: number | null;
+  gameId: string;
 }
 
 export interface InsightCard {

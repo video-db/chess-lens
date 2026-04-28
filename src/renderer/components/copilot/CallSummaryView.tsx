@@ -1,5 +1,5 @@
 /**
- * Meeting Summary View Component
+ * Session Summary View Component
  *
  * Displays the post-meeting summary with:
  * - Short Overview (narrative paragraph)
@@ -34,12 +34,12 @@ export function CallSummaryView({ className, summary: propSummary, duration: pro
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Meeting Summary
+            Session Summary
           </CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-center py-8">
-            Meeting summary will appear here after the recording ends
+            Session summary will appear here after the recording ends
           </p>
         </CardContent>
       </Card>
@@ -55,10 +55,10 @@ export function CallSummaryView({ className, summary: propSummary, duration: pro
 
   const copyToClipboard = () => {
     // Format summary for clipboard
-    let text = `Meeting Overview\n${'='.repeat(50)}\n${summary.shortOverview}\n\n`;
+    let text = `Session Overview\n${'='.repeat(50)}\n${summary.shortOverview}\n\n`;
 
     if (summary.keyPoints && summary.keyPoints.length > 0) {
-      text += `Key Discussion Points\n${'='.repeat(50)}\n`;
+      text += `Key Points\n${'='.repeat(50)}\n`;
       summary.keyPoints.forEach((kp) => {
         text += `\n${kp.topic}\n${'-'.repeat(30)}\n`;
         kp.points.forEach((point) => {
@@ -90,7 +90,7 @@ export function CallSummaryView({ className, summary: propSummary, duration: pro
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Meeting Summary
+            Session Summary
           </CardTitle>
           <div className="flex items-center gap-2">
             {duration > 0 && (
@@ -128,7 +128,7 @@ export function CallSummaryView({ className, summary: propSummary, duration: pro
         {/* Key Points */}
         {summary.keyPoints && summary.keyPoints.length > 0 && (
           <div>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Key Discussion Points</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Key Points</h3>
             <div className="space-y-2">
               {summary.keyPoints.map((kp, idx) => (
                 <div key={idx} className="border rounded-lg overflow-hidden">

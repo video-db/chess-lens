@@ -45,6 +45,7 @@ import {
   SummaryGeneratorService,
   getSummaryGenerator,
   type PostMeetingSummary,
+  type MeetingContext,
 } from './summary-generator.service';
 
 import { exportMeetingToMarkdown } from '../markdown-export.service';
@@ -372,6 +373,7 @@ export class MeetingCopilotService extends EventEmitter {
     const meetingContext = {
       meetingName: (recording as any)?.meetingName || undefined,
       meetingDescription: (recording as any)?.meetingDescription || undefined,
+      gameId: (recording as any)?.gameId || undefined,
       probingQuestions: (recording as any)?.probingQuestions
         ? JSON.parse((recording as any).probingQuestions)
         : undefined,
@@ -450,7 +452,7 @@ export class MeetingCopilotService extends EventEmitter {
     metrics: ConversationMetrics,
     duration: number,
     _segments: TranscriptSegmentData[],
-    meetingContext: { meetingName?: string; meetingDescription?: string }
+    meetingContext: MeetingContext
   ): Promise<void> {
     const recording = getRecordingById(recordingId);
     if (!recording) {
@@ -472,6 +474,7 @@ export class MeetingCopilotService extends EventEmitter {
       recordingId,
       meetingName: meetingContext.meetingName || 'Untitled Meeting',
       meetingDescription: meetingContext.meetingDescription,
+      gameId: meetingContext.gameId,
       startedAt: new Date(recording.createdAt),
       duration: Math.round(duration),
       summary,

@@ -13,33 +13,49 @@ import { getElectronAPI } from '../api/ipc';
 
 export function useLiveAssist() {
   const store = useLiveAssistStore();
-  const { status } = useSessionStore();
+  const { status, selectedGameId } = useSessionStore();
   const isRecording = status === 'recording';
   const wasRecordingRef = useRef(false);
+  const startedGameIdRef = useRef<string | null>(null);
 
   // Start/stop live assist based on recording state
   useEffect(() => {
     const api = getElectronAPI();
     if (!api) return;
 
-    if (isRecording && !wasRecordingRef.current) {
-      // Recording just started - get meeting context
+    const currentGameId = selectedGameId || null;
+
+    if (isRecording && (!wasRecordingRef.current || startedGameIdRef.current !== currentGameId)) {
+      // Recording just started, or the selected game changed while recording.
       const meetingSetup = useMeetingSetupStore.getState();
       const context = {
         name: meetingSetup.name || undefined,
         description: meetingSetup.description || undefined,
+        gameId: meetingSetup.gameId || selectedGameId,
         questions: meetingSetup.questions.length > 0 ? meetingSetup.questions : undefined,
         checklist: meetingSetup.checklist.length > 0 ? meetingSetup.checklist : undefined,
       };
 
       // Only pass context if at least one field has content
-      const hasContext = context.name || context.description || context.questions || context.checklist;
+      const hasContext = context.name || context.description || context.gameId || context.questions || context.checklist;
 
-      console.log('[LiveAssist] Starting live assist service', hasContext ? 'with context' : 'without context');
+      console.log('[LiveAssist] Starting live assist service', {
+        hasContext,
+        gameId: context.gameId,
+        selectedGameId,
+      });
+
+      if (wasRecordingRef.current) {
+        api.liveAssist.stop().catch(err => {
+          console.error('[LiveAssist] Failed to restart before game change:', err);
+        });
+      }
+
       api.liveAssist.start(hasContext ? context : undefined).catch(err => {
         console.error('[LiveAssist] Failed to start:', err);
       });
       wasRecordingRef.current = true;
+      startedGameIdRef.current = currentGameId;
     } else if (!isRecording && wasRecordingRef.current) {
       // Recording just stopped
       console.log('[LiveAssist] Stopping live assist service');
@@ -48,8 +64,9 @@ export function useLiveAssist() {
       });
       store.clear();
       wasRecordingRef.current = false;
+      startedGameIdRef.current = null;
     }
-  }, [isRecording, store]);
+  }, [isRecording, selectedGameId, store]);
 
   // Subscribe to live assist updates
   useEffect(() => {
@@ -62,7 +79,13 @@ export function useLiveAssist() {
       console.log('[LiveAssist] Received insights:', {
         sayThis: event.insights.say_this.length,
         askThis: event.insights.ask_this.length,
+        clearExisting: !!event.clearExisting,
       });
+
+      if (event.clearExisting) {
+        store.clear();
+      }
+
       store.addInsights(event.insights);
     });
 

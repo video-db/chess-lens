@@ -99,6 +99,7 @@ export function RecordingDetailsModal({
   const playbook = recording.playbookSnapshot;
   const shortOverview = recording.shortOverview;
   const keyPoints = recording.keyPoints;
+  const isGameSession = !!recording.gameId;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -170,10 +171,10 @@ export function RecordingDetailsModal({
               </div>
             )}
 
-            {/* Meeting Info */}
+            {/* Session Info */}
             {recording.meetingName && (
               <CollapsibleSection
-                title="Meeting Info"
+                title="Session Info"
                 icon={<FileText className="h-4 w-4" />}
                 defaultOpen={true}
               >
@@ -195,7 +196,7 @@ export function RecordingDetailsModal({
             {/* Probing Q&A */}
             {recording.probingQuestions && recording.probingQuestions.length > 0 && (
               <CollapsibleSection
-                title="Pre-meeting Context"
+                title="Pre-session Context"
                 icon={<HelpCircle className="h-4 w-4" />}
                 badge={`${recording.probingQuestions.length} Q&A`}
               >
@@ -215,7 +216,7 @@ export function RecordingDetailsModal({
               </CollapsibleSection>
             )}
 
-            {/* Action Items (Post-Meeting Checklist) */}
+            {/* Action Items (Post-Session Checklist) */}
             {recording.postMeetingChecklist && recording.postMeetingChecklist.length > 0 && (
               <CollapsibleSection
                 title="Action Items"
@@ -378,7 +379,7 @@ export function RecordingDetailsModal({
             {/* Short Overview */}
             {shortOverview && (
               <CollapsibleSection
-                title="Meeting Overview"
+                title="Session Overview"
                 icon={<MessageSquare className="h-4 w-4" />}
                 defaultOpen={true}
               >
@@ -391,7 +392,7 @@ export function RecordingDetailsModal({
             {/* Key Points */}
             {keyPoints && keyPoints.length > 0 && (
               <CollapsibleSection
-                title="Key Discussion Points"
+                title="Key Points"
                 icon={<FileText className="h-4 w-4" />}
                 badge={`${keyPoints.length} topics`}
                 defaultOpen={true}

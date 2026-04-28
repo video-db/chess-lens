@@ -71,7 +71,7 @@ export function HistoryView({ initialSelectedRecordingId, onClearInitialSelectio
 
     const query = searchQuery.toLowerCase();
     return sorted.filter((recording) => {
-      // Search in meeting name
+      // Search in session name
       if (recording.meetingName?.toLowerCase().includes(query)) {
         return true;
       }
@@ -99,10 +99,10 @@ export function HistoryView({ initialSelectedRecordingId, onClearInitialSelectio
       {/* Header */}
       <div className="px-8 pt-8 pb-6">
         <h1 className="text-[28px] font-semibold text-black tracking-tight">
-          Meeting Recordings
+          Session Recordings
         </h1>
         <p className="text-[15px] text-[#6b6b6b] mt-1">
-          View and manage your past meeting recordings
+          View and manage your past recording sessions
         </p>
       </div>
 

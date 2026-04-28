@@ -31,18 +31,33 @@ export function setLiveAssistWindow(window: BrowserWindow): void {
 export function setupLiveAssistHandlers(): void {
   // Start live assist (also starts MCP inference)
   ipcMain.handle('live-assist:start', async (_event, context?: MeetingContext) => {
-    logger.info({ hasContext: !!context }, 'Starting live assist and MCP inference');
+    logger.info(
+      {
+        hasContext: !!context,
+        gameId: context?.gameId,
+        hasName: !!context?.name,
+      },
+      'Starting live assist and MCP inference'
+    );
 
     // Start Live Assist service
     const liveAssistService = getLiveAssistService();
     liveAssistService.removeAllListeners('insights');
     liveAssistService.on('insights', (event: LiveInsightsEvent) => {
-      logger.info({ sayCount: event.insights.say_this.length, askCount: event.insights.ask_this.length }, 'Sending insights to renderer');
+      logger.info(
+        {
+          sayCount: event.insights.say_this.length,
+          askCount: event.insights.ask_this.length,
+          clearExisting: !!event.clearExisting,
+        },
+        'Sending insights to renderer'
+      );
       sendToRenderer('live-assist:update', event);
       // Also send to floating widget
       updateWidgetLiveAssist({
         sayThis: event.insights.say_this,
         askThis: event.insights.ask_this,
+        clearExisting: event.clearExisting,
       });
     });
     liveAssistService.start(context);
@@ -86,6 +101,7 @@ export function setupLiveAssistHandlers(): void {
 
   // Add visual index (called when screen analysis is received)
   ipcMain.handle('live-assist:add-visual-index', async (_event, text: string) => {
+    logger.debug({ length: text.length, preview: text.substring(0, 140) }, 'Forwarding visual index to live assist');
     const liveAssistService = getLiveAssistService();
     liveAssistService.addVisualIndex(text);
 

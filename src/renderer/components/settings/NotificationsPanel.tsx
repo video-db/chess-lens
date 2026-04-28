@@ -135,12 +135,12 @@ export function NotificationsPanel() {
     {
       value: 'always_ask',
       title: 'Ask me every time',
-      description: "You'll get a notification to confirm before each meeting",
+      description: "You'll get a notification to confirm before each session",
     },
     {
       value: 'default_record',
-      title: 'Record all meetings',
-      description: 'Automatically join and record every calendar event',
+      title: 'Record all calendar sessions',
+      description: 'Automatically join and record every calendar session',
     },
     {
       value: 'no_notification',
@@ -155,7 +155,7 @@ export function NotificationsPanel() {
       <SettingsCard>
         <CardHeader
           title="System Notifications"
-          description="Allow Call.md to send desktop notifications"
+          description="Allow Pair Gaming Coach to send desktop notifications"
         />
         <div className="px-[20px] py-[16px]">
           <div className="flex items-center justify-between">
@@ -180,19 +180,19 @@ export function NotificationsPanel() {
         </div>
       </SettingsCard>
 
-      {/* Meeting Notifications Card */}
+      {/* Session Notifications Card */}
       <SettingsCard>
         <CardHeader
-          title="Meeting Notifications"
-          description="Configure when and how you want to be notified about meetings"
+          title="Session Notifications"
+          description="Configure when and how you want to be notified about sessions"
         />
         <div className="px-[20px] py-[20px] space-y-[24px]">
-          {/* Notify before meetings */}
+          {/* Notify before sessions */}
           <div className="space-y-[10px]">
             <div className="flex items-center gap-[8px]">
               <Bell className="h-[18px] w-[18px] text-[#464646]" />
               <span className="text-[14px] font-medium text-[#141420]">
-                Notify me before meetings
+                Notify me before sessions
               </span>
               {isSavingPrefs && (
                 <Loader2 className="h-[14px] w-[14px] text-[#969696] animate-spin ml-auto" />

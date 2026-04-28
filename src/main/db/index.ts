@@ -45,6 +45,7 @@ export function initDatabase(): ReturnType<typeof drizzle<typeof schema>> {
       stream_url TEXT,
       player_url TEXT,
       session_id TEXT NOT NULL,
+      game_id TEXT,
       duration INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       status TEXT NOT NULL DEFAULT 'recording' CHECK(status IN ('recording', 'processing', 'available', 'failed')),
@@ -297,6 +298,7 @@ function ensureRecordingColumns(): void {
   addColumnIfMissing('metrics_snapshot', "ALTER TABLE recordings ADD COLUMN metrics_snapshot TEXT");
   addColumnIfMissing('meeting_name', "ALTER TABLE recordings ADD COLUMN meeting_name TEXT");
   addColumnIfMissing('meeting_description', "ALTER TABLE recordings ADD COLUMN meeting_description TEXT");
+  addColumnIfMissing('game_id', "ALTER TABLE recordings ADD COLUMN game_id TEXT");
   addColumnIfMissing('probing_questions', "ALTER TABLE recordings ADD COLUMN probing_questions TEXT");
   addColumnIfMissing('meeting_checklist', "ALTER TABLE recordings ADD COLUMN meeting_checklist TEXT");
   addColumnIfMissing('collection_id', "ALTER TABLE recordings ADD COLUMN collection_id TEXT");

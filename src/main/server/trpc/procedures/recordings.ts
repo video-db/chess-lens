@@ -13,19 +13,143 @@ import {
   type PlaybookSnapshot,
   type MetricsSnapshot,
 } from '../../../../shared/schemas/recording.schema';
+import { DEFAULT_GAME_ID } from '../../../../shared/config/game-coaching';
 import {
   getAllRecordings,
   createRecording,
   updateRecordingBySessionId,
   getRecordingById,
   getTranscriptSegmentsByRecording,
+  getVisualIndexItemsByRecording,
 } from '../../../db';
 import { createChildLogger } from '../../../lib/logger';
 import { loadRuntimeConfig } from '../../../lib/config';
-import { checkAndRecoverSession } from '../../../services/recording-export.service';
+import {
+  checkAndRecoverSession,
+  checkSessionExport,
+  recoverExportedRecording,
+} from '../../../services/recording-export.service';
 import { createVideoDBService } from '../../../services/videodb.service';
 
 const logger = createChildLogger('recordings-procedure');
+
+const PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
+const VIDEODB_FAILED_MARKER = '__videodb_api_failed__';
+
+function parseCreatedAtMs(createdAt: string): number {
+  const normalized = createdAt.includes('T') ? createdAt : createdAt.replace(' ', 'T');
+  const hasTimeZone = /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(normalized);
+  const utcCandidate = hasTimeZone ? normalized : `${normalized}Z`;
+  const parsedUtc = Date.parse(utcCandidate);
+
+  if (Number.isFinite(parsedUtc)) {
+    return parsedUtc;
+  }
+
+  return Date.parse(createdAt);
+}
+
+function toEmbedPlayerUrl(playerUrl: string | null | undefined): string | null {
+  if (!playerUrl) return null;
+  return playerUrl.replace('/watch', '/embed');
+}
+
+function toGameplayTip(text: string): string {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  if (!compact) return 'Review this moment for piece positioning, tactical threats, and decision-making.';
+
+  const cleaned = compact
+    .replace(/\*\*/g, '')
+    .replace(/__+/g, '')
+    .replace(/`+/g, '')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+    .replace(/^image\s*\d+\s*:\s*/i, '')
+    .replace(/\s*image\s*\d+\s*:\s*/gi, ' ')
+    .replace(/^the screen\s+(shows|displays)\s*/i, '')
+    .replace(/^this frame\s+(shows|displays)\s*/i, '')
+    .replace(/^visible content\s*[:\-]?\s*/i, '')
+    .trim();
+
+  if (/no actionable gameplay context is available|no actionable gameplay moment/i.test(cleaned)) {
+    return '';
+  }
+
+  const tip = cleaned || compact;
+  return tip.length > 220 ? `${tip.slice(0, 217)}...` : tip;
+}
+
+async function recoverProcessingRecordings(
+  recordings: ReturnType<typeof getAllRecordings>,
+  apiKey?: string,
+  apiUrl?: string,
+  collectionId?: string
+): Promise<void> {
+  if (!apiKey) return;
+
+  const now = Date.now();
+  const processing = recordings.filter(
+    (r) => (r.status === 'processing' || r.status === 'failed') && !r.videoId
+  );
+
+  for (const recording of processing.slice(0, 10)) {
+    // Skip failed recordings - they should remain failed until explicitly retried by user
+    if (recording.status === 'failed') {
+      continue;
+    }
+
+    const createdAtMs = parseCreatedAtMs(recording.createdAt);
+    const ageMs = Number.isFinite(createdAtMs) ? now - createdAtMs : 0;
+    if (ageMs < 15_000) continue;
+
+    const exportStatus = await checkSessionExport(recording.sessionId, apiKey, apiUrl, collectionId);
+
+    if (exportStatus.exported && exportStatus.videoId) {
+      const recovered = await recoverExportedRecording(
+        recording.sessionId,
+        exportStatus.videoId,
+        apiKey,
+        apiUrl,
+        true,
+        collectionId
+      );
+      if (recovered.success) {
+        logger.info({ recordingId: recording.id, sessionId: recording.sessionId }, 'Recovered processing recording during list fetch');
+      }
+      continue;
+    }
+
+    if (exportStatus.status === 'failed') {
+      updateRecordingBySessionId(recording.sessionId, {
+        status: 'failed',
+        insightsStatus: 'failed',
+        insights: VIDEODB_FAILED_MARKER,
+      });
+      logger.warn({ recordingId: recording.id, sessionId: recording.sessionId, ageMs }, 'Marked stale processing recording as failed during list fetch');
+      continue;
+    }
+
+    if (ageMs > PROCESSING_TIMEOUT_MS) {
+      const shouldFailStaleProcessing = exportStatus.status === 'stopped' || !exportStatus.status;
+
+      if (shouldFailStaleProcessing) {
+        updateRecordingBySessionId(recording.sessionId, {
+          status: 'failed',
+          insightsStatus: 'failed',
+          insights: VIDEODB_FAILED_MARKER,
+        });
+        logger.warn(
+          { recordingId: recording.id, sessionId: recording.sessionId, ageMs, exportStatus: exportStatus.status },
+          'Marked stale processing recording as failed after timeout'
+        );
+      } else {
+        logger.warn(
+          { recordingId: recording.id, sessionId: recording.sessionId, ageMs, exportStatus: exportStatus.status },
+          'Processing recording exceeded timeout but remains in processing pending final export state'
+        );
+      }
+    }
+  }
+}
 
 // Safely parse and validate JSON against schema
 function safeJsonParse<T>(
@@ -45,6 +169,25 @@ function safeJsonParse<T>(
 // Transform database recording to API schema
 function toApiRecording(dbRecording: ReturnType<typeof getRecordingById>) {
   if (!dbRecording) return null;
+
+  const hasPlayableVideo = !!dbRecording.videoId && !!dbRecording.playerUrl;
+  const isFailedStatus = dbRecording.status === 'failed';
+  const isStaleProcessing =
+    dbRecording.status === 'processing' &&
+    !dbRecording.videoId &&
+    (() => {
+      const createdAtMs = parseCreatedAtMs(dbRecording.createdAt);
+      const ageMs = Number.isFinite(createdAtMs) ? Date.now() - createdAtMs : 0;
+      return ageMs > PROCESSING_TIMEOUT_MS;
+    })();
+
+  const normalizedStatus = hasPlayableVideo
+    ? 'available'
+    : isFailedStatus
+      ? 'failed'
+      : isStaleProcessing
+        ? 'failed'
+      : (dbRecording.status as 'recording' | 'processing' | 'available' | 'failed');
 
   // Parse meeting setup data
   const probingQuestions = safeJsonParse(
@@ -73,7 +216,7 @@ function toApiRecording(dbRecording: ReturnType<typeof getRecordingById>) {
     sessionId: dbRecording.sessionId,
     duration: dbRecording.duration,
     createdAt: dbRecording.createdAt,
-    status: dbRecording.status as 'recording' | 'processing' | 'available' | 'failed',
+    status: normalizedStatus,
     insights: dbRecording.insights,
     insightsStatus: dbRecording.insightsStatus as 'pending' | 'processing' | 'ready' | 'failed',
     // Parse and validate copilot data
@@ -95,7 +238,15 @@ function toApiRecording(dbRecording: ReturnType<typeof getRecordingById>) {
 export const recordingsRouter = router({
   list: protectedProcedure
     .output(z.array(RecordingSchema))
-    .query(async () => {
+    .query(async ({ ctx }) => {
+      const runtimeConfig = loadRuntimeConfig();
+      await recoverProcessingRecordings(
+        getAllRecordings(),
+        ctx.user?.apiKey,
+        runtimeConfig.apiUrl,
+        ctx.user?.collectionId || undefined,
+      );
+
       logger.info('Fetching all recordings');
       const recordings = getAllRecordings();
       logger.info({
@@ -109,6 +260,27 @@ export const recordingsRouter = router({
         })),
       }, 'Recordings fetched');
       return recordings.map((r) => toApiRecording(r)!);
+    }),
+
+  getGameplayTips: protectedProcedure
+    .input(z.object({ recordingId: z.number() }))
+    .output(z.array(z.object({
+      id: z.string(),
+      startTime: z.number(),
+      endTime: z.number(),
+      tip: z.string(),
+    })))
+    .query(async ({ input }) => {
+      const items = getVisualIndexItemsByRecording(input.recordingId);
+
+      return items
+        .map((item) => ({
+          id: item.id,
+          startTime: item.startTime,
+          endTime: item.endTime,
+          tip: toGameplayTip(item.text),
+        }))
+        .filter((item) => !!item.tip);
     }),
 
   get: protectedProcedure
@@ -141,6 +313,60 @@ export const recordingsRouter = router({
       }));
     }),
 
+  getPlaybackUrl: protectedProcedure
+    .input(z.object({ recordingId: z.number() }))
+    .output(z.object({
+      playerUrl: z.string().nullable(),
+      embedUrl: z.string().nullable(),
+    }))
+    .query(async ({ input, ctx }) => {
+      const recording = getRecordingById(input.recordingId);
+      if (!recording || !recording.videoId) {
+        return { playerUrl: null, embedUrl: null };
+      }
+
+      const fallbackPlayerUrl = recording.playerUrl;
+      const fallbackEmbedUrl = toEmbedPlayerUrl(fallbackPlayerUrl);
+
+      const apiKey = ctx.user?.apiKey;
+      if (!apiKey) {
+        return { playerUrl: fallbackPlayerUrl, embedUrl: fallbackEmbedUrl };
+      }
+
+      try {
+        const runtimeConfig = loadRuntimeConfig();
+        const collectionId = (recording as any).collectionId || ctx.user?.collectionId || undefined;
+        const service = createVideoDBService(apiKey, runtimeConfig.apiUrl, collectionId);
+        const video = await service.getVideo(recording.videoId);
+        let freshPlayerUrl = (video.playerUrl as string | undefined) || fallbackPlayerUrl;
+
+        try {
+          const playResult = await (video as any).play?.();
+          const playPlayerUrl =
+            (playResult?.player_url as string | undefined) ||
+            (playResult?.playerUrl as string | undefined);
+
+          if (playPlayerUrl) {
+            freshPlayerUrl = playPlayerUrl;
+          }
+        } catch (playError) {
+          logger.warn({ playError, recordingId: input.recordingId }, 'video.play() failed, falling back to video.playerUrl');
+        }
+
+        if (freshPlayerUrl && freshPlayerUrl !== fallbackPlayerUrl) {
+          updateRecordingBySessionId(recording.sessionId, { playerUrl: freshPlayerUrl });
+        }
+
+        return {
+          playerUrl: freshPlayerUrl,
+          embedUrl: toEmbedPlayerUrl(freshPlayerUrl),
+        };
+      } catch (error) {
+        logger.warn({ error, recordingId: input.recordingId }, 'Failed to fetch fresh playback URL');
+        return { playerUrl: fallbackPlayerUrl, embedUrl: fallbackEmbedUrl };
+      }
+    }),
+
   start: protectedProcedure
     .input(CreateRecordingInputSchema)
     .output(RecordingSchema)
@@ -150,6 +376,7 @@ export const recordingsRouter = router({
       const recordingData: any = {
         sessionId: input.sessionId,
         status: 'recording',
+        gameId: input.gameId || DEFAULT_GAME_ID,
       };
 
       // Add meeting setup data if provided
@@ -203,10 +430,10 @@ export const recordingsRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .output(RecordingSchema.nullable())
     .mutation(async ({ input }) => {
-      logger.info({ sessionId: input.sessionId }, 'Marking recording as failed');
+      logger.info({ sessionId: input.sessionId }, 'markFailed called; preserving processing state unless VideoDB reports failed');
 
       const recording = updateRecordingBySessionId(input.sessionId, {
-        status: 'failed',
+        status: 'processing',
       });
 
       if (!recording) {
@@ -216,7 +443,7 @@ export const recordingsRouter = router({
 
       logger.info(
         { recordingId: recording.id, sessionId: input.sessionId },
-        'Recording marked as failed'
+        'Recording status kept as processing'
       );
 
       return toApiRecording(recording);
@@ -271,15 +498,15 @@ export const recordingsRouter = router({
           continue;
         }
 
-        if ((recording.status === 'processing' || recording.status === 'recording') && !(recording as any).shortOverview) {
-          const createdAt = new Date(recording.createdAt).getTime();
-          const age = now - createdAt;
+        if (recording.status === 'recording' && !recording.videoId) {
+          const createdAt = parseCreatedAtMs(recording.createdAt);
+          const age = Number.isFinite(createdAt) ? now - createdAt : 0;
 
           if (age > maxAgeMs) {
-            updateRecordingBySessionId(recording.sessionId, { status: 'failed' });
+            updateRecordingBySessionId(recording.sessionId, { status: 'processing' });
             logger.info(
               { recordingId: recording.id, sessionId: recording.sessionId, ageMinutes: Math.round(age / 60000) },
-              'Marked stale recording as failed'
+              'Stale recording remains processing pending VideoDB failure signal'
             );
             cleaned++;
           }

@@ -148,7 +148,7 @@ interface InsightSectionProps {
   onToggleItem: (index: number) => void;
   variant: 'say' | 'ask';
   emptyText: string;
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   className?: string;
 }
 
@@ -202,7 +202,7 @@ export function LiveAssistPanel() {
   const { sayThis, askThis } = useLiveAssist();
   const { activeResults, connectedServerCount } = useMCP();
   const visualIndexStore = useVisualIndexStore();
-  const { sessionId, screenWsConnectionId, status } = useSessionStore();
+  const { sessionId, screenWsConnectionId, status, visualIndexPrompt, selectedGameId } = useSessionStore();
 
   const isRecording = status === 'recording';
   const { isRunning, sceneIndexId } = visualIndexStore;
@@ -298,6 +298,8 @@ export function LiveAssistPanel() {
         const result = await startVisualIndexMutation.mutateAsync({
           sessionId,
           screenWsConnectionId,
+          gameId: selectedGameId,
+          prompt: visualIndexPrompt,
         });
         if (result.success && result.sceneIndexId) {
           visualIndexStore.setSceneIndexId(result.sceneIndexId);
@@ -313,6 +315,7 @@ export function LiveAssistPanel() {
     screenWsConnectionId,
     isRunning,
     sceneIndexId,
+    selectedGameId,
     visualIndexStore,
     startVisualIndexMutation,
     pauseVisualIndexMutation,
@@ -341,7 +344,7 @@ export function LiveAssistPanel() {
       <div className="flex items-center gap-[8px] shrink-0">
         <LightbulbIcon />
         <h2 className="flex-1 font-semibold text-[18px] text-black tracking-[0.09px]">
-          Live Assist
+          Coaching Panel
         </h2>
         {showVisualAnalysisButton && (
           <button
@@ -367,28 +370,28 @@ export function LiveAssistPanel() {
 
       {/* Panels */}
       <div className="flex-1 flex flex-col gap-[20px] min-h-0 overflow-hidden">
-        {/* Say this section */}
+        {/* Tips section */}
         <InsightSection
-          title="Say this"
+          title="Tips"
           icon={<SayThisIcon />}
           items={sayThis}
           checkedItems={checkedSayThis}
           onToggleItem={handleToggleSayThis}
           variant="say"
-          emptyText="No suggestions yet - keep the conversation going"
+          emptyText="No gameplay tips yet - keep visual analysis running"
           scrollRef={sayThisScrollRef}
           className="flex-1 min-h-0"
         />
 
-        {/* Ask this section */}
+        {/* Analysis section */}
         <InsightSection
-          title="Ask this"
+          title="Analysis"
           icon={<AskThisIcon />}
           items={askThis}
           checkedItems={checkedAskThis}
           onToggleItem={handleToggleAskThis}
           variant="ask"
-          emptyText="No questions yet - we'll suggest when relevant"
+          emptyText="No tactical analysis yet - waiting for stronger gameplay signals"
           scrollRef={askThisScrollRef}
           className="flex-1 min-h-0"
         />

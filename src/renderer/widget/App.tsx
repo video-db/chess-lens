@@ -1,8 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { WidgetContainer } from './components/WidgetContainer';
-import { WidgetHeader } from './components/WidgetHeader';
-import { WidgetContent } from './components/WidgetContent';
-import { WidgetFooter } from './components/WidgetFooter';
+import { PairCompactOverlay } from './components/PairCompactOverlay';
 import type {
   InsightCard,
   WidgetSessionState as SessionState,
@@ -12,26 +9,33 @@ import type {
 
 export function WidgetApp() {
   const [sessionState, setSessionState] = useState<SessionState>({
-    isRecording: true,
+    isRecording: false,
     isPaused: false,
     isMicMuted: false,
-    startTime: Date.now(),
+    startTime: null,
+    gameId: '',
   });
   const [sayThis, setSayThis] = useState<InsightCard[]>([]);
   const [askThis, setAskThis] = useState<InsightCard[]>([]);
   const [visualDescription, setVisualDescription] = useState<string>('');
   const [nudge, setNudge] = useState<Nudge | null>(null);
+  const [isStopping, setIsStopping] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(true);
 
   useEffect(() => {
     const api = window.widgetAPI;
     if (!api) return;
 
-    // Request initial state
-    api.requestInitialState();
+    let cancelled = false;
+    let retryTimer: number | null = null;
+    let retryCount = 0;
 
     // Set up listeners
     const unsubSession = api.onSessionState((state) => {
       setSessionState(state);
+      if (state.isRecording) {
+        setIsConnecting(false);
+      }
     });
 
     const unsubLiveAssist = api.onLiveAssist((data) => {
@@ -47,7 +51,30 @@ export function WidgetApp() {
       setNudge(n);
     });
 
+    const requestStateUntilRecording = () => {
+      void api.requestInitialState();
+
+      retryCount += 1;
+      if (cancelled || retryCount >= 10) {
+        setIsConnecting(false);
+        return;
+      }
+
+      retryTimer = window.setTimeout(() => {
+        if (!cancelled) {
+          requestStateUntilRecording();
+        }
+      }, 500);
+    };
+
+    requestStateUntilRecording();
+
     return () => {
+      cancelled = true;
+      setIsConnecting(false);
+      if (retryTimer) {
+        window.clearTimeout(retryTimer);
+      }
       unsubSession();
       unsubLiveAssist();
       unsubVisual();
@@ -73,8 +100,20 @@ export function WidgetApp() {
   }, []);
 
   const handleStop = useCallback(async () => {
-    await window.widgetAPI?.stop();
-  }, []);
+    if (isStopping) return;
+    setIsStopping(true);
+    setSessionState((prev) => ({
+      ...prev,
+      isRecording: false,
+      isPaused: false,
+    }));
+
+    try {
+      await window.widgetAPI?.stop();
+    } finally {
+      setIsStopping(false);
+    }
+  }, [isStopping]);
 
   const handleMuteMic = useCallback(async () => {
     await window.widgetAPI?.muteMic();
@@ -101,25 +140,21 @@ export function WidgetApp() {
   }, [nudge]);
 
   return (
-    <WidgetContainer>
-      <WidgetHeader />
-      <WidgetContent
-        sayThis={sayThis}
-        askThis={askThis}
-        visualDescription={visualDescription}
-        nudge={nudge}
-        onDismissCard={handleDismissCard}
-        onDismissNudge={handleDismissNudge}
-      />
-      <WidgetFooter
-        onStop={handleStop}
-        isPaused={sessionState.isPaused}
-        onPause={handlePause}
-        onResume={handleResume}
-        isMicMuted={sessionState.isMicMuted}
-        onMuteMic={handleMuteMic}
-        onUnmuteMic={handleUnmuteMic}
-      />
-    </WidgetContainer>
+    <PairCompactOverlay
+      sessionState={sessionState}
+      sayThis={sayThis}
+      askThis={askThis}
+      visualDescription={visualDescription}
+      nudge={nudge}
+      onStop={handleStop}
+      onPause={handlePause}
+      onResume={handleResume}
+      onMuteMic={handleMuteMic}
+      onUnmuteMic={handleUnmuteMic}
+      onDismissCard={handleDismissCard}
+      onDismissNudge={handleDismissNudge}
+      stopDisabled={isStopping}
+      statusText={isConnecting ? 'Connecting...' : undefined}
+    />
   );
 }

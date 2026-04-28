@@ -14,7 +14,7 @@ import { useTranscriptionStore, TranscriptItem } from '../../stores/transcriptio
 import { useVisualIndexStore, VisualIndexItem } from '../../stores/visual-index.store';
 import { useSessionStore } from '../../stores/session.store';
 
-// Sparkle icon for Meeting Transcript
+// Sparkle icon for Gameplay Transcript
 function SparkleIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -82,6 +82,32 @@ interface VisualAnalysisEntryProps {
 }
 
 function VisualAnalysisEntry({ item }: VisualAnalysisEntryProps) {
+  const parseVisualText = (text: string): { heading: string; body: string } => {
+    const normalized = (text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return { heading: 'Visual Analysis', body: '' };
+
+    if (normalized.includes('|||')) {
+      const [heading, ...rest] = normalized.split('|||').map((s) => s.trim()).filter(Boolean);
+      return {
+        heading: heading || 'Visual Analysis',
+        body: rest.join(' ').trim() || heading || '',
+      };
+    }
+
+    try {
+      const parsed = JSON.parse(normalized) as Record<string, unknown>;
+      const heading = typeof parsed.heading_tip === 'string' ? parsed.heading_tip : 'Visual Analysis';
+      const tip = typeof parsed.tip === 'string' ? parsed.tip : '';
+      const analysis = typeof parsed.analysis === 'string' ? parsed.analysis : '';
+      const body = [tip, analysis].filter(Boolean).join(' ').trim();
+      return { heading, body: body || heading };
+    } catch {
+      return { heading: 'Visual Analysis', body: normalized };
+    }
+  };
+
+  const parsed = parseVisualText(item.text);
+
   // Format relative timestamp using when the item was received (same as transcripts)
   const formatRelativeTime = () => {
     const startTime = useSessionStore.getState().startTime;
@@ -102,11 +128,11 @@ function VisualAnalysisEntry({ item }: VisualAnalysisEntryProps) {
             {formatRelativeTime()}
           </span>
         </div>
-        <span className="font-medium text-[13px] text-black leading-[16px]">Visual Analysis</span>
+        <span className="font-medium text-[13px] text-black leading-[16px]">{parsed.heading}</span>
       </div>
       {/* Content with markdown rendering */}
       <div className="text-[14px] text-black leading-[24px] prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
-        <ReactMarkdown>{item.text}</ReactMarkdown>
+        <ReactMarkdown>{parsed.body}</ReactMarkdown>
       </div>
     </div>
   );
@@ -188,7 +214,7 @@ export function TranscriptionPanel() {
       {/* Header */}
       <div className="bg-white border-b border-[#efefef] px-[16px] py-[10px] flex items-center gap-[8px] shrink-0 rounded-t-[12px]">
         <SparkleIcon />
-        <span className="font-medium text-[15px] text-black">Meeting Transcript</span>
+        <span className="font-medium text-[15px] text-black">Gameplay Transcript</span>
       </div>
 
       {/* Transcript Content */}

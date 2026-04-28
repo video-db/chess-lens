@@ -43,10 +43,32 @@ export async function checkSessionExport(
     const session: CaptureSessionFull = await conn.getCaptureSession(sessionId, collectionId);
     await session.refresh();
 
+    // Primary result with provided collection context.
+    let exported = !!session.exportedVideoId;
+    let videoId = session.exportedVideoId;
+    let status = session.status;
+
+    // Fallback: retry without collectionId if we got "stopped" with no exported video.
+    // This handles collection mismatch cases where exportedVideoId is only visible on global lookup.
+    if (!exported && collectionId && status === 'stopped') {
+      try {
+        const fallbackSession: CaptureSessionFull = await conn.getCaptureSession(sessionId);
+        await fallbackSession.refresh();
+        if (fallbackSession.exportedVideoId) {
+          exported = true;
+          videoId = fallbackSession.exportedVideoId;
+          status = fallbackSession.status;
+          logger.info({ sessionId, collectionId, videoId }, 'Recovered exportedVideoId via collection-less session lookup');
+        }
+      } catch (fallbackError) {
+        logger.debug({ sessionId, collectionId, fallbackError }, 'Fallback export check without collectionId failed');
+      }
+    }
+
     return {
-      exported: !!session.exportedVideoId,
-      videoId: session.exportedVideoId,
-      status: session.status,
+      exported,
+      videoId,
+      status,
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);

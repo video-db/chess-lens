@@ -3,7 +3,7 @@
  *
  * Full page view for a recording with:
  * - Header: back button, title, metadata, actions
- * - Left panel: Meeting summary, key points, checklist
+ * - Left panel: Session summary, key points, checklist
  * - Right panel: Video player, chat button
  */
 
@@ -24,6 +24,7 @@ import {
   Loader2,
   Video,
   Copy,
+  Crosshair,
 } from 'lucide-react';
 import { trpc } from '../../api/trpc';
 import type { Recording } from '../../../shared/schemas/recording.schema';
@@ -40,6 +41,12 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
 
   // Fetch recording data
   const { data: recording, isLoading } = trpc.recordings.get.useQuery(
+    { recordingId },
+    { enabled: !!recordingId }
+  );
+
+  // Fetch fresh playback URL to avoid stale player links causing stream reconnect loops.
+  const { data: playbackData } = trpc.recordings.getPlaybackUrl.useQuery(
     { recordingId },
     { enabled: !!recordingId }
   );
@@ -81,8 +88,10 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
     );
   }
 
+  const isGameSession = !!recording.gameId;
   const title = recording.meetingName || `Recording - ${formatDate(recording.createdAt)}`;
-  const isVideoReady = recording.status === 'available' && !!recording.playerUrl;
+  const resolvedPlayerUrl = playbackData?.playerUrl || recording.playerUrl;
+  const isVideoReady = recording.status === 'available' && !!resolvedPlayerUrl;
 
   return (
     <div className="bg-[#f7f7f7] h-full flex flex-col pt-[10px] px-[10px]">
@@ -92,26 +101,26 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
         recordingId={recordingId}
         createdAt={recording.createdAt}
         duration={recording.duration}
-        playerUrl={recording.playerUrl}
+        playerUrl={resolvedPlayerUrl}
         onBack={onBack}
       />
 
       {/* Main Content */}
       <div className="flex-1 bg-white border border-[#efefef] rounded-[20px] p-[20px] pb-[40px] flex gap-[30px] overflow-hidden mb-[10px]">
-        {/* Left Panel - Meeting Insights (scrollable) */}
+        {/* Left Panel - Session Insights (scrollable) */}
         <div className="flex-1 flex flex-col gap-[30px] min-w-0 overflow-y-auto pr-[10px]">
           {/* Section Header */}
           <div className="flex items-center gap-[4px]">
             <Sparkles className="h-5 w-5 text-[#ec5b16]" />
             <h2 className="text-[18px] font-semibold text-black tracking-[0.09px]">
-              Meeting Insights
+              Session Insights
             </h2>
           </div>
 
           {/* Cards */}
           <div className="flex flex-col gap-[20px] pb-[20px]">
-            {/* Meeting Summary Card */}
-            <SummaryCard summary={recording.shortOverview} />
+            {/* Session Summary Card */}
+            <SummaryCard summary={recording.shortOverview || recording.insights} />
 
             {/* Key Points Card */}
             <KeyPointsCard
@@ -120,7 +129,13 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
               onToggle={() => setShowAllKeyPoints(!showAllKeyPoints)}
             />
 
-            {/* Action Items Card (Post-Meeting Checklist) */}
+            {/* In-match Suggestions Timeline */}
+            <GameplayTipsCard
+              recordingId={recordingId}
+              playerUrl={resolvedPlayerUrl}
+            />
+
+            {/* Action Items Card (Post-Session Checklist) */}
             <ActionItemsCard
               recordingId={recordingId}
               checklist={recording.postMeetingChecklist}
@@ -133,7 +148,7 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
         <div className="flex-1 flex flex-col gap-[30px] min-w-0 sticky top-0 self-start">
           {/* Video Player */}
           <VideoPlayerSection
-            playerUrl={recording.playerUrl}
+            playerUrl={resolvedPlayerUrl}
             isReady={isVideoReady}
           />
 
@@ -309,13 +324,25 @@ interface SummaryCardProps {
   summary: string | null | undefined;
 }
 
+function normalizeGameSummary(summary: string): string {
+  return summary
+    .replace(/\bIn the meeting titled\b/gi, 'In this match titled')
+    .replace(/\bmeeting\b/gi, 'session')
+    .replace(/\bagenda\b/gi, 'gameplan')
+    .replace(/\bchecklist\b/gi, 'next-match goals')
+    .replace(/\bpurpose of the meeting\b/gi, 'purpose of the session')
+    .replace(/\bcontent and purpose of the meeting\b/gi, 'gameplay context and purpose of the session');
+}
+
 function SummaryCard({ summary }: SummaryCardProps) {
   const [copied, setCopied] = useState(false);
 
   if (!summary) return null;
 
+  const displaySummary = normalizeGameSummary(summary);
+
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(summary);
+    await navigator.clipboard.writeText(displaySummary);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -326,7 +353,7 @@ function SummaryCard({ summary }: SummaryCardProps) {
       <div className="flex items-center gap-[8px]">
         <FileText className="h-5 w-5 text-[#ec5b16]" />
         <h3 className="flex-1 text-[16px] font-medium text-black tracking-[0.08px]">
-          Meeting Summary
+          Session Summary
         </h3>
         <button
           onClick={handleCopy}
@@ -338,7 +365,7 @@ function SummaryCard({ summary }: SummaryCardProps) {
       </div>
       {/* Content */}
       <p className="text-[14px] text-[#2d2d2d] leading-[20px] tracking-[0.07px]">
-        {summary}
+        {displaySummary}
       </p>
     </div>
   );
@@ -469,7 +496,7 @@ function ActionItemsCard({ recordingId, checklist, completedIndices }: ActionIte
       {/* Content */}
       {isEmpty ? (
         <p className="text-[14px] text-[#969696] italic">
-          No post meeting agenda detected
+          No post-session agenda detected
         </p>
       ) : (
         <div className="flex flex-col gap-[10px]">
@@ -519,7 +546,7 @@ function VideoPlayerSection({ playerUrl, isReady }: VideoPlayerSectionProps) {
             src={embedUrl}
             className="w-full h-full"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
+            allowFullScreen 
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[#969696]">
@@ -572,6 +599,60 @@ function ChatWithVideoButton({ videoId, collectionId, disabled }: ChatWithVideoB
         </span>
       </div>
     </button>
+  );
+}
+
+function formatTipTimestamp(seconds: number): string {
+  const safe = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+interface GameplayTipsCardProps {
+  recordingId: number;
+  playerUrl: string | null | undefined;
+}
+
+function GameplayTipsCard({ recordingId, playerUrl }: GameplayTipsCardProps) {
+  const { data: tips = [] } = trpc.recordings.getGameplayTips.useQuery(
+    { recordingId },
+    { enabled: !!recordingId }
+  );
+
+  if (!tips.length) return null;
+
+  const openAtTimestamp = (seconds: number) => {
+    if (!playerUrl) return;
+    const hasQuery = playerUrl.includes('?');
+    const timedUrl = `${playerUrl}${hasQuery ? '&' : '?'}t=${Math.max(0, Math.floor(seconds))}`;
+    window.electronAPI?.app.openExternalLink(timedUrl);
+  };
+
+  return (
+    <div className="bg-[#f8f9ff] border border-[#e5e7ff] rounded-[16px] p-[16px] flex flex-col gap-[12px] max-h-[280px] overflow-y-auto">
+      <div className="flex items-center gap-[8px]">
+        <Crosshair className="h-4 w-4 text-[#4f46e5]" />
+        <h3 className="text-[15px] font-semibold text-[#1f2937]">In-match Suggestions</h3>
+      </div>
+
+      <div className="flex flex-col gap-[8px]">
+        {tips.map((tip) => (
+          <div key={tip.id} className="bg-white border border-[#e7e7ef] rounded-[10px] p-[10px] flex gap-[10px] items-start">
+            <button
+              type="button"
+              onClick={() => openAtTimestamp(tip.startTime)}
+              disabled={!playerUrl}
+              className="shrink-0 text-[12px] font-semibold text-[#4f46e5] bg-[#eef2ff] px-[8px] py-[4px] rounded-[999px] hover:bg-[#dfe7ff] disabled:opacity-60 disabled:cursor-not-allowed"
+              title={playerUrl ? 'Open video at this timestamp' : 'Video link not available yet'}
+            >
+              {formatTipTimestamp(tip.startTime)}
+            </button>
+            <p className="text-[13px] text-[#2d2d2d] leading-[18px]">{tip.tip}</p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

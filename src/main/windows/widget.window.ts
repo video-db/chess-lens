@@ -2,6 +2,7 @@ import { BrowserWindow, screen } from 'electron';
 import path from 'path';
 import { createChildLogger } from '../lib/logger';
 import { loadAppConfig, saveAppConfig } from '../lib/config';
+import { syncWidgetState } from '../ipc/widget';
 
 const logger = createChildLogger('widget-window');
 
@@ -62,6 +63,7 @@ export function createWidgetWindow(): BrowserWindow {
 
   if (widgetWindow && !widgetWindow.isDestroyed()) {
     logger.info('Widget window already exists, showing');
+    syncWidgetState();
     widgetWindow.show();
     return widgetWindow;
   }
@@ -80,6 +82,8 @@ export function createWidgetWindow(): BrowserWindow {
     frame: false,
     transparent: true,
     alwaysOnTop: true,
+    focusable: true,
+    fullscreenable: false,
     skipTaskbar: true,
     resizable: true,
     hasShadow: false,
@@ -98,8 +102,8 @@ export function createWidgetWindow(): BrowserWindow {
     visibleOnFullScreen: true,
   });
 
-  // Set window level above everything
-  widgetWindow.setAlwaysOnTop(true, 'floating', 1);
+  // Keep overlay above fullscreen/borderless windows where possible
+  widgetWindow.setAlwaysOnTop(true, 'screen-saver', 1);
 
   // Load the widget HTML
   if (isDev) {
@@ -109,6 +113,10 @@ export function createWidgetWindow(): BrowserWindow {
     // __dirname is dist/main/windows, renderer is at dist/renderer
     widgetWindow.loadFile(path.join(__dirname, '..', '..', 'renderer', 'widget.html'));
   }
+
+    widgetWindow.webContents.once('did-finish-load', () => {
+      syncWidgetState();
+    });
 
   // Save position on move
   widgetWindow.on('moved', () => {
@@ -123,7 +131,13 @@ export function createWidgetWindow(): BrowserWindow {
   });
 
   widgetWindow.once('ready-to-show', () => {
-    widgetWindow?.show();
+    if (!widgetWindow || widgetWindow.isDestroyed()) return;
+
+    // Do not steal focus from the game; still force to top-most layer
+    widgetWindow.showInactive();
+    widgetWindow.moveTop();
+    widgetWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+    syncWidgetState();
   });
 
   return widgetWindow;
@@ -134,7 +148,14 @@ export function showWidgetWindow(): void {
   if (!widgetWindow || widgetWindow.isDestroyed()) {
     createWidgetWindow();
   } else {
-    widgetWindow.show();
+    // Re-assert overlay flags every time we show
+    widgetWindow.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+    });
+    widgetWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+    widgetWindow.showInactive();
+    widgetWindow.moveTop();
+    syncWidgetState();
   }
 }
 

@@ -12,7 +12,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
 import { trpc } from '../../api/trpc';
-import { useMCP } from '../../hooks/useMCP';
 import { useSessionStore } from '../../stores/session.store';
 import { useNotificationPermission } from '../../hooks/useNotificationPermission';
 import { RecordingCard } from '../history/RecordingCard';
@@ -485,7 +484,6 @@ function WorkflowItem({
 interface HomeViewProps {
   onStartRecording: () => void;
   onNavigateToHistory: () => void;
-  onNavigateToSettings: (tab?: 'account' | 'notifications' | 'mcpServers' | 'workflows') => void;
 }
 
 interface WorkflowData {
@@ -495,28 +493,17 @@ interface WorkflowData {
   enabled: boolean;
 }
 
-export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSettings }: HomeViewProps) {
+export function HomeView({ onStartRecording, onNavigateToHistory }: HomeViewProps) {
   const [selectedRecordingId, setSelectedRecordingId] = useState<number | null>(null);
-  const [calendarStatus, setCalendarStatus] = useState<'disconnected' | 'connected' | 'loading'>('loading');
-  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingMeeting[]>([]);
-  const [eventNotifications, setEventNotifications] = useState<Record<string, boolean>>({});
-  const [workflows, setWorkflows] = useState<WorkflowData[]>([]);
-  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const { enabled: notificationsEnabled, openSettings: openNotificationSettings } =
     useNotificationPermission();
 
   // Auto-hide scrollbars
   const leftScrollbar = useAutoHideScrollbar();
-  const rightScrollbar = useAutoHideScrollbar();
 
   // Session state for stream toggles
   const sessionStore = useSessionStore();
   const { streams, setStreams } = sessionStore;
-
-  const { servers, connectionStates } = useMCP();
-  const connectedServers = servers.filter(
-    (s) => s.isEnabled && connectionStates[s.id]?.status === 'connected'
-  );
 
   // Fetch recordings
   const { data: recordings, isLoading: recordingsLoading } = trpc.recordings.list.useQuery(undefined, {
@@ -531,103 +518,8 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
       .slice(0, 2);
   }, [recordings]);
 
-  // Check calendar status
-  useEffect(() => {
-    const checkCalendar = async () => {
-      try {
-        const result = await window.electronAPI.calendar.isSignedIn();
-        if (result.success && result.isSignedIn) {
-          setCalendarStatus('connected');
-          // Fetch today's events
-          const eventsResult = await window.electronAPI.calendar.getUpcomingEvents(24);
-          if (eventsResult.success && eventsResult.events) {
-            // Filter to only today's events
-            const today = new Date();
-            const todayEvents = eventsResult.events.filter((e) => {
-              const eventDate = new Date(e.startTime);
-              return (
-                eventDate.getDate() === today.getDate() &&
-                eventDate.getMonth() === today.getMonth() &&
-                eventDate.getFullYear() === today.getFullYear()
-              );
-            });
-            setUpcomingEvents(todayEvents);
-            // Initialize notifications as enabled for all events
-            const notifs: Record<string, boolean> = {};
-            todayEvents.forEach((e) => {
-              notifs[e.id] = true;
-            });
-            setEventNotifications(notifs);
-          }
-        } else {
-          setCalendarStatus('disconnected');
-        }
-      } catch {
-        setCalendarStatus('disconnected');
-      }
-    };
-    checkCalendar();
-
-    // Listen for event updates
-    const unsubscribe = window.electronAPI.calendarOn.onEventsUpdated((events) => {
-      const today = new Date();
-      const todayEvents = events.filter((e) => {
-        const eventDate = new Date(e.startTime);
-        return (
-          eventDate.getDate() === today.getDate() &&
-          eventDate.getMonth() === today.getMonth() &&
-          eventDate.getFullYear() === today.getFullYear()
-        );
-      });
-      setUpcomingEvents(todayEvents);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
   const handleToggleNotifications = async () => {
     await openNotificationSettings();
-  };
-
-  // Load workflows
-  useEffect(() => {
-    const loadWorkflows = async () => {
-      try {
-        const result = await window.electronAPI.workflows.getAll();
-        if (result.success && result.workflows) {
-          setWorkflows(result.workflows);
-        }
-      } catch {
-        // Ignore errors
-      }
-    };
-    loadWorkflows();
-  }, []);
-
-  const handleConnectCalendar = async () => {
-    try {
-      const result = await window.electronAPI.calendar.signIn();
-      if (result.success) {
-        setCalendarStatus('connected');
-        const eventsResult = await window.electronAPI.calendar.getUpcomingEvents(24);
-        if (eventsResult.success && eventsResult.events) {
-          setUpcomingEvents(eventsResult.events);
-        }
-      }
-    } catch {
-      // Ignore errors
-    }
-  };
-
-  const handleDisconnectCalendar = async () => {
-    try {
-      await window.electronAPI.calendar.signOut();
-      setCalendarStatus('disconnected');
-      setUpcomingEvents([]);
-      setShowDisconnectConfirm(false);
-    } catch {
-      // Ignore errors
-    }
   };
 
   // If viewing a recording detail
@@ -641,10 +533,9 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
   }
 
   return (
-    <div className="flex gap-[24px] h-full p-[24px] bg-white overflow-hidden">
-      {/* Left Column */}
+    <div className="h-full p-[24px] bg-white overflow-hidden">
       <div
-        className={`flex-1 flex flex-col gap-[40px] overflow-y-auto ${scrollbarBaseStyles} ${leftScrollbar.isScrolling ? scrollbarVisibleStyles : scrollbarHiddenStyles}`}
+        className={`h-full flex flex-col gap-[40px] overflow-y-auto ${scrollbarBaseStyles} ${leftScrollbar.isScrolling ? scrollbarVisibleStyles : scrollbarHiddenStyles}`}
         onScroll={leftScrollbar.handleScroll}
       >
         <div className="flex flex-col gap-[30px] w-full">
@@ -676,7 +567,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
               <PermissionItem
                 icon={<SpeakerIcon enabled={streams.systemAudio} />}
                 title="System audio"
-                description="Capture audio from meeting apps and browser tabs"
+                description="Capture game and browser audio"
                 enabled={streams.systemAudio}
                 onChange={(enabled) => setStreams({ systemAudio: enabled })}
                 isFirst
@@ -685,7 +576,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
               <PermissionItem
                 icon={<MicIcon enabled={streams.microphone} />}
                 title="Microphone"
-                description="Record your voice during meetings and calls"
+                description="Record your voice during gameplay"
                 enabled={streams.microphone}
                 onChange={(enabled) => setStreams({ microphone: enabled })}
               />
@@ -701,7 +592,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
               <PermissionItem
                 icon={<NotificationIcon enabled={notificationsEnabled} />}
                 title="App notification"
-                description="Allow call.md to send notification and reminders"
+                description="Allow Pair Gaming Coach to send notifications and reminders"
                 enabled={notificationsEnabled}
                 onChange={handleToggleNotifications}
                 isLast
@@ -710,12 +601,12 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
           </div>
         </div>
 
-        {/* Recent Meetings Section */}
+        {/* Recent Sessions Section */}
         <div className="flex flex-col gap-[14px]">
           {/* Header */}
           <div className="flex items-center justify-between w-full">
             <h2 className="text-[18px] font-semibold text-[#141420] tracking-[-0.17px] leading-[25.5px]">
-              Recent meetings
+              Recent sessions
             </h2>
           </div>
 
@@ -730,7 +621,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
                 <EmptyRecordingsIcon />
                 <p className="text-[14px] text-[#141420] leading-[19.5px]">No recordings yet</p>
                 <p className="text-[12px] text-[#969696] text-center max-w-[264px] leading-normal">
-                  Your recorded meetings will appear here with AI summaries, transcripts, and action items.
+                  Your recorded sessions will appear here with AI summaries, transcripts, and action items.
                 </p>
               </div>
             </div>
@@ -757,192 +648,6 @@ export function HomeView({ onStartRecording, onNavigateToHistory, onNavigateToSe
           )}
         </div>
       </div>
-
-      {/* Right Panel */}
-      <div
-        className={`w-[460px] shrink-0 bg-[#f7f7f7] border border-[#efefef] rounded-[16px] p-[16px] flex flex-col gap-[16px] overflow-y-auto ${scrollbarBaseStyles} ${rightScrollbar.isScrolling ? scrollbarVisibleStyles : scrollbarHiddenStyles}`}
-        onScroll={rightScrollbar.handleScroll}
-      >
-        {/* Today Section */}
-        <div className="bg-white border border-[#efefef] rounded-[16px] p-[16px] flex flex-col gap-[20px]">
-          {/* Header */}
-          <div className="flex items-center gap-[4px]">
-            <CalendarIcon />
-            <span className="flex-1 text-[18px] font-medium text-black">Today</span>
-            {calendarStatus === 'connected' && (
-              <button
-                onClick={() => setShowDisconnectConfirm(true)}
-                className="flex items-center gap-[4px] text-[14px] font-semibold text-[#ec5b16] hover:opacity-80"
-              >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="8" cy="8" r="6" stroke="#ec5b16" strokeWidth="1.25" />
-                  <path d="M5.5 8h5" stroke="#ec5b16" strokeWidth="1.25" strokeLinecap="round" />
-                </svg>
-                Disconnect Calendar
-              </button>
-            )}
-          </div>
-
-          {/* Content */}
-          {calendarStatus === 'loading' ? (
-            <div className="flex items-center justify-center py-[32px]">
-              <Loader2 className="w-6 h-6 animate-spin text-[#969696]" />
-            </div>
-          ) : calendarStatus === 'disconnected' ? (
-            <div className="flex flex-col items-center gap-[16px] px-[8px] py-[16px]">
-              <EmptyCalendarIcon />
-              <div className="flex flex-col items-center gap-[8px]">
-                <p className="text-[16px] font-medium text-black text-center leading-[20px]">
-                  Connect your calendar
-                </p>
-                <p className="text-[13px] text-[#969696] text-center leading-[19px]">
-                  See upcoming meetings and choose which ones to record.
-                </p>
-              </div>
-              <button
-                onClick={handleConnectCalendar}
-                className="flex items-center gap-[6px] bg-white border border-[#e4e4ec] px-[16px] py-[12px] rounded-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-gray-50 transition-colors"
-              >
-                <GoogleIcon />
-                <span className="text-[14px] font-medium text-black">Connect Google Calendar</span>
-              </button>
-            </div>
-          ) : upcomingEvents.length === 0 ? (
-            <div className="flex flex-col items-center gap-[16px] px-[8px] py-[16px]">
-              <EmptyCalendarIcon />
-              <div className="flex flex-col items-center gap-[8px]">
-                <p className="text-[16px] font-medium text-black text-center leading-[20px]">
-                  No meeting today
-                </p>
-                <p className="text-[13px] text-[#969696] text-center leading-[19px]">
-                  Enjoy your free day — or start an ad-hoc recording.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-[10px]">
-              {upcomingEvents.map((event) => (
-                <CalendarEventItem
-                  key={event.id}
-                  event={event}
-                  notifyEnabled={eventNotifications[event.id] ?? true}
-                  onToggleNotify={(enabled) =>
-                    setEventNotifications((prev) => ({ ...prev, [event.id]: enabled }))
-                  }
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* MCPs Section */}
-        <div className="bg-white border border-[#efefef] rounded-[16px] p-[16px] flex flex-col gap-[20px]">
-          {/* Header */}
-          <div className="flex items-center gap-[4px]">
-            <MCPIcon />
-            <span className="flex-1 text-[18px] font-medium text-black">MCPs</span>
-            <button
-              onClick={() => onNavigateToSettings('mcpServers')}
-              className="flex items-center gap-[4px] text-[14px] font-semibold text-[#ec5b16] hover:opacity-80"
-            >
-              <span>+</span>
-              <span>Add</span>
-            </button>
-          </div>
-
-          {/* Content */}
-          {connectedServers.length === 0 ? (
-            <div className="flex flex-col items-center gap-[16px] px-[8px] py-[16px]">
-              <EmptyMCPIcon />
-              <div className="flex flex-col items-center gap-[8px]">
-                <p className="text-[16px] font-medium text-black text-center leading-[20px]">
-                  Connect your tools
-                </p>
-                <p className="text-[13px] text-[#969696] text-center leading-[19px]">
-                  Sync meeting notes and action items to Notion, HubSpot, Coda, and more.
-                </p>
-              </div>
-              <button
-                onClick={() => onNavigateToSettings('mcpServers')}
-                className="flex items-center gap-[4px] bg-white border border-[#e4e4ec] px-[16px] py-[12px] rounded-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-gray-50 transition-colors"
-              >
-                <span className="text-[14px]">+</span>
-                <span className="text-[14px] font-medium text-black">Add integration</span>
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-[12px]">
-              {connectedServers.map((server) => (
-                <MCPServerItem
-                  key={server.id}
-                  server={server}
-                  onRemove={() => window.electronAPI.mcp.disconnect(server.id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Workflows Section */}
-        <div className="bg-white border border-[#efefef] rounded-[16px] p-[16px] flex flex-col gap-[20px]">
-          {/* Header */}
-          <div className="flex items-center gap-[4px]">
-            <WorkflowIcon />
-            <span className="flex-1 text-[18px] font-medium text-black">Workflows</span>
-            <button
-              onClick={() => onNavigateToSettings('workflows')}
-              className="flex items-center gap-[4px] text-[14px] font-semibold text-[#ec5b16] hover:opacity-80"
-            >
-              <span>+</span>
-              <span>Add</span>
-            </button>
-          </div>
-
-          {/* Content */}
-          {workflows.length === 0 ? (
-            <div className="flex flex-col items-center gap-[16px] px-[8px] py-[16px]">
-              <EmptyWorkflowIcon />
-              <div className="flex flex-col items-center gap-[8px]">
-                <p className="text-[16px] font-medium text-black text-center leading-[20px]">
-                  No workflows yet
-                </p>
-                <p className="text-[13px] text-[#969696] text-center leading-[19px]">
-                  Send meeting data to n8n, Zapier, and other automation tools.
-                </p>
-              </div>
-              <button
-                onClick={() => onNavigateToSettings('workflows')}
-                className="flex items-center gap-[4px] bg-white border border-[#e4e4ec] px-[16px] py-[12px] rounded-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-gray-50 transition-colors"
-              >
-                <span className="text-[14px]">+</span>
-                <span className="text-[14px] font-medium text-black">Add workflow</span>
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-[12px]">
-              {workflows.map((workflow) => (
-                <WorkflowItem
-                  key={workflow.id}
-                  workflow={workflow}
-                  onEdit={() => onNavigateToSettings('workflows')}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Disconnect Calendar Confirmation Dialog */}
-      <ConfirmationDialog
-        isOpen={showDisconnectConfirm}
-        title="Disconnect Calendar"
-        message="Are you sure you want to disconnect your Google Calendar? You won't receive meeting reminders until you reconnect."
-        confirmText="Disconnect"
-        cancelText="Cancel"
-        onConfirm={handleDisconnectCalendar}
-        onCancel={() => setShowDisconnectConfirm(false)}
-        variant="danger"
-      />
     </div>
   );
 }
