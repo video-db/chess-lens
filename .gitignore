@@ -55,6 +55,7 @@ desktop.ini
 config.json
 auth_config.json
 runtime_config.json
+runtime.json
 google_tokens.json
 google_tokens.enc
 .mcp-encryption-key

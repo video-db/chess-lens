@@ -11,6 +11,8 @@ import { applyVideoDBPatches } from '../lib/videodb-patch';
 import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
 import { getUserByAccessToken, updateRecordingBySessionId } from '../db';
 import { getLiveAssistService } from '../services/live-assist.service';
+import { getChessScreenshotService } from '../services/chess-screenshot.service';
+import { getGameIndexingPrompt } from '../../shared/config/game-coaching';
 import {
   showWidgetWindow,
   closeWidgetWindow,
@@ -246,11 +248,26 @@ async function listenForVisualIndexMessages(ws: WebSocketConnection): Promise<vo
           const parsed = JSON.parse(input) as unknown;
 
           if (typeof parsed === 'string') {
+            // If the string itself contains chess board tags, return it as-is
+            // so the FEN parser can work on the structured content.
+            if (/<raw_board>|<board_mapping>|<perspective>/i.test(parsed)) {
+              return sanitized(parsed);
+            }
             return sanitized(parsed);
           }
 
           if (Array.isArray(parsed) && parsed.length > 0) {
             const first = parsed[0] as Record<string, unknown>;
+
+            // If any field contains chess XML tags, return raw field content
+            // so the FEN parser can extract <raw_board> / <board_mapping>.
+            for (const key of ['tip', 'analysis', 'heading_tip']) {
+              const val = typeof first[key] === 'string' ? (first[key] as string) : '';
+              if (/<raw_board>|<board_mapping>|<perspective>/i.test(val)) {
+                return sanitized(val);
+              }
+            }
+
             const headingTip = typeof first?.heading_tip === 'string' ? first.heading_tip : '';
             const tip = typeof first?.tip === 'string' ? first.tip : '';
             const analysis = typeof first?.analysis === 'string' ? first.analysis : '';
@@ -267,6 +284,15 @@ async function listenForVisualIndexMessages(ws: WebSocketConnection): Promise<vo
 
           if (parsed && typeof parsed === 'object') {
             const data = parsed as Record<string, unknown>;
+
+            // If any field contains chess XML tags, return raw field content
+            for (const key of ['tip', 'analysis', 'heading_tip']) {
+              const val = typeof data[key] === 'string' ? (data[key] as string) : '';
+              if (/<raw_board>|<board_mapping>|<perspective>/i.test(val)) {
+                return sanitized(val);
+              }
+            }
+
             const headingTip = typeof data.heading_tip === 'string' ? data.heading_tip : '';
             const tip = typeof data.tip === 'string' ? data.tip : '';
             const analysis = typeof data.analysis === 'string' ? data.analysis : '';
@@ -302,6 +328,12 @@ async function listenForVisualIndexMessages(ws: WebSocketConnection): Promise<vo
 
     let text = (raw || '').trim();
     if (!text) return '';
+
+    // If the raw text contains chess board XML tags, preserve them as-is —
+    // do NOT attempt JSON parsing which would strip <raw_board> / <board_mapping>.
+    if (/<raw_board>|<board_mapping>|<perspective>/i.test(text)) {
+      return sanitized(text);
+    }
 
     const parsedText = fromJson(text);
     if (parsedText) return parsedText;
@@ -609,6 +641,9 @@ async function stopRecordingInternal(): Promise<{ success: boolean; error?: stri
 
   captureStopInFlight = true;
   logger.info('Stopping recording (internal)');
+
+  // Stop the direct screenshot FEN extraction loop immediately
+  getChessScreenshotService().stop();
 
   let stopEventSent = false;
   const emitRecordingStoppedOnce = () => {
@@ -1059,6 +1094,15 @@ export function setupCaptureHandlers(): void {
           gameId: params.gameId || '',
         });
         showWidgetWindow();
+
+        // Start the direct screenshot→LiteLLM FEN extraction loop.
+        // This is the benchmark-proven path (98.61% accuracy) that calls
+        // gpt-5.4 directly with a base64 screenshot, bypassing the VideoDB
+        // text pipeline which strips the <raw_board> XML tags.
+        // TO SWITCH TO VIDEODB: comment out these two lines and change
+        // modelName in visual-index.ts to 'gpt-5.4' when supported.
+        const chessFenPrompt = getGameIndexingPrompt(params.gameId || 'chess');
+        getChessScreenshotService().start(chessFenPrompt);
 
         // Store session info for export polling when recording stops
         currentSessionId = config.sessionId;

@@ -10,7 +10,7 @@ import { getLiveAssistService, resetLiveAssistService } from '../services/live-a
 import type { MeetingContext } from '../services/live-assist.service';
 import { getMCPInferenceService, resetMCPInferenceService } from '../services/mcp-inference.service';
 import { createChildLogger } from '../lib/logger';
-import { updateWidgetLiveAssist } from './widget';
+import { updateWidgetLiveAssist, updateWidgetFen } from './widget';
 import type { LiveInsightsEvent } from '../../shared/types/live-assist.types';
 import type { MCPDisplayResult } from '../../shared/types/mcp.types';
 
@@ -43,6 +43,7 @@ export function setupLiveAssistHandlers(): void {
     // Start Live Assist service
     const liveAssistService = getLiveAssistService();
     liveAssistService.removeAllListeners('insights');
+    liveAssistService.removeAllListeners('fen');
     liveAssistService.on('insights', (event: LiveInsightsEvent) => {
       logger.info(
         {
@@ -59,6 +60,10 @@ export function setupLiveAssistHandlers(): void {
         askThis: event.insights.ask_this,
         clearExisting: event.clearExisting,
       });
+    });
+    liveAssistService.on('fen', (data: { fen: string; board: string | null; turn: 'w' | 'b' | null }) => {
+      sendToRenderer('live-assist:fen', data);
+      updateWidgetFen(data);
     });
     liveAssistService.start(context);
 

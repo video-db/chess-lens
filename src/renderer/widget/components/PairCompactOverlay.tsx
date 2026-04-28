@@ -5,12 +5,112 @@ import type {
   WidgetNudge as Nudge,
 } from '../../../types/widget';
 
+// ---------------------------------------------------------------------------
+// Inline chess board renderer — no external dependencies
+// ---------------------------------------------------------------------------
+
+const PIECE_UNICODE: Record<string, string> = {
+  K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙',
+  k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟',
+};
+
+/** Parse the board part of a FEN string into an 8×8 array of piece chars or ''. */
+function parseFenBoard(fenBoard: string): string[][] {
+  const rows = fenBoard.split('/');
+  return rows.map((rank) => {
+    const cells: string[] = [];
+    for (const ch of rank) {
+      if (/\d/.test(ch)) {
+        for (let i = 0; i < parseInt(ch, 10); i++) cells.push('');
+      } else {
+        cells.push(ch);
+      }
+    }
+    return cells;
+  });
+}
+
+function ChessBoard({ fen }: { fen: string }) {
+  const boardPart = fen.split(' ')[0];
+  const board = useMemo(() => parseFenBoard(boardPart), [boardPart]);
+  const size = 200; // total SVG size px
+  const sq = size / 8;
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      style={{ display: 'block', borderRadius: 4, border: '1px solid rgba(255,255,255,0.2)' }}
+    >
+      {board.map((rank, ri) =>
+        rank.map((piece, ci) => {
+          const light = (ri + ci) % 2 === 0;
+          const x = ci * sq;
+          const y = ri * sq;
+          return (
+            <g key={`${ri}-${ci}`}>
+              <rect
+                x={x} y={y} width={sq} height={sq}
+                fill={light ? '#f0d9b5' : '#b58863'}
+              />
+              {piece && (
+                <text
+                  x={x + sq / 2}
+                  y={y + sq / 2 + 1}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize={sq * 0.72}
+                  style={{ userSelect: 'none' }}
+                  fill={piece === piece.toUpperCase() ? '#fff' : '#111'}
+                  stroke={piece === piece.toUpperCase() ? '#555' : '#ddd'}
+                  strokeWidth={0.4}
+                  paintOrder="stroke"
+                >
+                  {PIECE_UNICODE[piece] ?? piece}
+                </text>
+              )}
+            </g>
+          );
+        })
+      )}
+      {/* File labels */}
+      {'abcdefgh'.split('').map((f, i) => (
+        <text
+          key={f}
+          x={i * sq + sq / 2}
+          y={size - 1}
+          textAnchor="middle"
+          fontSize={7}
+          fill="rgba(0,0,0,0.45)"
+          style={{ userSelect: 'none' }}
+        >{f}</text>
+      ))}
+      {/* Rank labels */}
+      {[8,7,6,5,4,3,2,1].map((r, i) => (
+        <text
+          key={r}
+          x={2}
+          y={i * sq + sq / 2}
+          dominantBaseline="middle"
+          fontSize={7}
+          fill="rgba(0,0,0,0.45)"
+          style={{ userSelect: 'none' }}
+        >{r}</text>
+      ))}
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
 interface PairCompactOverlayProps {
   sessionState: SessionState;
   sayThis: InsightCard[];
   askThis: InsightCard[];
   visualDescription: string;
   nudge: Nudge | null;
+  currentFen: string | null;
   onStop: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -36,6 +136,7 @@ export function PairCompactOverlay({
   askThis,
   visualDescription,
   nudge,
+  currentFen,
   onStop,
   onPause,
   onResume,
@@ -46,6 +147,7 @@ export function PairCompactOverlay({
 }: PairCompactOverlayProps) {
   const [now, setNow] = useState(Date.now());
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showBoard, setShowBoard] = useState(false);
 
   const NON_ACTIONABLE = 'No actionable gameplay moment in this frame.';
   const NON_ACTIONABLE_REGEX = /no actionable gameplay moment(?: in this frame)?\.?/i;
@@ -273,7 +375,7 @@ export function PairCompactOverlay({
           font-size:13px;
           line-height:1.35;
           box-sizing: border-box;
-          overflow: hidden;
+          overflow: visible;
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
         }
@@ -447,7 +549,7 @@ export function PairCompactOverlay({
         <div className={`pp-tip pp-tip--${urgencyTone}`} onDoubleClick={() => { if (!isChess) setIsExpanded(false); }}>
           <div style={{ fontSize: 11, opacity: 0.8, marginBottom: 4 }}>{coachLabel}</div>
           {sessionState.gameId === 'chess' ? (
-            // Chess: display full paragraph + optional engine + drill
+            // Chess: display full paragraph + optional engine + drill + board toggle
             <>
               <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}>
                 {chessParagraphText || chessEngineText || chessDrillText || (chessWaitingText ? chessWaitingText : 'Waiting for next move...')}
@@ -460,6 +562,34 @@ export function PairCompactOverlay({
               {chessWaitingText && (
                 <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4, fontStyle: 'italic' }}>
                   {chessWaitingText}
+                </div>
+              )}
+              {/* FEN verification board */}
+              {currentFen && (
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    onClick={() => setShowBoard((v) => !v)}
+                    style={{
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: 6,
+                      color: '#fff',
+                      fontSize: 11,
+                      padding: '3px 8px',
+                      cursor: 'pointer',
+                      marginBottom: showBoard ? 6 : 0,
+                    }}
+                  >
+                    {showBoard ? '▲ Hide board' : '♟ Verify board'}
+                  </button>
+                  {showBoard && (
+                    <div style={{ maxHeight: 230, overflowY: 'auto', overflowX: 'hidden' }}>
+                      <ChessBoard fen={currentFen} />
+                      <div style={{ fontSize: 9, opacity: 0.5, marginTop: 3, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                        {currentFen.split(' ')[0]}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>

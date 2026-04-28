@@ -2,6 +2,12 @@ import fixPath from 'fix-path';
 
 fixPath();
 
+// Increase the default max event listeners to avoid spurious warnings from
+// the VideoDB SDK's WebSocket objects accumulating 'close' listeners across
+// multiple recording sessions in the same process lifetime.
+import { EventEmitter } from 'events';
+EventEmitter.defaultMaxListeners = 30;
+
 import { app, BrowserWindow, Menu } from 'electron';
 import http from 'http';
 import path from 'path';

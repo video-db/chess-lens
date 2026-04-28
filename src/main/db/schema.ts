@@ -9,6 +9,7 @@ export const users = sqliteTable('users', {
   apiKey: text('api_key').notNull(),
   accessToken: text('access_token').notNull().unique(),
   collectionId: text('collection_id'), // VideoDB collection ID for this user
+  litellmKey: text('litellm_key'),     // Optional LiteLLM API key for fallback LLM
 });
 
 export const recordings = sqliteTable('recordings', {

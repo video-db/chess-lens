@@ -378,6 +378,11 @@ function ensureUserColumns(): void {
     sqlite.exec("ALTER TABLE users ADD COLUMN collection_id TEXT");
     logger.info('Added collection_id column to users table');
   }
+
+  if (!columnNames.includes('litellm_key')) {
+    sqlite.exec("ALTER TABLE users ADD COLUMN litellm_key TEXT");
+    logger.info('Added litellm_key column to users table');
+  }
 }
 
 export function getDatabase(): ReturnType<typeof drizzle<typeof schema>> {

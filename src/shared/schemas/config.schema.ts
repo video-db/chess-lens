@@ -9,6 +9,7 @@ export const AppConfigSchema = z.object({
   accessToken: z.string().optional(),
   userName: z.string().optional(),
   apiKey: z.string().optional(),
+  litellmKey: z.string().optional(),
   widgetPosition: WidgetPositionSchema.optional(),
 });
 
@@ -18,6 +19,8 @@ export const RuntimeConfigSchema = z.object({
   apiUrl: z.string().optional(),
   apiPort: z.number().default(51731),
   chessEngineApiUrl: z.string().optional(),
+  litellmBaseUrl: z.string().optional(),
+  litellmModel: z.string().optional(),
 });
 
 export const ServerConfigOutputSchema = z.object({

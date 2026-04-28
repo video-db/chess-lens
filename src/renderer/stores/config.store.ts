@@ -5,10 +5,11 @@ interface ConfigState {
   accessToken: string | null;
   userName: string | null;
   apiKey: string | null;
+  litellmKey: string | null;
   apiUrl: string | null;
   onboardingComplete: boolean;
 
-  setAuth: (accessToken: string, userName: string, apiKey: string) => void;
+  setAuth: (accessToken: string, userName: string, apiKey: string, litellmKey?: string | null) => void;
   setConfig: (config: Partial<ConfigState>) => void;
   clearAuth: () => void;
   isAuthenticated: () => boolean;
@@ -21,11 +22,12 @@ export const useConfigStore = create<ConfigState>()(
       accessToken: null,
       userName: null,
       apiKey: null,
+      litellmKey: null,
       apiUrl: null,
       onboardingComplete: false,
 
-      setAuth: (accessToken, userName, apiKey) => {
-        set({ accessToken, userName, apiKey });
+      setAuth: (accessToken, userName, apiKey, litellmKey) => {
+        set({ accessToken, userName, apiKey, litellmKey: litellmKey ?? null });
       },
 
       setConfig: (config) => {
@@ -37,6 +39,7 @@ export const useConfigStore = create<ConfigState>()(
           accessToken: null,
           userName: null,
           apiKey: null,
+          litellmKey: null,
           onboardingComplete: false,
         });
       },
@@ -55,6 +58,7 @@ export const useConfigStore = create<ConfigState>()(
         accessToken: state.accessToken,
         userName: state.userName,
         apiKey: state.apiKey,
+        litellmKey: state.litellmKey,
         onboardingComplete: state.onboardingComplete,
       }),
     }

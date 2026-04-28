@@ -41,6 +41,8 @@ export function StepIndicators({ currentStep, totalSteps = 3 }: { currentStep: n
 export function AuthView() {
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [litellmKey, setLitellmKey] = useState('');
+  const [showLitellm, setShowLitellm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const configStore = useConfigStore();
@@ -59,12 +61,14 @@ export function AuthView() {
       const result = await registerMutation.mutateAsync({
         name: name.trim(),
         apiKey: apiKey.trim(),
+        litellmKey: litellmKey.trim() || undefined,
       });
 
       if (result.success && result.accessToken) {
-        configStore.setAuth(result.accessToken, result.name || name, apiKey.trim());
+        configStore.setAuth(result.accessToken, result.name || name, apiKey.trim(), litellmKey.trim() || null);
         setName('');
         setApiKey('');
+        setLitellmKey('');
       } else {
         setError(result.error || 'Registration failed');
       }
@@ -144,6 +148,34 @@ export function AuthView() {
               className="w-full bg-[#efefef] border border-[#e0e0e8] rounded-[10px] px-[15px] py-[14px] text-[14px] text-black placeholder:text-[#969696] tracking-[0.14px] outline-none focus:border-[#c0c0c0] transition-colors font-mono"
             />
           </div>
+
+          {/* LiteLLM key toggle */}
+          <button
+            type="button"
+            onClick={() => setShowLitellm((v) => !v)}
+            className="text-[12px] text-[#ec5b16] text-left hover:underline"
+          >
+            {showLitellm ? '− Hide LiteLLM fallback key' : '+ Add LiteLLM fallback API key (optional)'}
+          </button>
+
+          {/* LiteLLM API Key field */}
+          {showLitellm && (
+            <div className="flex flex-col gap-[6px]">
+              <label className="text-[13px] font-medium text-[#464646] tracking-[0.26px] leading-[19.5px]">
+                LiteLLM API Key <span className="font-normal text-[#969696]">(optional fallback)</span>
+              </label>
+              <input
+                type="password"
+                value={litellmKey}
+                onChange={(e) => setLitellmKey(e.target.value)}
+                placeholder="sk-xxxxxxxxxxxxxxxx"
+                className="w-full bg-[#efefef] border border-[#e0e0e8] rounded-[10px] px-[15px] py-[14px] text-[14px] text-black placeholder:text-[#969696] tracking-[0.14px] outline-none focus:border-[#c0c0c0] transition-colors font-mono"
+              />
+              <p className="text-[11px] text-[#969696] leading-[16px]">
+                Used as a fallback when the primary VideoDB model is unavailable. Connects to the LiteLLM proxy with <span className="font-mono">gpt-5.4</span>.
+              </p>
+            </div>
+          )}
 
           {/* Error message */}
           {error && (

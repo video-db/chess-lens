@@ -100,6 +100,7 @@ class LiveAssistService extends EventEmitter {
   private lastChessTurn: 'w' | 'b' | null = null;
   private pendingChessSignature: string | null = null;
   private pendingChessSignatureCount = 0;
+  private isProcessing = false; // guard against concurrent processTranscript calls
 
   private getTipLengthLimits(): { maxSayWords: number; maxAskWords: number; maxFinalSayCount: number; maxFinalAskCount: number } {
     return { maxSayWords: 20, maxAskWords: 16, maxFinalSayCount: 2, maxFinalAskCount: 2 };
@@ -193,7 +194,10 @@ class LiveAssistService extends EventEmitter {
       if (squares !== 8) return false;
     }
 
-    return whiteKings === 1 && blackKings === 1;
+    // Require at least one king total — endgame positions or partially-visible
+    // boards may show only one side's king; rejecting them causes persistent
+    // FEN extraction failures on real games.
+    return whiteKings + blackKings >= 1;
   }
 
   private isSemanticFenValid(board: string): boolean {
@@ -416,26 +420,88 @@ class LiveAssistService extends EventEmitter {
     return null;
   }
 
+  /**
+   * Count pieces for each side in a FEN board string.
+   * Returns { white, black, total } piece counts (not square counts).
+   */
+  private countPieces(board: string): { white: number; black: number; total: number } {
+    let white = 0;
+    let black = 0;
+    for (const ch of board) {
+      if (/^[PRNBQK]$/.test(ch)) white++;
+      else if (/^[prnbqk]$/.test(ch)) black++;
+    }
+    return { white, black, total: white + black };
+  }
+
+  /**
+   * Determine whose turn it is by comparing the previous board with the current board.
+   *
+   * Algorithm:
+   *  1. Count white and black pieces in both boards.
+   *  2. If white's count dropped  → black just captured a white piece  → it's white's turn.
+   *  3. If black's count dropped  → white just captured a black piece  → it's black's turn.
+   *  4. If both counts are equal but the board changed → a quiet move was played
+   *     → flip from the last known turn.
+   *  5. If the board is unchanged → no move detected → keep the last known turn.
+   *  6. If there is no previous board → fall back to the last known turn or 'w'.
+   */
+  private inferTurnFromBoards(
+    prevBoard: string | null,
+    currBoard: string,
+    lastKnownTurn: 'w' | 'b' | null
+  ): 'w' | 'b' {
+    if (!prevBoard || prevBoard === currBoard) {
+      // No change detected — keep whatever we knew
+      return lastKnownTurn ?? 'w';
+    }
+
+    const prev = this.countPieces(prevBoard);
+    const curr = this.countPieces(currBoard);
+
+    const whiteLost = prev.white - curr.white;
+    const blackLost = prev.black - curr.black;
+
+    if (whiteLost > 0 && blackLost === 0) {
+      // Black captured a white piece → white pieces decreased → it's white's turn now
+      log.debug({ whiteLost, prevBoard: prevBoard.substring(0, 30), currBoard: currBoard.substring(0, 30) },
+        '[TurnDetect] White piece captured by black → white to move');
+      return 'w';
+    }
+
+    if (blackLost > 0 && whiteLost === 0) {
+      // White captured a black piece → black pieces decreased → it's black's turn now
+      log.debug({ blackLost, prevBoard: prevBoard.substring(0, 30), currBoard: currBoard.substring(0, 30) },
+        '[TurnDetect] Black piece captured by white → black to move');
+      return 'b';
+    }
+
+    if (whiteLost > 0 && blackLost > 0) {
+      // Both sides lost pieces (promotion+capture or OCR noise) — flip from last known
+      log.debug({ whiteLost, blackLost }, '[TurnDetect] Both sides lost pieces — flipping turn');
+      return lastKnownTurn === 'w' ? 'b' : 'w';
+    }
+
+    // Quiet move — board changed but no captures. Flip from last known turn.
+    const flipped = lastKnownTurn === 'w' ? 'b' : 'w';
+    log.debug({ prevBoard: prevBoard.substring(0, 30), currBoard: currBoard.substring(0, 30), flipped },
+      '[TurnDetect] Quiet move detected → flipping turn');
+    return flipped;
+  }
+
   private applyNextTurnToFen(fen: string): { fen: string; board: string; turn: 'w' | 'b' } {
     const parts = fen.trim().split(/\s+/);
     if (parts.length < 4) {
       return { fen, board: fen.split(' ')[0] || fen, turn: 'w' };
     }
 
-    const [board, side, castling, enPassant, halfmove = '0', fullmove = '1'] = parts;
-    const normalizedSide = side === 'b' ? 'b' : 'w';
+    const [board, , castling, enPassant, halfmove = '0', fullmove = '1'] = parts;
 
-    let nextTurn: 'w' | 'b' = normalizedSide;
-    if (this.lastChessBoard && this.lastChessBoard !== board) {
-      if (this.lastChessTurn) {
-        nextTurn = this.lastChessTurn === 'w' ? 'b' : 'w';
-      }
-    } else if (this.lastChessTurn) {
-      nextTurn = this.lastChessTurn;
-    }
+    // Use piece-count comparison to determine whose turn it actually is
+    const inferredTurn = this.inferTurnFromBoards(this.lastChessBoard, board, this.lastChessTurn);
 
-    const nextFen = `${board} ${nextTurn} ${castling} ${enPassant} ${halfmove} ${fullmove}`;
-    return { fen: nextFen, board, turn: nextTurn };
+    const nextFen = `${board} ${inferredTurn} ${castling} ${enPassant} ${halfmove} ${fullmove}`;
+    return { fen: nextFen, board, turn: inferredTurn };
   }
 
   private extractFenFromBoardMappingWindow(visuals: VisualIndexChunk[]): string | null {
@@ -452,7 +518,7 @@ class LiveAssistService extends EventEmitter {
         perspective = low.includes('black') ? 'black' : 'white';
       }
 
-      const matches = [...text.matchAll(/Visual Row\s+(\d+)[^\(]*\(\s*String\s*:\s*([prnbqkPRNBQK1-8]+)\s*\)/gi)];
+      const matches = [...text.matchAll(/Visual Row\s+(\d+).*?\(\s*String\s*:\s*([prnbqkPRNBQK1-8]+)\s*\)/gi)];
       for (const match of matches) {
         const rowIndex = Number(match[1]);
         const rowValue = (match[2] || '').trim();
@@ -534,14 +600,11 @@ class LiveAssistService extends EventEmitter {
     });
 
     if (!result) {
-      return {
-        fen: resolvedFen.fen,
-        engineSummary: '',
-        playedMoveSan: latestMove.san,
-        playedMoveUci: latestMove.uci,
-        board: resolvedFen.board,
-        turn: resolvedFen.turn,
-      };
+      // Engine had no analysis (invalid FEN, network error, etc.).
+      // Return null so the caller skips the LLM tip — a tip without engine
+      // backing would be hallucinated and potentially wrong.
+      log.warn({ fen }, '[LiveAssist] Chess engine returned no analysis — skipping tip for this position');
+      return null;
     }
 
     return {
@@ -659,6 +722,7 @@ class LiveAssistService extends EventEmitter {
     this.lastChessSignature = null;
     this.lastChessBoard = null;
     this.lastChessTurn = null;
+    this.isProcessing = false;
     if (this.roundStartClearTimer) {
       clearTimeout(this.roundStartClearTimer);
       this.roundStartClearTimer = null;
@@ -676,6 +740,44 @@ class LiveAssistService extends EventEmitter {
     // Intentionally ignored: live tips are visual/action based, not audio based.
     void text;
     void source;
+  }
+
+  /**
+   * Add a raw screenshot frame to be processed for FEN extraction.
+   *
+   * When a LiteLLM key is configured this sends the image directly to gpt-5.4
+   * using the same retry logic as the Python benchmark script, then injects
+   * the result into the visual buffer as tagged text identical to what the
+   * VideoDB WebSocket produces.
+   *
+   * When no LiteLLM key is configured this is a no-op — the existing
+   * addVisualIndex() path via the VideoDB WebSocket is used instead.
+   */
+  async addVisualFrame(
+    imageBuffer: Buffer,
+    mimeType: 'image/png' | 'image/jpeg' | 'image/webp',
+    indexingPrompt: string
+  ): Promise<void> {
+    if (!this.isRunning) return;
+
+    const llm = getLLMService();
+    if (!llm.hasLitellmClient) {
+      // No LiteLLM key — fall back to the VideoDB WebSocket path (addVisualIndex)
+      return;
+    }
+
+    log.debug({ mimeType }, '[LiveAssist] addVisualFrame: extracting FEN via LiteLLM');
+
+    const fenBoard = await llm.extractFenFromImage(imageBuffer, mimeType, indexingPrompt);
+    if (!fenBoard) {
+      log.debug('[LiveAssist] addVisualFrame: FEN extraction returned null, skipping');
+      return;
+    }
+
+    // Reconstruct a synthetic tagged text identical to what the VideoDB WebSocket
+    // produces so the existing FEN parsing pipeline needs no changes.
+    const syntheticText = `<perspective>\nwhite\n</perspective>\n\n<raw_board>\n${fenBoard}\n</raw_board>`;
+    this.addVisualIndex(syntheticText);
   }
 
   /**
@@ -747,6 +849,24 @@ class LiveAssistService extends EventEmitter {
    * Process transcript and generate assists
    */
   private async processTranscript(): Promise<void> {
+    if (!this.isRunning) return;
+
+    // Prevent concurrent runs: if a previous LLM call is still in flight,
+    // skip this tick rather than firing a duplicate request.
+    if (this.isProcessing) {
+      log.debug('processTranscript: skipping tick, previous call still in flight');
+      return;
+    }
+
+    this.isProcessing = true;
+    try {
+      await this.processTranscriptInner();
+    } finally {
+      this.isProcessing = false;
+    }
+  }
+
+  private async processTranscriptInner(): Promise<void> {
     if (!this.isRunning) return;
 
     const now = Date.now();
@@ -860,6 +980,18 @@ class LiveAssistService extends EventEmitter {
     );
 
     const chessContext = await this.buildChessContext(promptVisuals, latestFen || undefined);
+
+    // If the engine rejected the FEN or returned no analysis, skip the LLM call entirely.
+    // Without engine data the LLM would hallucinate moves — better to show nothing.
+    if (this.activeGameId === 'chess' && !chessContext) {
+      log.warn({ chessSignature }, '[LiveAssist] No engine analysis for this position — skipping LLM tip');
+      this.lastProcessedTimestamp = now;
+      // Invalidate the pending signature so we retry when a new (valid) FEN arrives.
+      this.pendingChessSignature = null;
+      this.pendingChessSignatureCount = 0;
+      return;
+    }
+
     const chessSection = chessContext
       ? `## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\n${chessContext.playedMoveSan ? `Played SAN: ${chessContext.playedMoveSan}\n` : ''}${chessContext.playedMoveUci ? `Played UCI: ${chessContext.playedMoveUci}\n` : ''}${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n`
       : '';
@@ -1073,6 +1205,12 @@ class LiveAssistService extends EventEmitter {
           this.lastChessTurn = chessContext?.turn || this.lastChessTurn;
           this.pendingChessSignature = null;
           this.pendingChessSignatureCount = 0;
+          // Emit confirmed FEN so the overlay can render the board for verification
+          this.emit('fen', {
+            fen: chessContext?.fen || `${chessSignature} ${this.lastChessTurn || 'w'} - - 0 1`,
+            board: this.lastChessBoard,
+            turn: this.lastChessTurn,
+          });
         }
         this.emit('insights', {
           insights: { say_this: finalSayThis, ask_this: finalAskThis },
@@ -1123,6 +1261,7 @@ class LiveAssistService extends EventEmitter {
     this.lastChessTurn = null;
     this.pendingChessSignature = null;
     this.pendingChessSignatureCount = 0;
+    this.isProcessing = false;
     if (this.roundStartClearTimer) {
       clearTimeout(this.roundStartClearTimer);
       this.roundStartClearTimer = null;

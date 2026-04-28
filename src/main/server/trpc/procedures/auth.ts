@@ -5,7 +5,8 @@ import { RegisterInputSchema, RegisterOutputSchema } from '../../../../shared/sc
 import { createUser, getUserByAccessToken } from '../../../db';
 import { createVideoDBService } from '../../../services/videodb.service';
 import { createChildLogger } from '../../../lib/logger';
-import { loadRuntimeConfig } from '../../../lib/config';
+import { loadRuntimeConfig, loadAppConfig, saveAppConfig } from '../../../lib/config';
+import { getLLMService } from '../../../services/llm.service';
 
 const logger = createChildLogger('auth-procedure');
 
@@ -14,7 +15,7 @@ export const authRouter = router({
     .input(RegisterInputSchema)
     .output(RegisterOutputSchema)
     .mutation(async ({ input }) => {
-      const { name, apiKey } = input;
+      const { name, apiKey, litellmKey } = input;
 
       logger.info({ name }, 'Registration attempt');
 
@@ -65,9 +66,25 @@ export const authRouter = router({
           apiKey,
           accessToken,
           collectionId,
+          litellmKey: litellmKey || null,
         });
 
         logger.info({ userId: user.id, name, collectionId }, 'User registered successfully');
+
+        // Persist to AppConfig so the LLM service picks up the LiteLLM key immediately
+        const existingConfig = loadAppConfig();
+        saveAppConfig({
+          ...existingConfig,
+          accessToken: user.accessToken,
+          userName: user.name,
+          apiKey: user.apiKey,
+          ...(litellmKey ? { litellmKey } : {}),
+        });
+
+        // Refresh the LLM service singleton so it picks up the new LiteLLM key
+        if (litellmKey) {
+          getLLMService().setLitellmKey(litellmKey);
+        }
 
         return {
           success: true,

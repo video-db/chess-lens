@@ -83,7 +83,15 @@ export class ChessEngineService {
       }
 
       const data = (await response.json()) as ChessEngineResponse;
-      console.log('[ChessEngineService] Received response:', data);
+
+      // chess-api.com returns a type:'error' object for invalid FEN or engine failures.
+      // Treat it as null so callers know there is no valid analysis.
+      if ((data as unknown as Record<string, unknown>).type === 'error') {
+        const errData = data as unknown as { error?: string; text?: string };
+        log.warn({ fenError: errData.error, text: errData.text }, 'Chess engine rejected FEN — treating as no analysis');
+        return null;
+      }
+
       return data;
     } catch (error) {
       log.warn({ error }, 'Chess engine request failed');

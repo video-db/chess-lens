@@ -105,6 +105,11 @@ export function createWidgetWindow(): BrowserWindow {
   // Keep overlay above fullscreen/borderless windows where possible
   widgetWindow.setAlwaysOnTop(true, 'screen-saver', 1);
 
+  // Exclude the overlay from screen capture (desktopCapturer, screen share, OBS, etc.)
+  // so the widget is visible to the user but invisible to the FEN-extraction model.
+  // macOS: sets NSWindowSharingNone. Windows: WDA_EXCLUDEFROMCAPTURE.
+  widgetWindow.setContentProtection(true);
+
   // Load the widget HTML
   if (isDev) {
     const VITE_DEV_PORT = 51730;

@@ -43,6 +43,7 @@ export interface WidgetApi {
   onLiveAssist: (callback: (data: WidgetLiveAssistData) => void) => () => void;
   onVisualAnalysis: (callback: (data: { description: string }) => void) => () => void;
   onNudge: (callback: (nudge: WidgetNudge | null) => void) => () => void;
+  onFen: (callback: (data: { fen: string; board: string | null; turn: 'w' | 'b' | null }) => void) => () => void;
 
   // Initial state request
   requestInitialState: () => Promise<void>;
@@ -84,6 +85,12 @@ const widgetApi: WidgetApi = {
     const listener = (_event: Electron.IpcRendererEvent, nudge: WidgetNudge | null) => callback(nudge);
     ipcRenderer.on('widget:nudge', listener);
     return () => ipcRenderer.removeListener('widget:nudge', listener);
+  },
+
+  onFen: (callback: (data: { fen: string; board: string | null; turn: 'w' | 'b' | null }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { fen: string; board: string | null; turn: 'w' | 'b' | null }) => callback(data);
+    ipcRenderer.on('widget:fen', listener);
+    return () => ipcRenderer.removeListener('widget:fen', listener);
   },
 
   // Initial state request

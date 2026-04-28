@@ -19,6 +19,7 @@ export function WidgetApp() {
   const [askThis, setAskThis] = useState<InsightCard[]>([]);
   const [visualDescription, setVisualDescription] = useState<string>('');
   const [nudge, setNudge] = useState<Nudge | null>(null);
+  const [currentFen, setCurrentFen] = useState<string | null>(null);
   const [isStopping, setIsStopping] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
 
@@ -51,6 +52,10 @@ export function WidgetApp() {
       setNudge(n);
     });
 
+    const unsubFen = api.onFen((data) => {
+      setCurrentFen(data.fen);
+    });
+
     const requestStateUntilRecording = () => {
       void api.requestInitialState();
 
@@ -79,6 +84,7 @@ export function WidgetApp() {
       unsubLiveAssist();
       unsubVisual();
       unsubNudge();
+      unsubFen();
     };
   }, []);
 
@@ -146,6 +152,7 @@ export function WidgetApp() {
       askThis={askThis}
       visualDescription={visualDescription}
       nudge={nudge}
+      currentFen={currentFen}
       onStop={handleStop}
       onPause={handlePause}
       onResume={handleResume}

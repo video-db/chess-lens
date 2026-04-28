@@ -225,6 +225,7 @@ export interface IpcApi {
       accessToken?: string;
       userName?: string;
       apiKey?: string;
+      litellmKey?: string;
       apiUrl?: string;
     }>;
     getServerPort: () => Promise<number>;

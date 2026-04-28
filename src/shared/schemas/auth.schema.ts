@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const RegisterInputSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   apiKey: z.string().min(1, 'API key is required'),
+  litellmKey: z.string().optional(),
 });
 
 export const RegisterOutputSchema = z.object({

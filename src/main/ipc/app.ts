@@ -15,6 +15,7 @@ export function setupAppHandlers(): void {
       accessToken?: string;
       userName?: string;
       apiKey?: string;
+      litellmKey?: string;
       apiUrl?: string;
     }> => {
       const appConfig = loadAppConfig();
@@ -24,6 +25,7 @@ export function setupAppHandlers(): void {
         accessToken: appConfig.accessToken,
         userName: appConfig.userName,
         apiKey: appConfig.apiKey,
+        litellmKey: appConfig.litellmKey,
         apiUrl: runtimeConfig.apiUrl,
       };
     }

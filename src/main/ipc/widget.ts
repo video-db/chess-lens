@@ -29,6 +29,8 @@ let widgetVisualAnalysis = {
 
 let widgetNudge: { id: string; message: string; type: 'info' | 'warning' | 'action'; timestamp: number } | null = null;
 
+let widgetFen: { fen: string; board: string | null; turn: 'w' | 'b' | null } | null = null;
+
 const NON_ACTIONABLE_PATTERN = /no actionable gameplay moment(?: in this frame)?\.?/i;
 
 function isNonActionableText(text: string): boolean {
@@ -114,6 +116,7 @@ export function syncWidgetState(): void {
   sendToWidget('widget:live-assist', widgetLiveAssist);
   sendToWidget('widget:visual-analysis', widgetVisualAnalysis);
   sendToWidget('widget:nudge', widgetNudge);
+  if (widgetFen) sendToWidget('widget:fen', widgetFen);
 }
 
 export function setupWidgetIpcHandlers(): void {
@@ -308,6 +311,12 @@ export function updateWidgetNudge(nudge: { id: string; message: string; type: 'i
   sendToWidget('widget:nudge', widgetNudge);
 }
 
+export function updateWidgetFen(data: { fen: string; board: string | null; turn: 'w' | 'b' | null }): void {
+  widgetFen = data;
+  sendToWidget('widget:fen', widgetFen);
+  logger.debug({ fen: data.fen, turn: data.turn }, 'Sent FEN to widget for board verification');
+}
+
 export function clearWidgetState(): void {
   widgetSessionState = {
     isRecording: false,
@@ -319,4 +328,5 @@ export function clearWidgetState(): void {
   widgetLiveAssist = { sayThis: [], askThis: [] };
   widgetVisualAnalysis = { description: '' };
   widgetNudge = null;
+  widgetFen = null;
 }
