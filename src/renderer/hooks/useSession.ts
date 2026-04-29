@@ -231,6 +231,14 @@ export function useSession() {
 
     sessionStore.setStatus('stopping');
 
+    // Stop live assist and MCP inference immediately — don't rely on the
+    // useLiveAssist React effect which fires asynchronously after re-render.
+    // This prevents the interval from continuing to log "No new gameplay
+    // action feed to process" during the (potentially slow) capture shutdown.
+    api.liveAssist.stop().catch((err: Error) => {
+      console.warn('[useSession] Failed to stop live assist on recording stop:', err);
+    });
+
     try {
       const result = await api.capture.stopRecording();
 

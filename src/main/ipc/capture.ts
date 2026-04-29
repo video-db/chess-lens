@@ -11,6 +11,7 @@ import { applyVideoDBPatches } from '../lib/videodb-patch';
 import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
 import { getUserByAccessToken, updateRecordingBySessionId } from '../db';
 import { getLiveAssistService } from '../services/live-assist.service';
+import { getMCPInferenceService } from '../services/mcp-inference.service';
 import { getChessScreenshotService } from '../services/chess-screenshot.service';
 import { getGameIndexingPrompt } from '../../shared/config/game-coaching';
 import {
@@ -644,6 +645,15 @@ async function stopRecordingInternal(): Promise<{ success: boolean; error?: stri
 
   // Stop the direct screenshot FEN extraction loop immediately
   getChessScreenshotService().stop();
+
+  // Stop live assist and MCP inference immediately in the main process.
+  // This is a safety net: the renderer's useLiveAssist effect also calls stop()
+  // via IPC, but it fires asynchronously after a React re-render. Stopping here
+  // ensures the 2-second interval and the 20-second MCP interval both halt as
+  // soon as the capture pipeline stops, preventing spurious "No new gameplay
+  // action feed to process" / "No recent transcript to process" debug logs.
+  getLiveAssistService().stop();
+  getMCPInferenceService().stop();
 
   let stopEventSent = false;
   const emitRecordingStoppedOnce = () => {
