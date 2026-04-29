@@ -27,7 +27,8 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"tools:check-export": "ts-node ./tools/checkSessionExport.ts",
-		"tools:recover-session": "ts-node ./tools/recoverSession.ts"
+		"tools:recover-session": "ts-node ./tools/recoverSession.ts",
+		"tools:check-model": "tsx ./tools/checkModelAvailability.ts"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.14.1",

@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow, app } from 'electron';
 import { createChildLogger } from '../lib/logger';
 
 const logger = createChildLogger('ipc-widget');
-import { getWidgetWindow, sendToWidget, closeWidgetWindow } from '../windows/widget.window';
+import { getWidgetWindow, sendToWidget, closeWidgetWindow, resizeWidgetToContent } from '../windows/widget.window';
 
 let mainWindowRef: BrowserWindow | null = null;
 
@@ -29,7 +29,7 @@ let widgetVisualAnalysis = {
 
 let widgetNudge: { id: string; message: string; type: 'info' | 'warning' | 'action'; timestamp: number } | null = null;
 
-let widgetFen: { fen: string; board: string | null; turn: 'w' | 'b' | null } | null = null;
+let widgetFen: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null } | null = null;
 
 const NON_ACTIONABLE_PATTERN = /no actionable gameplay moment(?: in this frame)?\.?/i;
 
@@ -223,6 +223,14 @@ export function setupWidgetIpcHandlers(): void {
       window.hide();
     }
   });
+
+  // Renderer reports its content height so we can auto-resize the window.
+  // Uses ipcMain.on (not handle) — no return value needed.
+  ipcMain.on('widget:content-height', (_event, height: number) => {
+    if (typeof height === 'number' && height > 0) {
+      resizeWidgetToContent(height);
+    }
+  });
 }
 
 export function removeWidgetIpcHandlers(): void {
@@ -236,6 +244,7 @@ export function removeWidgetIpcHandlers(): void {
   ipcMain.removeHandler('widget:request-initial-state');
   ipcMain.removeHandler('widget:show-main-window');
   ipcMain.removeHandler('widget:hide');
+  ipcMain.removeAllListeners('widget:content-height');
 }
 
 export function updateWidgetSessionState(state: Partial<typeof widgetSessionState>): void {
@@ -311,7 +320,7 @@ export function updateWidgetNudge(nudge: { id: string; message: string; type: 'i
   sendToWidget('widget:nudge', widgetNudge);
 }
 
-export function updateWidgetFen(data: { fen: string; board: string | null; turn: 'w' | 'b' | null }): void {
+export function updateWidgetFen(data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null }): void {
   widgetFen = data;
   sendToWidget('widget:fen', widgetFen);
   logger.debug({ fen: data.fen, turn: data.turn }, 'Sent FEN to widget for board verification');

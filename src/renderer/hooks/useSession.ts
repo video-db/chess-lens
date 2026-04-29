@@ -169,6 +169,9 @@ export function useSession() {
             const visualIndexStore = useVisualIndexStore.getState();
             visualIndexStore.setEnabled(true);
             visualIndexStore.setSceneIndexId(visualStart.sceneIndexId);
+            if (visualStart.rtstreamId) {
+              visualIndexStore.setRtstreamId(visualStart.rtstreamId);
+            }
             visualIndexStore.setRunning(true);
           }
         } catch (visualError) {

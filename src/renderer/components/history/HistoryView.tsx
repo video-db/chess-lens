@@ -42,16 +42,17 @@ export function HistoryView({ initialSelectedRecordingId, onClearInitialSelectio
 
   useEffect(() => {
     if (!hasCleanedUp && recordings) {
-      // Check for stale recordings older than 1 hour (excluding active session)
+      // Clean up any session stuck in 'recording' or 'processing' that isn't
+      // the currently active session — no age gate, since a 'recording' row
+      // with no active process is always stale regardless of how recent it is.
       const staleCount = recordings.filter(
         r => (r.status === 'processing' || r.status === 'recording') &&
-        r.sessionId !== activeSessionId &&
-        Date.now() - new Date(r.createdAt).getTime() > 60 * 60 * 1000
+        r.sessionId !== activeSessionId
       ).length;
 
       if (staleCount > 0) {
         cleanupMutation.mutate({
-          maxAgeMinutes: 60,
+          maxAgeMinutes: 0, // no age gate — clean all non-active stuck sessions
           excludeSessionId: activeSessionId || undefined,
         });
       }

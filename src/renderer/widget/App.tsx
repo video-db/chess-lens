@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { PairCompactOverlay } from './components/PairCompactOverlay';
 import type {
   InsightCard,
@@ -20,8 +20,29 @@ export function WidgetApp() {
   const [visualDescription, setVisualDescription] = useState<string>('');
   const [nudge, setNudge] = useState<Nudge | null>(null);
   const [currentFen, setCurrentFen] = useState<string | null>(null);
+  const [displayFen, setDisplayFen] = useState<string | null>(null);
   const [isStopping, setIsStopping] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
+
+  // Ref for the root wrapper — observed by ResizeObserver to auto-resize the window
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // ResizeObserver: report rendered content height to main process whenever it changes
+  useEffect(() => {
+    const api = window.widgetAPI;
+    if (!api?.reportContentHeight) return;
+    const el = rootRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        api.reportContentHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const api = window.widgetAPI;
@@ -54,6 +75,7 @@ export function WidgetApp() {
 
     const unsubFen = api.onFen((data) => {
       setCurrentFen(data.fen);
+      setDisplayFen(data.displayFen);
     });
 
     const requestStateUntilRecording = () => {
@@ -146,22 +168,25 @@ export function WidgetApp() {
   }, [nudge]);
 
   return (
-    <PairCompactOverlay
-      sessionState={sessionState}
-      sayThis={sayThis}
-      askThis={askThis}
-      visualDescription={visualDescription}
-      nudge={nudge}
-      currentFen={currentFen}
-      onStop={handleStop}
-      onPause={handlePause}
-      onResume={handleResume}
-      onMuteMic={handleMuteMic}
-      onUnmuteMic={handleUnmuteMic}
-      onDismissCard={handleDismissCard}
-      onDismissNudge={handleDismissNudge}
-      stopDisabled={isStopping}
-      statusText={isConnecting ? 'Connecting...' : undefined}
-    />
+    <div ref={rootRef} style={{ width: '100%' }}>
+      <PairCompactOverlay
+        sessionState={sessionState}
+        sayThis={sayThis}
+        askThis={askThis}
+        visualDescription={visualDescription}
+        nudge={nudge}
+        currentFen={currentFen}
+        displayFen={displayFen}
+        onStop={handleStop}
+        onPause={handlePause}
+        onResume={handleResume}
+        onMuteMic={handleMuteMic}
+        onUnmuteMic={handleUnmuteMic}
+        onDismissCard={handleDismissCard}
+        onDismissNudge={handleDismissNudge}
+        stopDisabled={isStopping}
+        statusText={isConnecting ? 'Connecting...' : undefined}
+      />
+    </div>
   );
 }

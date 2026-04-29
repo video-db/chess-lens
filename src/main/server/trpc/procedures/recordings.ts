@@ -499,17 +499,16 @@ export const recordingsRouter = router({
         }
 
         if (recording.status === 'recording' && !recording.videoId) {
-          const createdAt = parseCreatedAtMs(recording.createdAt);
-          const age = Number.isFinite(createdAt) ? now - createdAt : 0;
-
-          if (age > maxAgeMs) {
-            updateRecordingBySessionId(recording.sessionId, { status: 'processing' });
-            logger.info(
-              { recordingId: recording.id, sessionId: recording.sessionId, ageMinutes: Math.round(age / 60000) },
-              'Stale recording remains processing pending VideoDB failure signal'
-            );
-            cleaned++;
-          }
+          // A session in 'recording' status with no active process is a crash
+          // remnant.  Mark it 'failed' immediately — no age gate needed since
+          // the tRPC server only runs while the app is open, and any 'recording'
+          // row that isn't the excluded (active) session has no live recorder.
+          updateRecordingBySessionId(recording.sessionId, { status: 'failed' });
+          logger.info(
+            { recordingId: recording.id, sessionId: recording.sessionId },
+            'Stuck recording session marked as failed'
+          );
+          cleaned++;
         }
       }
 

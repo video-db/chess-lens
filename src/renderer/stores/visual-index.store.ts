@@ -15,12 +15,14 @@ interface VisualIndexState {
   enabled: boolean;
   isRunning: boolean; // Whether indexing is actively running
   sceneIndexId: string | null; // ID of the created scene index
+  rtstreamId: string | null;   // RTStream ID used for this session
 
   // Actions
   addItem: (item: Omit<VisualIndexItem, 'id' | 'timestamp'>) => void;
   setEnabled: (enabled: boolean) => void;
   setRunning: (isRunning: boolean) => void;
   setSceneIndexId: (id: string | null) => void;
+  setRtstreamId: (id: string | null) => void;
   clear: () => void;
 }
 
@@ -31,6 +33,7 @@ export const useVisualIndexStore = create<VisualIndexState>((set) => ({
   enabled: false, // Off by default, user toggles on to start
   isRunning: false,
   sceneIndexId: null,
+  rtstreamId: null,
 
   addItem: (item) => {
     const newItem: VisualIndexItem = {
@@ -47,8 +50,9 @@ export const useVisualIndexStore = create<VisualIndexState>((set) => ({
   setEnabled: (enabled) => set({ enabled }),
   setRunning: (isRunning) => set({ isRunning }),
   setSceneIndexId: (sceneIndexId) => set({ sceneIndexId }),
+  setRtstreamId: (rtstreamId) => set({ rtstreamId }),
 
   clear: () => {
-    set({ items: [], sceneIndexId: null, isRunning: false });
+    set({ items: [], sceneIndexId: null, rtstreamId: null, isRunning: false });
   },
 }));

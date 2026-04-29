@@ -81,11 +81,6 @@ export const authRouter = router({
           ...(litellmKey ? { litellmKey } : {}),
         });
 
-        // Refresh the LLM service singleton so it picks up the new LiteLLM key
-        if (litellmKey) {
-          getLLMService().setLitellmKey(litellmKey);
-        }
-
         return {
           success: true,
           accessToken: user.accessToken,

@@ -3,6 +3,7 @@ import { router, protectedProcedure } from '../trpc';
 import { createChildLogger } from '../../../lib/logger';
 import { loadRuntimeConfig } from '../../../lib/config';
 import { getGameVisualIndexTiming, getGameIndexingPrompt, SUPPORTED_GAME_IDS } from '../../../../shared/config/game-coaching';
+import { RTSTREAM_VISION_MODEL } from '../../../services/llm.service';
 import { connect } from 'videodb';
 import type { CaptureSessionFull, RTStream } from 'videodb';
 
@@ -19,7 +20,7 @@ const activeSceneIndexes = new Map<string, {
 const MAX_RETRIES = 60;
 const RETRY_DELAY_MS = 2000;
 const DEFAULT_INDEXING_PROMPT = 'Return ONLY valid minified JSON with exactly two keys: {"heading_tip":"string","tip":"string"}. No markdown, no prose, no code fences. `heading_tip` is a short headline (max 90 chars). `tip` is full scenario/details in plain text. Describe actionable gameplay only and ignore menus/loading/scoreboards/overlays. Do not repeat the obvious visible state as the tip; if the player is already holding a spot like mid doors, do not say hold mid doors. Instead give the next adjustment, timing cue, angle change, utility play, or rotation. If no actionable gameplay moment is visible return exactly: {"heading_tip":"No actionable gameplay moment","tip":"No actionable gameplay moment in this frame."}.';
-const MODEL_NAME = 'pro';
+const MODEL_NAME = RTSTREAM_VISION_MODEL; // 'openai/gpt-5.4' — supported by RTStream indexVisuals SDK
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -90,6 +91,7 @@ export const visualIndexRouter = router({
     .output(z.object({
       success: z.boolean(),
       sceneIndexId: z.string().optional(),
+      rtstreamId: z.string().optional(),
       message: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -125,7 +127,7 @@ export const visualIndexRouter = router({
             const sceneIndex = sceneIndexes.find(si => si.rtstreamIndexId === existing.sceneIndexId);
             if (sceneIndex) {
               await sceneIndex.start();
-              return { success: true, sceneIndexId: existing.sceneIndexId, message: 'Visual indexing resumed' };
+              return { success: true, sceneIndexId: existing.sceneIndexId, rtstreamId: existing.rtstreamId, message: 'Visual indexing resumed' };
             }
           }
         } catch (err) {
@@ -165,9 +167,9 @@ export const visualIndexRouter = router({
           apiUrl,
         });
 
-        logger.info({ sessionId, sceneIndexId }, '[VisualIndex] Visual indexing started');
+        logger.info({ sessionId, sceneIndexId, rtstreamId: screenStream.id, model: MODEL_NAME }, '[VisualIndex] Visual indexing started');
 
-        return { success: true, sceneIndexId, message: 'Visual indexing started' };
+        return { success: true, sceneIndexId, rtstreamId: screenStream.id, message: 'Visual indexing started' };
       } catch (error) {
         logger.error({ error }, '[VisualIndex] Failed to start visual indexing');
         return { success: false, message: 'Failed to start visual indexing' };

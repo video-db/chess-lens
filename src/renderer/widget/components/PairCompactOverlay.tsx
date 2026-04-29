@@ -111,6 +111,8 @@ interface PairCompactOverlayProps {
   visualDescription: string;
   nudge: Nudge | null;
   currentFen: string | null;
+  /** FEN in the original player perspective (for the overlay board display). */
+  displayFen: string | null;
   onStop: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -137,6 +139,7 @@ export function PairCompactOverlay({
   visualDescription,
   nudge,
   currentFen,
+  displayFen,
   onStop,
   onPause,
   onResume,
@@ -147,7 +150,6 @@ export function PairCompactOverlay({
 }: PairCompactOverlayProps) {
   const [now, setNow] = useState(Date.now());
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showBoard, setShowBoard] = useState(false);
 
   const NON_ACTIONABLE = 'No actionable gameplay moment in this frame.';
   const NON_ACTIONABLE_REGEX = /no actionable gameplay moment(?: in this frame)?\.?/i;
@@ -355,7 +357,7 @@ export function PairCompactOverlay({
   const showExpanded = isChess || isExpanded || isCritical;
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: 10 }}>
+    <div style={{ width: '100%', height: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', padding: 10, boxSizing: 'border-box' }}>
       <style>{`
         .pp-wrap {
           width: 100%;
@@ -549,8 +551,17 @@ export function PairCompactOverlay({
         <div className={`pp-tip pp-tip--${urgencyTone}`} onDoubleClick={() => { if (!isChess) setIsExpanded(false); }}>
           <div style={{ fontSize: 11, opacity: 0.8, marginBottom: 4 }}>{coachLabel}</div>
           {sessionState.gameId === 'chess' ? (
-            // Chess: display full paragraph + optional engine + drill + board toggle
+            // Chess: board always visible above the tip, then engine line + drill
             <>
+              {/* Board always shown above the tip when a FEN is available */}
+              {(displayFen ?? currentFen) && (
+                <div style={{ marginBottom: 8 }}>
+                  <ChessBoard fen={displayFen ?? currentFen ?? ''} />
+                  <div style={{ fontSize: 9, opacity: 0.45, marginTop: 3, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                    {(displayFen ?? currentFen ?? '').split(' ')[0]}
+                  </div>
+                </div>
+              )}
               <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}>
                 {chessParagraphText || chessEngineText || chessDrillText || (chessWaitingText ? chessWaitingText : 'Waiting for next move...')}
               </div>
@@ -562,34 +573,6 @@ export function PairCompactOverlay({
               {chessWaitingText && (
                 <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4, fontStyle: 'italic' }}>
                   {chessWaitingText}
-                </div>
-              )}
-              {/* FEN verification board */}
-              {currentFen && (
-                <div style={{ marginTop: 6 }}>
-                  <button
-                    onClick={() => setShowBoard((v) => !v)}
-                    style={{
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      borderRadius: 6,
-                      color: '#fff',
-                      fontSize: 11,
-                      padding: '3px 8px',
-                      cursor: 'pointer',
-                      marginBottom: showBoard ? 6 : 0,
-                    }}
-                  >
-                    {showBoard ? '▲ Hide board' : '♟ Verify board'}
-                  </button>
-                  {showBoard && (
-                    <div style={{ maxHeight: 230, overflowY: 'auto', overflowX: 'hidden' }}>
-                      <ChessBoard fen={currentFen} />
-                      <div style={{ fontSize: 9, opacity: 0.5, marginTop: 3, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                        {currentFen.split(' ')[0]}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </>

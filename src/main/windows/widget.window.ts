@@ -10,9 +10,11 @@ let widgetWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV !== 'production' && !require('electron').app.isPackaged;
 
 const WIDGET_WIDTH = 378;
-const WIDGET_DEFAULT_HEIGHT = 500;
-const WIDGET_MIN_HEIGHT = 200;
+const WIDGET_DEFAULT_HEIGHT = 680;
+const WIDGET_MIN_HEIGHT = 300;
 const WIDGET_MARGIN = 20;
+/** Padding added on top of reported content height to avoid a hairline clip. */
+const WIDGET_HEIGHT_PADDING = 24;
 
 interface WidgetPosition {
   x: number;
@@ -34,7 +36,8 @@ function getDefaultPosition(): WidgetPosition {
   const { width, height } = primaryDisplay.workAreaSize;
   return {
     x: width - WIDGET_WIDTH - WIDGET_MARGIN,
-    y: height - WIDGET_DEFAULT_HEIGHT - WIDGET_MARGIN,
+    // Anchor the bottom of the window near the bottom of the screen
+    y: Math.max(0, height - WIDGET_DEFAULT_HEIGHT - WIDGET_MARGIN),
   };
 }
 
@@ -187,5 +190,54 @@ export function sendToWidget(channel: string, data: unknown): void {
     widgetWindow.webContents.send(channel, data);
   } else {
     logger.warn({ channel }, 'Widget window not available, cannot send');
+  }
+}
+
+/**
+ * Resize the widget window height to fit its content.
+ *
+ * Called whenever the renderer reports a new content height via the
+ * `widget:content-height` IPC channel.  The window grows or shrinks to match,
+ * but is always clamped so it never extends below the bottom of the display it
+ * currently lives on.
+ *
+ * The x/y position is never changed — the window stays exactly where the user
+ * dragged it.  If the required height would push the bottom edge off-screen, the
+ * window is repositioned upward just enough to stay visible.
+ */
+export function resizeWidgetToContent(contentHeight: number): void {
+  if (!widgetWindow || widgetWindow.isDestroyed()) return;
+
+  const targetHeight = Math.max(
+    WIDGET_MIN_HEIGHT,
+    Math.ceil(contentHeight) + WIDGET_HEIGHT_PADDING
+  );
+
+  // Find the display the window currently lives on
+  const [winX, winY] = widgetWindow.getPosition();
+  const displays = screen.getAllDisplays();
+  const currentDisplay =
+    displays.find((d) => {
+      const { x, y, width, height } = d.bounds;
+      return winX >= x && winX < x + width && winY >= y && winY < y + height;
+    }) ?? screen.getPrimaryDisplay();
+
+  const { y: displayY, height: displayHeight } = currentDisplay.workArea;
+  const maxAllowedHeight = displayHeight - WIDGET_MARGIN;
+  const clampedHeight = Math.min(targetHeight, maxAllowedHeight);
+
+  // If the bottom edge would go off-screen, shift the window up
+  const bottomEdge = winY + clampedHeight;
+  const screenBottom = displayY + displayHeight - WIDGET_MARGIN;
+  const newY = bottomEdge > screenBottom ? Math.max(displayY, screenBottom - clampedHeight) : winY;
+
+  if (newY !== winY) {
+    widgetWindow.setPosition(winX, newY);
+  }
+
+  const [currentW, currentH] = widgetWindow.getSize();
+  if (currentH !== clampedHeight) {
+    widgetWindow.setSize(currentW, clampedHeight);
+    logger.debug({ targetHeight, clampedHeight, winY, newY }, 'Widget resized to content');
   }
 }

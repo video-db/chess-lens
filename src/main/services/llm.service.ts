@@ -17,19 +17,13 @@ import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
 
 const log = logger.child({ module: 'llm-service' });
 
-// Coaching text primary model.
-// When LiteLLM is configured it is used first; VideoDB 'pro' is the fallback.
-// To switch back to VideoDB as primary, set this to 'pro' and invert the
-// attempt order in chatCompletion / chatCompletionWithTools.
+// Model used for direct OpenAI-compatible API calls through the VideoDB proxy.
+// The proxy accepts its own model names (mini, basic, pro, ultra) for these calls.
 const PRIMARY_MODEL = 'pro';
-const LITELLM_COACHING_MODEL = 'gpt-5.4';
-// FEN extraction via vision: gpt-5.4 is the best model for board analysis.
-// Used exclusively in extractFenFromImage(), not in chatCompletion().
-// The base URL and model are read exclusively from runtime.json (litellmBaseUrl /
-// litellmModel). No default URL is baked into source — the key must be set in
-// runtime.json before the LiteLLM client is used.
-const LITELLM_BASE_URL_DEFAULT = 'https://litellm-prod-app.jollymoss-e448bcff.centralus.azurecontainerapps.io/v1';
-const LITELLM_MODEL_DEFAULT = 'gpt-5.4';
+
+// Model used for RTStream indexVisuals() — passed as modelName to the SDK,
+// not as a direct API call, so the full openai/ namespace is supported.
+export const RTSTREAM_VISION_MODEL = 'openai/gpt-5.4';
 
 /** Returns true when the error indicates the requested model is unavailable. */
 function isModelUnavailableError(error: unknown): boolean {
@@ -125,7 +119,6 @@ export interface JSONLLMResponse<T = unknown> {
 export class LLMService {
   private config: LLMConfig;
   private client: OpenAI;
-  private litellmClient: OpenAI | null = null;
   private static instance: LLMService | null = null;
 
   constructor(config?: Partial<LLMConfig>) {
@@ -140,30 +133,17 @@ export class LLMService {
       temperature: config?.temperature || 0.7,
     };
 
-    // Primary client: VideoDB proxy
+    // VideoDB proxy client — used for all LLM calls including vision
     this.client = new OpenAI({
       apiKey: this.config.apiKey,
       baseURL: this.config.apiBase,
     });
 
-    // LiteLLM client — used as the PRIMARY for coaching when configured.
-    // Base URL read from runtime.json (litellmBaseUrl) or falls back to the
-    // default deployment URL. Only the API key is a secret — it is stored in
-    // AppConfig (user data dir) and never in source code.
-    const litellmKey = appConfig.litellmKey;
-    if (litellmKey) {
-      const litellmBaseUrl = runtimeConfig.litellmBaseUrl || LITELLM_BASE_URL_DEFAULT;
-      this.litellmClient = new OpenAI({
-        apiKey: litellmKey,
-        baseURL: litellmBaseUrl,
-      });
-      log.info({ coachingModel: LITELLM_COACHING_MODEL }, '[LiteLLM] Client initialised — will be used as primary for coaching');
-    }
-
     log.info({
-      videodbModel: this.config.model,
-      litellmPrimary: !!this.litellmClient,
-    }, 'LLM Service initialized');
+      model: this.config.model,
+      apiBase: this.config.apiBase,
+      rtstreamVisionModel: RTSTREAM_VISION_MODEL,
+    }, 'LLM Service initialized (VideoDB proxy)');
   }
 
   static getInstance(config?: Partial<LLMConfig>): LLMService {
@@ -183,21 +163,6 @@ export class LLMService {
       apiKey: this.config.apiKey,
       baseURL: this.config.apiBase,
     });
-  }
-
-  setLitellmKey(litellmKey: string | null): void {
-    const runtimeConfig = loadRuntimeConfig();
-    const litellmBaseUrl = runtimeConfig.litellmBaseUrl || LITELLM_BASE_URL_DEFAULT;
-    if (litellmKey) {
-      this.litellmClient = new OpenAI({
-        apiKey: litellmKey,
-        baseURL: litellmBaseUrl,
-      });
-      log.info({ coachingModel: LITELLM_COACHING_MODEL }, '[LiteLLM] Client updated — primary for coaching');
-    } else {
-      this.litellmClient = null;
-      log.info('[LiteLLM] Client cleared — VideoDB will be used for coaching');
-    }
   }
 
   /**
@@ -261,92 +226,70 @@ export class LLMService {
 
     const startTime = Date.now();
     const messagePreview = messages[messages.length - 1]?.content?.slice(0, 100) || '';
-    const effectivePrimary = this.litellmClient ? `[LiteLLM] ${loadRuntimeConfig().litellmModel || LITELLM_COACHING_MODEL}` : `[VideoDB] ${this.config.model}`;
     log.info({
-      primaryClient: this.litellmClient ? 'LiteLLM' : 'VideoDB',
-      model: this.litellmClient ? (loadRuntimeConfig().litellmModel || LITELLM_COACHING_MODEL) : this.config.model,
+      model: this.config.model,
       messageCount: messages.length,
       messagePreview,
-    }, `LLM coaching request → ${effectivePrimary}`);
+    }, `[VideoDB] LLM coaching request → ${this.config.model}`);
 
-    const attemptWithModel = async (client: OpenAI, model: string): Promise<LLMResponse> => {
-      const label = client === this.client ? '[VideoDB]' : '[LiteLLM]';
-      try {
-        const response = await client.chat.completions.create({
-          model,
-          messages: this.formatMessages(messages),
-          max_tokens: this.config.maxTokens,
-          temperature: this.config.temperature,
-        });
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.config.model,
+        messages: this.formatMessages(messages),
+        max_tokens: this.config.maxTokens,
+        temperature: this.config.temperature,
+      });
 
-        const elapsed = Date.now() - startTime;
-        const content = response.choices[0]?.message?.content || '';
-        const usage = response.usage;
+      const elapsed = Date.now() - startTime;
+      const content = response.choices[0]?.message?.content || '';
+      const usage = response.usage;
 
-        log.info({
+      log.info({
+        elapsedMs: elapsed,
+        model: this.config.model,
+        contentLength: content.length,
+        promptTokens: usage?.prompt_tokens,
+        completionTokens: usage?.completion_tokens,
+        totalTokens: usage?.total_tokens,
+        finishReason: response.choices[0]?.finish_reason,
+      }, '[VideoDB] LLM request completed');
+
+      return {
+        content,
+        success: true,
+        usage: usage ? {
+          promptTokens: usage.prompt_tokens || 0,
+          completionTokens: usage.completion_tokens || 0,
+          totalTokens: usage.total_tokens || 0,
+        } : undefined,
+      };
+    } catch (error) {
+      const elapsed = Date.now() - startTime;
+      const errMsg = error instanceof Error ? error.message : 'Unknown error';
+
+      if (error instanceof OpenAI.APIError) {
+        log.error({
+          status: error.status,
+          code: error.code,
+          type: error.type,
+          message: error.message,
+          model: this.config.model,
           elapsedMs: elapsed,
-          model,
-          contentLength: content.length,
-          promptTokens: usage?.prompt_tokens,
-          completionTokens: usage?.completion_tokens,
-          totalTokens: usage?.total_tokens,
-          finishReason: response.choices[0]?.finish_reason,
-        }, `${label} LLM request completed`);
-
-        return {
-          content,
-          success: true,
-          usage: usage ? {
-            promptTokens: usage.prompt_tokens || 0,
-            completionTokens: usage.completion_tokens || 0,
-            totalTokens: usage.total_tokens || 0,
-          } : undefined,
-        };
-      } catch (error) {
-        const elapsed = Date.now() - startTime;
-        const errMsg = error instanceof Error ? error.message : 'Unknown error';
-
-        if (error instanceof OpenAI.APIError) {
-          log.error({
-            status: error.status,
-            code: error.code,
-            type: error.type,
-            message: error.message,
-            model,
-            elapsedMs: elapsed,
-          }, `${label} LLM API error`);
-          return {
-            content: '',
-            success: false,
-            error: `API error ${error.status}: ${error.message}`,
-            _isModelUnavailable: isModelUnavailableError(error),
-          } as LLMResponse & { _isModelUnavailable?: boolean };
-        }
-
-        log.error({ err: error, errorMessage: errMsg, model, elapsedMs: elapsed }, `${label} LLM request error`);
+        }, '[VideoDB] LLM API error');
         return {
           content: '',
           success: false,
-          error: errMsg,
+          error: `API error ${error.status}: ${error.message}`,
         };
       }
-    };
 
-    // Attempt 1: LiteLLM primary (gpt-5.4) when configured
-    if (this.litellmClient) {
-      const litellmModel = loadRuntimeConfig().litellmModel || LITELLM_COACHING_MODEL;
-      const litellmResult = await attemptWithModel(this.litellmClient, litellmModel) as LLMResponse & { _isModelUnavailable?: boolean };
-      if (litellmResult.success) {
-        delete (litellmResult as unknown as Record<string, unknown>)._isModelUnavailable;
-        return litellmResult;
-      }
-      log.warn({ litellmModel, videodbModel: this.config.model }, '[LiteLLM] Primary failed, falling back to [VideoDB]');
+      log.error({ err: error, errorMessage: errMsg, model: this.config.model, elapsedMs: elapsed }, '[VideoDB] LLM request error');
+      return {
+        content: '',
+        success: false,
+        error: errMsg,
+      };
     }
-
-    // Attempt 2 (or sole attempt when no LiteLLM): VideoDB 'pro'
-    const primaryResult = await attemptWithModel(this.client, this.config.model) as LLMResponse & { _isModelUnavailable?: boolean };
-    delete (primaryResult as unknown as Record<string, unknown>)._isModelUnavailable;
-    return primaryResult;
   }
 
   async chatCompletionJSON<T = unknown>(
@@ -412,105 +355,162 @@ export class LLMService {
 
     const startTime = Date.now();
 
-    const attemptWithModel = async (client: OpenAI, model: string): Promise<ToolCallResponse & { _isModelUnavailable?: boolean }> => {
-      const label = client === this.client ? '[VideoDB]' : '[LiteLLM]';
-      try {
-        const formattedMessages = this.formatMessages(messages);
-        const formattedTools = tools.length > 0 ? this.formatTools(tools) : undefined;
+    try {
+      const formattedMessages = this.formatMessages(messages);
+      const formattedTools = tools.length > 0 ? this.formatTools(tools) : undefined;
 
-        const response = await client.chat.completions.create({
-          model,
-          messages: formattedMessages,
-          tools: formattedTools,
-          tool_choice: formattedTools ? 'auto' : undefined,
-          max_tokens: this.config.maxTokens,
-          temperature: this.config.temperature,
-        });
+      const response = await this.client.chat.completions.create({
+        model: this.config.model,
+        messages: formattedMessages,
+        tools: formattedTools,
+        tool_choice: formattedTools ? 'auto' : undefined,
+        max_tokens: this.config.maxTokens,
+        temperature: this.config.temperature,
+      });
 
-        const elapsed = Date.now() - startTime;
-        const message = response.choices[0]?.message;
-        const finishReason = response.choices[0]?.finish_reason;
+      const elapsed = Date.now() - startTime;
+      const message = response.choices[0]?.message;
+      const finishReason = response.choices[0]?.finish_reason;
 
-        const toolCalls: ToolCall[] | null = message?.tool_calls
-          ? message.tool_calls
-              .filter((tc): tc is typeof tc & { type: 'function'; function: { name: string; arguments: string } } =>
-                tc.type === 'function' && 'function' in tc
-              )
-              .map(tc => ({
-                id: tc.id,
-                type: 'function' as const,
-                function: {
-                  name: tc.function.name,
-                  arguments: tc.function.arguments,
-                },
-              }))
-          : null;
+      const toolCalls: ToolCall[] | null = message?.tool_calls
+        ? message.tool_calls
+            .filter((tc): tc is typeof tc & { type: 'function'; function: { name: string; arguments: string } } =>
+              tc.type === 'function' && 'function' in tc
+            )
+            .map(tc => ({
+              id: tc.id,
+              type: 'function' as const,
+              function: {
+                name: tc.function.name,
+                arguments: tc.function.arguments,
+              },
+            }))
+        : null;
 
-        log.info({
+      log.info({
+        elapsedMs: elapsed,
+        model: this.config.model,
+        hasContent: !!message?.content,
+        contentPreview: message?.content?.slice(0, 100),
+        toolCallCount: toolCalls?.length || 0,
+        toolCallNames: toolCalls?.map(tc => tc.function.name),
+        finishReason,
+        promptTokens: response.usage?.prompt_tokens,
+        completionTokens: response.usage?.completion_tokens,
+      }, '[VideoDB] LLM tool call request completed');
+
+      return {
+        content: message?.content || null,
+        tool_calls: toolCalls,
+        success: true,
+        finishReason: finishReason || undefined,
+      };
+    } catch (error) {
+      const elapsed = Date.now() - startTime;
+
+      if (error instanceof OpenAI.APIError) {
+        log.error({
+          status: error.status,
+          code: error.code,
+          type: error.type,
+          message: error.message,
+          model: this.config.model,
           elapsedMs: elapsed,
-          model,
-          hasContent: !!message?.content,
-          contentPreview: message?.content?.slice(0, 100),
-          toolCallCount: toolCalls?.length || 0,
-          toolCallNames: toolCalls?.map(tc => tc.function.name),
-          finishReason,
-          promptTokens: response.usage?.prompt_tokens,
-          completionTokens: response.usage?.completion_tokens,
-        }, `${label} LLM tool call request completed`);
-
-        return {
-          content: message?.content || null,
-          tool_calls: toolCalls,
-          success: true,
-          finishReason: finishReason || undefined,
-        };
-      } catch (error) {
-        const elapsed = Date.now() - startTime;
-
-        if (error instanceof OpenAI.APIError) {
-          log.error({
-            status: error.status,
-            code: error.code,
-            type: error.type,
-            message: error.message,
-            model,
-            elapsedMs: elapsed,
-          }, `${label} LLM tool call API error`);
-          return {
-            content: null,
-            tool_calls: null,
-            success: false,
-            error: `API error ${error.status}: ${error.message}`,
-            _isModelUnavailable: isModelUnavailableError(error),
-          };
-        }
-
-        const errMsg = error instanceof Error ? error.message : 'Unknown error';
-        log.error({ err: error, errorMessage: errMsg, model, elapsedMs: elapsed }, `${label} LLM tool call request error`);
+        }, '[VideoDB] LLM tool call API error');
         return {
           content: null,
           tool_calls: null,
           success: false,
-          error: errMsg,
+          error: `API error ${error.status}: ${error.message}`,
         };
       }
-    };
 
-    // Attempt 1: LiteLLM primary when configured
-    if (this.litellmClient) {
-      const litellmModel = loadRuntimeConfig().litellmModel || LITELLM_COACHING_MODEL;
-      const litellmResult = await attemptWithModel(this.litellmClient, litellmModel);
-      if (litellmResult.success) {
-        delete (litellmResult as unknown as Record<string, unknown>)._isModelUnavailable;
-        return litellmResult;
-      }
-      log.warn({ litellmModel, videodbModel: this.config.model }, '[LiteLLM] Primary failed, falling back to [VideoDB]');
+      const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      log.error({ err: error, errorMessage: errMsg, model: this.config.model, elapsedMs: elapsed }, '[VideoDB] LLM tool call request error');
+      return {
+        content: null,
+        tool_calls: null,
+        success: false,
+        error: errMsg,
+      };
     }
+  }
 
-    // Attempt 2 (or sole attempt when no LiteLLM): VideoDB 'pro'
-    const primaryResult = await attemptWithModel(this.client, this.config.model);
-    delete (primaryResult as unknown as Record<string, unknown>)._isModelUnavailable;
-    return primaryResult;
+  /**
+   * Detect the chessboard bounding box inside a full-screen screenshot.
+   *
+   * Sends a lightweight, single-turn vision prompt (no board analysis) that
+   * asks the model to return only a JSON bounding box as fractions of the
+   * image dimensions.  The result is intended to be cached by the caller
+   * (ChessScreenshotService) and used to crop every subsequent screenshot
+   * before the full FEN-extraction pipeline runs.
+   *
+   * Returns null if detection fails or the response cannot be parsed.
+   */
+  async detectChessBoardRegion(
+    imageBuffer: Buffer
+  ): Promise<{ x: number; y: number; w: number; h: number } | null> {
+    const base64Image = imageBuffer.toString('base64');
+    const dataUrl = `data:image/png;base64,${base64Image}`;
+
+    const detectionPrompt =
+      'Locate the chessboard in this screenshot. ' +
+      'Return ONLY a single line of valid JSON with exactly four keys: ' +
+      '{"x": <0-1>, "y": <0-1>, "w": <0-1>, "h": <0-1>} ' +
+      'where each value is a decimal fraction of the full image dimensions ' +
+      '(x and y are the top-left corner, w and h are width and height). ' +
+      'No markdown, no explanation, no extra text — just the JSON object.';
+
+    type VisionMessage = {
+      role: 'user';
+      content: Array<{ type: string; text?: string; image_url?: { url: string } }>;
+    };
+    const messages: VisionMessage[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: detectionPrompt },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ],
+      },
+    ];
+
+    log.info({ model: this.config.model }, '[VideoDB] detectChessBoardRegion starting');
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.config.model,
+        messages: messages as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
+        max_tokens: 64,
+      });
+
+      const rawText = response.choices[0]?.message?.content?.trim() || '';
+
+      // Strip markdown code fences if the model wraps the JSON
+      const jsonText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+      const parsed = JSON.parse(jsonText) as { x: unknown; y: unknown; w: unknown; h: unknown };
+
+      const x = Number(parsed.x);
+      const y = Number(parsed.y);
+      const w = Number(parsed.w);
+      const h = Number(parsed.h);
+
+      if (
+        [x, y, w, h].some((v) => isNaN(v) || v < 0 || v > 1) ||
+        w <= 0.01 || h <= 0.01
+      ) {
+        log.warn({ rawText, parsed }, '[VideoDB] detectChessBoardRegion: parsed values out of range');
+        return null;
+      }
+
+      log.info({ x, y, w, h }, '[VideoDB] detectChessBoardRegion succeeded');
+      return { x, y, w, h };
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.warn({ error: errMsg }, '[VideoDB] detectChessBoardRegion failed');
+      return null;
+    }
   }
 
   /**
@@ -521,27 +521,22 @@ export class LLMService {
    * base64-encoded data URL together with the chess indexing prompt and
    * applies the same math-error retry loop.
    *
-   * Priority:
-   *   1. LiteLLM client  (gpt-5.4)         — when litellmKey is configured
-   *   2. VideoDB client  (openai/gpt-5.4)   — as fallback
+   * Uses the VideoDB proxy with model openai/gpt-5.4 for vision-based FEN extraction.
    *
-   * Returns the FEN board string (without metadata fields) or null on failure.
+   * Returns an object with:
+   *   - fenBoard: the board string in WHITE's perspective (for the chess engine)
+   *   - perspective: the original perspective detected in the image ('white' | 'black')
+   *
+   * The caller can use `perspective` to reconstruct the display board (which should
+   * show the position as the player actually sees it on screen).
+   * Returns null on failure.
    */
   async extractFenFromImage(
     imageBuffer: Buffer,
     mimeType: 'image/png' | 'image/jpeg' | 'image/webp',
     indexingPrompt: string,
     maxRetries = 2
-  ): Promise<string | null> {
-    const runtimeConfig = loadRuntimeConfig();
-    const litellmModel = runtimeConfig.litellmModel || LITELLM_MODEL_DEFAULT;
-
-    // Choose client: prefer LiteLLM because gpt-5.4 is the best FEN-detection model.
-    // Fall back to VideoDB proxy if no LiteLLM key is available.
-    const client = this.litellmClient ?? this.client;
-    const model = this.litellmClient ? litellmModel : this.config.model;
-    const label = this.litellmClient ? '[LiteLLM]' : '[VideoDB]';
-
+  ): Promise<{ fenBoard: string; perspective: 'white' | 'black' } | null> {
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
@@ -562,14 +557,14 @@ export class LLMService {
 
     let savedPerspective: 'white' | 'black' = 'white';
 
-    log.info({ model, label }, `${label} extractFenFromImage starting`);
+    log.info({ model: this.config.model }, '[VideoDB] extractFenFromImage starting');
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const response = await client.chat.completions.create({
-          model,
-          messages: messages as Parameters<typeof client.chat.completions.create>[0]['messages'],
-          max_tokens: 1024,
+        const response = await this.client.chat.completions.create({
+          model: this.config.model,
+          messages: messages as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
+          max_tokens: 2048,
         });
 
         const rawText = response.choices[0]?.message?.content?.trim() || '';
@@ -578,11 +573,13 @@ export class LLMService {
         const perspectiveMatch = rawText.match(/<perspective>\s*(.*?)\s*<\/perspective>/is);
         if (perspectiveMatch) {
           savedPerspective = perspectiveMatch[1].toLowerCase().includes('black') ? 'black' : 'white';
+        } else {
+          log.warn({ attempt }, '[VideoDB] <perspective> tag missing in response — defaulting to white. Board may be silently flipped if player is Black.');
         }
 
         const rawBoardMatches = [...rawText.matchAll(/<raw_board>\s*(.*?)\s*<\/raw_board>/gis)];
         if (!rawBoardMatches.length) {
-          log.warn({ attempt, label }, `${label} No <raw_board> tag found in response`);
+          log.warn({ attempt }, '[VideoDB] No <raw_board> tag found in response');
           return null;
         }
 
@@ -611,37 +608,37 @@ export class LLMService {
         }
 
         if (!mathError) {
-          // transform_to_fen: reverse for black perspective
+          // transform_to_fen: reverse for black perspective (white-perspective board for engine)
           let fenBoard = rawBoard;
           if (savedPerspective === 'black') {
             const rows = rawBoard.split('/');
             rows.reverse();
             fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
           }
-          log.info({ model, label, fenBoard, attempt }, `${label} FEN extracted successfully`);
-          return fenBoard;
+          log.info({ fenBoard, perspective: savedPerspective, attempt }, '[VideoDB] FEN extracted successfully');
+          return { fenBoard, perspective: savedPerspective };
         }
 
         // Retry with the math error correction message (same as Python)
-        log.warn({ attempt, mathError, label }, `${label} FEN math error, retrying`);
+        log.warn({ attempt, mathError }, '[VideoDB] FEN math error, retrying');
         if (attempt < maxRetries) {
           messages.push({ role: 'assistant', content: rawText });
           messages.push({ role: 'user', content: `Mathematical error: ${mathError} Please correct <raw_board>.` });
         }
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
-        log.error({ attempt, error: errMsg, model, label }, `${label} extractFenFromImage error`);
+        log.error({ attempt, error: errMsg }, '[VideoDB] extractFenFromImage error');
         return null;
       }
     }
 
-    log.warn({ model, label, maxRetries }, `${label} extractFenFromImage failed after ${maxRetries + 1} attempts`);
+    log.warn({ maxRetries }, '[VideoDB] extractFenFromImage failed after all attempts');
     return null;
   }
 
-  /** Whether a LiteLLM client is configured (useful for callers to decide call path). */
+  /** Always true — the VideoDB client is always available. */
   get hasLitellmClient(): boolean {
-    return !!this.litellmClient;
+    return true;
   }
 
   async complete(prompt: string, systemPrompt?: string): Promise<LLMResponse> {

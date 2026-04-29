@@ -47,6 +47,9 @@ export interface WidgetApi {
 
   // Initial state request
   requestInitialState: () => Promise<void>;
+
+  // Report rendered content height to the main process for auto-resize
+  reportContentHeight: (height: number) => void;
 }
 
 const widgetApi: WidgetApi = {
@@ -87,14 +90,18 @@ const widgetApi: WidgetApi = {
     return () => ipcRenderer.removeListener('widget:nudge', listener);
   },
 
-  onFen: (callback: (data: { fen: string; board: string | null; turn: 'w' | 'b' | null }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, data: { fen: string; board: string | null; turn: 'w' | 'b' | null }) => callback(data);
+  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null }) => callback(data);
     ipcRenderer.on('widget:fen', listener);
     return () => ipcRenderer.removeListener('widget:fen', listener);
   },
 
   // Initial state request
   requestInitialState: () => ipcRenderer.invoke('widget:request-initial-state'),
+
+  // Notify the main process of the current rendered content height so it can
+  // resize the BrowserWindow to fit without clipping.
+  reportContentHeight: (height: number) => ipcRenderer.send('widget:content-height', height),
 };
 
 contextBridge.exposeInMainWorld('widgetAPI', widgetApi);

@@ -98,6 +98,7 @@ class LiveAssistService extends EventEmitter {
   private lastChessSignature: string | null = null;
   private lastChessBoard: string | null = null;
   private lastChessTurn: 'w' | 'b' | null = null;
+  private lastChessPerspective: 'white' | 'black' = 'white';
   private pendingChessSignature: string | null = null;
   private pendingChessSignatureCount = 0;
   private isProcessing = false; // guard against concurrent processTranscript calls
@@ -289,6 +290,34 @@ class LiveAssistService extends EventEmitter {
     return rows.map((row) => row.split('').reverse().join('')).join('/');
   }
 
+  /**
+   * Build a FEN string for display on the overlay board.
+   *
+   * The engine always receives a white-perspective FEN.  For the overlay we
+   * want to show the board as the player sees it on screen (i.e. reversed
+   * when they are playing Black).  This method applies the inverse transform:
+   * if the original perspective was black, rotate the board 180° back so it
+   * looks like the captured screenshot.
+   *
+   * @param whitePerspectiveFen - Full FEN in white's perspective (engine FEN)
+   * @param perspective         - Original player perspective from the screenshot
+   */
+  private buildDisplayFen(whitePerspectiveFen: string, perspective: 'white' | 'black'): string {
+    if (perspective === 'white') return whitePerspectiveFen;
+
+    // Split the FEN into board part and the rest (turn, castling, etc.)
+    const spaceIdx = whitePerspectiveFen.indexOf(' ');
+    const boardPart = spaceIdx === -1 ? whitePerspectiveFen : whitePerspectiveFen.slice(0, spaceIdx);
+    const rest = spaceIdx === -1 ? '' : whitePerspectiveFen.slice(spaceIdx);
+
+    // Rotate 180°: reverse rank order AND mirror each rank's files
+    const rows = boardPart.split('/');
+    rows.reverse();
+    const displayBoard = rows.map((row) => row.split('').reverse().join('')).join('/');
+
+    return `${displayBoard}${rest}`;
+  }
+
   private extractFenFromTaggedChessOutput(text: string): string | null {
     const perspectiveMatch = text.match(/<perspective>\s*([\s\S]*?)\s*<\/perspective>/i);
     const rawBoardMatches = [...text.matchAll(/<raw_board>\s*([\s\S]*?)\s*<\/raw_board>/gi)];
@@ -297,6 +326,9 @@ class LiveAssistService extends EventEmitter {
 
     const perspectiveRaw = perspectiveMatch?.[1]?.toLowerCase() || '';
     const perspective: 'white' | 'black' = perspectiveRaw.includes('black') ? 'black' : 'white';
+    if (!perspectiveMatch) {
+      log.warn('[LiveAssist] extractFenFromTaggedChessOutput: <perspective> tag missing — defaulting to white. Board may be silently flipped if player is Black.');
+    }
     const rawBoard = rawBoardMatches[rawBoardMatches.length - 1]?.[1]?.replace(/\s+/g, '') || '';
     if (!rawBoard) return null;
     if (!this.validateBoardMath(rawBoard)) return null;
@@ -722,6 +754,7 @@ class LiveAssistService extends EventEmitter {
     this.lastChessSignature = null;
     this.lastChessBoard = null;
     this.lastChessTurn = null;
+    this.lastChessPerspective = 'white';
     this.isProcessing = false;
     if (this.roundStartClearTimer) {
       clearTimeout(this.roundStartClearTimer);
@@ -758,26 +791,70 @@ class LiveAssistService extends EventEmitter {
     mimeType: 'image/png' | 'image/jpeg' | 'image/webp',
     indexingPrompt: string
   ): Promise<void> {
-    if (!this.isRunning) return;
+    await this.addVisualFrameWithResult(imageBuffer, mimeType, indexingPrompt);
+  }
+
+  /**
+   * Same as addVisualFrame but returns the extracted FEN board string (or null).
+   *
+   * ChessScreenshotService uses the returned value to:
+   *   - detect consecutive null streaks → invalidate board-region cache
+   *   - detect a new FEN → trigger burst confirmation captures
+   */
+  async addVisualFrameWithResult(
+    imageBuffer: Buffer,
+    mimeType: 'image/png' | 'image/jpeg' | 'image/webp',
+    indexingPrompt: string
+  ): Promise<{ fenBoard: string; perspective: 'white' | 'black' } | null> {
+    if (!this.isRunning) return null;
 
     const llm = getLLMService();
-    if (!llm.hasLitellmClient) {
-      // No LiteLLM key — fall back to the VideoDB WebSocket path (addVisualIndex)
-      return;
-    }
 
-    log.debug({ mimeType }, '[LiveAssist] addVisualFrame: extracting FEN via LiteLLM');
+    log.debug({ mimeType }, '[LiveAssist] addVisualFrame: extracting FEN via VideoDB');
 
-    const fenBoard = await llm.extractFenFromImage(imageBuffer, mimeType, indexingPrompt);
-    if (!fenBoard) {
+    const result = await llm.extractFenFromImage(imageBuffer, mimeType, indexingPrompt);
+    if (!result) {
       log.debug('[LiveAssist] addVisualFrame: FEN extraction returned null, skipping');
-      return;
+      return null;
     }
+
+    const { fenBoard, perspective } = result;
 
     // Reconstruct a synthetic tagged text identical to what the VideoDB WebSocket
     // produces so the existing FEN parsing pipeline needs no changes.
+    // The pipeline always works in white's perspective internally.
     const syntheticText = `<perspective>\nwhite\n</perspective>\n\n<raw_board>\n${fenBoard}\n</raw_board>`;
     this.addVisualIndex(syntheticText);
+    return { fenBoard, perspective };
+  }
+
+  /**
+   * Accept a pre-extracted, majority-voted FEN board string and inject it
+   * directly into the visual index buffer as synthetic tagged text.
+   *
+   * Called by ChessScreenshotService after the vote window has produced a
+   * consensus FEN — the LLM extraction step has already happened upstream,
+   * so this method skips it entirely and goes straight to addVisualIndex().
+   *
+   * @param fenBoard    - Board string already normalised to white's perspective
+   * @param perspective - Original perspective detected in the image. Stored so
+   *                      the overlay can display the board as the player sees it.
+   *
+   * Returns true if the FEN was accepted into the buffer, false if the
+   * service is not running or no LiteLLM client is configured.
+   */
+  injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white'): boolean {
+    if (!this.isRunning) return false;
+
+    log.debug({ fenBoard, perspective }, '[LiveAssist] injectConfirmedFen: pushing voted FEN into visual buffer');
+
+    // Store the perspective so we can emit it with the 'fen' event
+    this.lastChessPerspective = perspective;
+
+    // The pipeline always works in white's perspective
+    const syntheticText = `<perspective>\nwhite\n</perspective>\n\n<raw_board>\n${fenBoard}\n</raw_board>`;
+    this.addVisualIndex(syntheticText);
+    return true;
   }
 
   /**
@@ -943,7 +1020,7 @@ class LiveAssistService extends EventEmitter {
       }
 
       this.pendingChessSignatureCount += 1;
-      if (this.pendingChessSignatureCount < 2) {
+      if (this.pendingChessSignatureCount < 1) {
         log.debug(
           { chessSignature, pendingCount: this.pendingChessSignatureCount },
           '[LiveAssist] Waiting for repeated chess FEN before updating'
@@ -955,7 +1032,7 @@ class LiveAssistService extends EventEmitter {
 
     if (this.activeGameId === 'chess' && chessSignature) {
       this.pendingChessSignature = chessSignature;
-      this.pendingChessSignatureCount = Math.max(this.pendingChessSignatureCount, 2);
+      this.pendingChessSignatureCount = Math.max(this.pendingChessSignatureCount, 1);
     }
 
     if (this.activeGameId === 'chess' && chessSignature === this.lastChessSignature) {
@@ -1205,9 +1282,14 @@ class LiveAssistService extends EventEmitter {
           this.lastChessTurn = chessContext?.turn || this.lastChessTurn;
           this.pendingChessSignature = null;
           this.pendingChessSignatureCount = 0;
-          // Emit confirmed FEN so the overlay can render the board for verification
+          // Emit confirmed FEN so the overlay can render the board for verification.
+          // - fen: always white's perspective (used by the chess engine and coaching LLM)
+          // - displayFen: original perspective as the player sees it on screen
+          const whitePerspectiveFen = chessContext?.fen || `${chessSignature} ${this.lastChessTurn || 'w'} - - 0 1`;
+          const displayFen = this.buildDisplayFen(whitePerspectiveFen, this.lastChessPerspective);
           this.emit('fen', {
-            fen: chessContext?.fen || `${chessSignature} ${this.lastChessTurn || 'w'} - - 0 1`,
+            fen: whitePerspectiveFen,
+            displayFen,
             board: this.lastChessBoard,
             turn: this.lastChessTurn,
           });

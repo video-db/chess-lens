@@ -44,7 +44,7 @@ import {
 import { logger } from './lib/logger';
 import { applyVideoDBPatches } from './lib/videodb-patch';
 import { getLockFilePath } from './lib/paths';
-import { createSessionRecoveryService } from './services/session-recovery.service';
+import { createSessionRecoveryService, cleanupStuckRecordingSessions } from './services/session-recovery.service';
 import { createVideoDBService } from './services/videodb.service';
 
 let mainWindow: BrowserWindow | null = null;
@@ -557,6 +557,12 @@ app.whenReady().then(async () => {
         logger.warn({ error: err.message }, 'Failed to start calendar polling on startup');
       });
     }
+
+    // Clean up any sessions left in 'recording' status from a previous crash.
+    // The app just started so no recording can genuinely be in progress.
+    // This runs synchronously before anything else so the history view is
+    // immediately correct on first load.
+    cleanupStuckRecordingSessions();
 
     // Recover any sessions that exported while app was closed (fire and forget)
     recoverPendingSessions().catch(() => {
