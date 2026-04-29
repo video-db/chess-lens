@@ -50,26 +50,24 @@ STEP 3: GENERATE RAW STRING
 Combine the 8 visual rows using the '/' separator and output the raw string inside <raw_board> tags. Do not include anything else.
 
 STEP 4: DETERMINE WHOSE TURN IT IS
-Look for turn indicators in the chess interface. Use the signals below in priority order:
+Use the last-move highlight to determine who just moved, then the OPPOSITE side is to move next.
 
-SIGNAL 1 — LAST MOVE HIGHLIGHT (most reliable, works in live and recorded games):
-On almost every chess platform, the two squares of the last move (origin and destination) are highlighted with a colored overlay (yellow, green, orange, or similar tint).
-The color that just MOVED is the color whose piece sits on the highlighted destination square.
-If a White piece occupies the highlighted destination square → White just moved → it is now BLACK's turn.
-If a Black piece occupies the highlighted destination square → Black just moved → it is now WHITE's turn.
-This signal works in live games, replays, puzzles, and analysis boards.
+HOW TO READ THE HIGHLIGHT:
+On Chess.com (game review, live game, or analysis), the last move is shown by TWO highlighted squares:
+  - The ORIGIN square: where the piece WAS before — this square is highlighted but NOW EMPTY (no piece on it).
+  - The DESTINATION square: where the piece MOVED TO — this square is highlighted and HAS A PIECE on it.
 
-SIGNAL 2 — ACTIVE CLOCK (live games only; ignore if clocks show static or zero values):
-- Chess.com: the active player's clock has a BRIGHT/WHITE background; the waiting player's is DIMMED or GREY.
-- Lichess: the active player's clock has a WHITE/LIGHT background; the inactive has a DARK background.
-- Only use this signal if you can see a clock that is visibly counting down (not static).
-- CRITICAL: the clock's position on screen (top or bottom) reflects board orientation, NOT whose turn it is.
+To determine whose turn it is:
+  1. Find the DESTINATION square (highlighted square that contains a piece).
+  2. Identify whether that piece is White (uppercase: P N B R Q K) or Black (lowercase: p n b r q k).
+  3. If the piece on the destination square is WHITE → White just moved → it is now BLACK's turn → output "black".
+  4. If the piece on the destination square is BLACK → Black just moved → it is now WHITE's turn → output "white".
 
-SIGNAL 3 — "YOUR TURN" / "WAITING" TEXT:
-Some interfaces show text like "Your turn", "Waiting for opponent", or a blinking cursor next to the active side.
+CRITICAL: The origin square is EMPTY. Do not use the empty highlighted square — use only the one that has a piece on it.
 
-Output exactly "white" or "black" inside <turn> tags — the side whose turn it is RIGHT NOW (the side that has NOT yet moved from the highlighted position).
-If none of the above signals are visible or conclusive, omit the <turn> tag entirely.
+If you cannot find any highlighted squares or cannot determine which piece moved, omit the <turn> tag entirely.
+
+Output exactly "white" or "black" inside <turn> tags.
 
 Example format:
 <perspective>
