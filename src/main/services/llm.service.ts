@@ -520,7 +520,7 @@ export class LLMService {
     mimeType: 'image/png' | 'image/jpeg' | 'image/webp',
     indexingPrompt: string,
     maxRetries = 1
-  ): Promise<{ fenBoard: string; perspective: 'white' | 'black' } | null> {
+  ): Promise<{ fenBoard: string; perspective: 'white' | 'black'; reportedTurn: 'w' | 'b' | null } | null> {
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
@@ -540,6 +540,7 @@ export class LLMService {
     ];
 
     let savedPerspective: 'white' | 'black' = 'white';
+    let savedReportedTurn: 'w' | 'b' | null = null;
 
     log.info({ model: RTSTREAM_VISION_MODEL }, '[VideoDB] extractFenFromImage starting');
 
@@ -565,6 +566,15 @@ export class LLMService {
           savedPerspective = perspectiveMatch[1].toLowerCase().includes('black') ? 'black' : 'white';
         } else {
           log.warn({ attempt }, '[VideoDB] <perspective> tag missing in response — defaulting to white. Board may be silently flipped if player is Black.');
+        }
+
+        // Parse optional <turn> tag — whose turn it is according to UI indicators.
+        // Present only when Step 4 of the prompt is included. Null means the LLM
+        // could not determine the turn and the heuristic fallback will be used.
+        const turnMatch = rawText.match(/<turn>\s*(.*?)\s*<\/turn>/is);
+        if (turnMatch) {
+          savedReportedTurn = turnMatch[1].toLowerCase().includes('black') ? 'b' : 'w';
+          log.debug({ reportedTurn: savedReportedTurn, attempt }, '[VideoDB] <turn> tag parsed');
         }
 
         const rawBoardMatches = [...rawText.matchAll(/<raw_board>\s*(.*?)\s*<\/raw_board>/gis)];
@@ -605,8 +615,8 @@ export class LLMService {
             rows.reverse();
             fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
           }
-          log.info({ fenBoard, perspective: savedPerspective, attempt }, '[VideoDB] FEN extracted successfully');
-          return { fenBoard, perspective: savedPerspective };
+          log.info({ fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn, attempt }, '[VideoDB] FEN extracted successfully');
+          return { fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn };
         }
 
         // Retry with the math error correction message (same as Python)

@@ -114,6 +114,9 @@ function saveDebugFrame(opts: {
 interface VoteEntry {
   fenBoard: string;
   perspective: 'white' | 'black';
+  /** Whose turn it is as reported by the LLM from UI indicators. Null when the
+   *  LLM could not determine the turn (no clock/indicator visible). */
+  reportedTurn: 'w' | 'b' | null;
 }
 
 class ChessScreenshotService {
@@ -337,6 +340,7 @@ class ChessScreenshotService {
       {
         rawFen: rawResult.fenBoard,
         rawPerspective: rawResult.perspective,
+        rawReportedTurn: rawResult.reportedTurn,
         votedFen: votedEntry?.fenBoard ?? null,
         bufferSize: this.fenVoteBuffer.length,
         window: FEN_VOTE_WINDOW,
@@ -357,13 +361,13 @@ class ChessScreenshotService {
     }
 
     log.info(
-      { votedFen: votedEntry.fenBoard, perspective: votedEntry.perspective, prevConfirmed: this.lastConfirmedFen },
+      { votedFen: votedEntry.fenBoard, perspective: votedEntry.perspective, reportedTurn: votedEntry.reportedTurn, prevConfirmed: this.lastConfirmedFen },
       '[ChessScreenshot] New majority-voted FEN confirmed — pushing to live-assist'
     );
     this.lastConfirmedFen = votedEntry.fenBoard;
 
     const liveAssist = getLiveAssistService();
-    liveAssist.injectConfirmedFen(votedEntry.fenBoard, votedEntry.perspective);
+    liveAssist.injectConfirmedFen(votedEntry.fenBoard, votedEntry.perspective, votedEntry.reportedTurn);
 
     // ── Step 7: Burst to confirm new position quickly ─────────────────────
     if (!isBurst) {

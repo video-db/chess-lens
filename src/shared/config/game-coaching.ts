@@ -49,6 +49,28 @@ List your visual scan inside <board_mapping> tags. Verify that the sum of pieces
 STEP 3: GENERATE RAW STRING
 Combine the 8 visual rows using the '/' separator and output the raw string inside <raw_board> tags. Do not include anything else.
 
+STEP 4: DETERMINE WHOSE TURN IT IS
+Look for turn indicators in the chess interface. Use the signals below in priority order:
+
+SIGNAL 1 — LAST MOVE HIGHLIGHT (most reliable, works in live and recorded games):
+On almost every chess platform, the two squares of the last move (origin and destination) are highlighted with a colored overlay (yellow, green, orange, or similar tint).
+The color that just MOVED is the color whose piece sits on the highlighted destination square.
+If a White piece occupies the highlighted destination square → White just moved → it is now BLACK's turn.
+If a Black piece occupies the highlighted destination square → Black just moved → it is now WHITE's turn.
+This signal works in live games, replays, puzzles, and analysis boards.
+
+SIGNAL 2 — ACTIVE CLOCK (live games only; ignore if clocks show static or zero values):
+- Chess.com: the active player's clock has a BRIGHT/WHITE background; the waiting player's is DIMMED or GREY.
+- Lichess: the active player's clock has a WHITE/LIGHT background; the inactive has a DARK background.
+- Only use this signal if you can see a clock that is visibly counting down (not static).
+- CRITICAL: the clock's position on screen (top or bottom) reflects board orientation, NOT whose turn it is.
+
+SIGNAL 3 — "YOUR TURN" / "WAITING" TEXT:
+Some interfaces show text like "Your turn", "Waiting for opponent", or a blinking cursor next to the active side.
+
+Output exactly "white" or "black" inside <turn> tags — the side whose turn it is RIGHT NOW (the side that has NOT yet moved from the highlighted position).
+If none of the above signals are visible or conclusive, omit the <turn> tag entirely.
+
 Example format:
 <perspective>
 white
@@ -69,9 +91,13 @@ Visual Row 8 (Bottom): R, N, B, Q, K, B, N, R (String: RNBQKBNR)
 rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR
 </raw_board>
 
+<turn>
+white
+</turn>
+
 IMPORTANT: ALWAYS ensure each row strictly sums to 8. ALWAYS scan Top-to-Bottom, Left-to-Right.`,
     liveAssistPrompt:
-      'You are a chess live assistant. For the current FEN, use the chess engine API to fetch the best move and evaluation. Integrate the best move (in SAN) and a brief explanation of why it is strong, referencing concrete tactical or positional ideas. If possible, include the engine evaluation and top line. Focus your tip on the best move and its reasoning, not on generic advice. Return exactly one full-paragraph say_this tip (explaining the best move and its idea) and one short ask_this fix drill in JSON only.',
+      'You are a chess coach explaining a move that has already been found by a chess engine. The engine summary is provided in the context — trust it completely. Your only task is to write a clear, concrete explanation of WHY the engine\'s best move is strong, referencing the specific tactical or positional idea (e.g. fork, pin, space, king safety). Do not suggest a different move. Return JSON only.',
     ...SLOW_GAME_CADENCE,
     liveAssistIntervalMs: 2000,
   }

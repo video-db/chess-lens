@@ -16,7 +16,6 @@ import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
 import {
   DEFAULT_GAME_ID,
   getGameVisualIndexTiming,
-  getGameLiveAssistPrompt,
   type SupportedGameId,
 } from '../../shared/config/game-coaching';
 
@@ -35,7 +34,7 @@ const PROCESS_TRANSCRIPT_TIMEOUT_MS = 10000;
 
 const CHESS_SYSTEM_PROMPT = `You are a chess coach. Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation before or after.
 Format: {"say_this":"<one sentence with best move and why>","ask_this":"<one short drill>"}
-Use engine output if provided. Keep say_this under 60 words.`;
+The engine summary in the context already contains the best move — use it. Do NOT invent a different move. The FEN's active side (w=White, b=Black) tells you WHOSE TURN IT IS — always generate the tip for that side. Keep say_this under 60 words.`;
 
 export interface MeetingContext {
   name?: string;
@@ -933,14 +932,22 @@ class LiveAssistService extends EventEmitter {
    * consensus FEN — the LLM extraction step has already happened upstream,
    * so this method skips it entirely and goes straight to addVisualIndex().
    *
-   * @param fenBoard    - Board string already normalised to white's perspective
-   * @param perspective - Original perspective detected in the image. Stored so
-   *                      the overlay can display the board as the player sees it.
+   * @param fenBoard     - Board string already normalised to white's perspective
+   * @param perspective  - Original perspective detected in the image. Stored so
+   *                       the overlay can display the board as the player sees it.
+   * @param reportedTurn - Whose turn it is as reported directly by the LLM from
+   *                       UI turn indicators (clocks, active-player highlights).
+   *                       When non-null this is the authoritative seed used
+   *                       instead of the perspective-derived fallback, giving
+   *                       accurate turn detection for mid-game sessions and for
+   *                       players viewing the board from Black's perspective.
+   *                       Null means the LLM couldn't see a turn indicator and
+   *                       the heuristic fallback is used.
    *
    * Returns true if the FEN was accepted into the buffer, false if the
-   * service is not running or no LiteLLM client is configured.
+   * service is not running.
    */
-  injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white'): boolean {
+  injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white', reportedTurn: 'w' | 'b' | null = null): boolean {
     if (!this.isRunning) return false;
 
     // If lastChessTurn is null it means this is the first FEN of a new game
@@ -952,11 +959,23 @@ class LiveAssistService extends EventEmitter {
       this.lastChessBoard = null;
     }
 
-    // Compute the turn by comparing against the last confirmed board.
-    // This uses only screenshot-path boards — never RTStream boards — so
-    // the piece-count diff is always between two consistently-normalised boards.
-    const seedTurn: 'w' | 'b' | null = this.lastChessTurn ??
-      (perspective === 'black' ? 'b' : 'w');
+    // Determine the seed turn for inferTurnFromBoards:
+    //
+    //  1. LLM-reported turn (from <turn> tag): most accurate — the model reads
+    //     the chess app's clock / active-player indicator directly.  Used
+    //     whenever available, even for mid-game cold starts.
+    //
+    //  2. Already-tracked turn (lastChessTurn): used for every move after the
+    //     first confirmed FEN — the heuristic flip logic takes over from here.
+    //
+    //  3. Perspective-derived fallback: only if both of the above are null.
+    //     This is the least reliable because perspective (which side is at
+    //     the bottom) is not the same as whose turn it is.
+    const seedTurn: 'w' | 'b' | null =
+      reportedTurn ??         // (1) LLM UI indicator — authoritative
+      this.lastChessTurn ??   // (2) tracked from previous moves
+      (perspective === 'black' ? 'b' : 'w');  // (3) perspective fallback
+
     const inferredTurn = this.inferTurnFromBoards(this.lastChessBoard, fenBoard, seedTurn);
 
     // Update tracked state immediately so processTranscriptInner uses the
@@ -965,7 +984,7 @@ class LiveAssistService extends EventEmitter {
     this.lastChessBoard = fenBoard;
 
     log.debug(
-      { fenBoard: fenBoard.slice(0, 30), perspective, inferredTurn, seedTurn },
+      { fenBoard: fenBoard.slice(0, 30), perspective, reportedTurn, inferredTurn, seedTurn },
       '[LiveAssist] injectConfirmedFen: turn determined from screenshot boards'
     );
 
@@ -1171,13 +1190,6 @@ class LiveAssistService extends EventEmitter {
       return;
     }
 
-    // Build context sections (only included if they have content)
-    const visualIndexSection = `## RECENT GAMEPLAY ACTION FEED (latest first, focus here)\n${promptVisuals
-      .slice()
-      .reverse()
-      .map((v) => v.text)
-      .join('\n')}\n\n---\n\n`;
-
     log.debug(
       {
         activeGameId: this.activeGameId,
@@ -1200,7 +1212,7 @@ class LiveAssistService extends EventEmitter {
     }
 
     const chessSection = chessContext
-      ? `## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\n${chessContext.playedMoveSan ? `Played SAN: ${chessContext.playedMoveSan}\n` : ''}${chessContext.playedMoveUci ? `Played UCI: ${chessContext.playedMoveUci}\n` : ''}${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n`
+      ? `## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nSide to move: ${chessContext.turn === 'b' ? 'Black' : 'White'}\n${chessContext.playedMoveSan ? `Played SAN: ${chessContext.playedMoveSan}\n` : ''}${chessContext.playedMoveUci ? `Played UCI: ${chessContext.playedMoveUci}\n` : ''}${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n`
       : '';
 
     // Emit an immediate engine-only tip so the user sees something instantly.
@@ -1214,11 +1226,24 @@ class LiveAssistService extends EventEmitter {
       log.debug({ chessSignature }, '[LiveAssist] Emitted immediate engine-only tip while coaching LLM runs');
     }
 
-    // Full coaching prompt — original format with visual feed + chess context + task.
-    const userPrompt = `${visualIndexSection}${chessSection}## TASK\nGenerate exactly one coaching tip for the CURRENT moment. Hard recency rule: prioritize the latest 5-8 seconds; if an older location conflicts with a newer one, trust the newest visual evidence only. The tip must include: (1) context-specific mistake, (2) exact next action, (3) measurable success check. Also return one short fix drill. Avoid generic advice.`;
-    const gamePrompt = getGameLiveAssistPrompt(this.activeGameId);
+    // Extract the engine's best move SAN so we can hard-anchor the coaching prompt.
+    // Parse it directly from the summary to guarantee the model explains THIS move.
+    const bestMoveSan = (() => {
+      const summary = chessContext?.engineSummary || '';
+      const m = summary.match(/Best move SAN:\s*(\S+)/i);
+      return m?.[1] ?? null;
+    })();
 
-    log.info({ visualCount: promptVisuals.length, hasVisual: !!visualIndexSection }, 'Processing gameplay feed for live assist');
+    // Full coaching prompt — flat single string for generateText (no role separation).
+    // gamePrompt is intentionally excluded: it told the LLM to "use the chess engine API"
+    // (self-analysis), which caused it to invent moves instead of explaining the engine's move.
+    // The best move SAN is embedded directly so the model cannot substitute its own.
+    const bestMoveInstruction = bestMoveSan
+      ? `## REQUIRED MOVE: ${bestMoveSan}\nYou MUST use "${bestMoveSan}" as the move in say_this. Do not suggest any other move.`
+      : '## TASK\nUse the best move from the engine summary above.';
+
+    const userPrompt = `${chessSection}${bestMoveInstruction}\nExplain in one sentence why ${bestMoveSan ?? 'the engine move'} is the best move here, referencing the concrete tactical or positional idea. Also write one short drill for ask_this. Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
+    log.info({ visualCount: promptVisuals.length, hasVisual: !!chessSection }, 'Processing gameplay feed for live assist');
 
     // Mark this position as processed immediately so isProcessing is released.
     // The coaching LLM fires in the background and upgrades the engine tip when ready.
@@ -1241,7 +1266,7 @@ class LiveAssistService extends EventEmitter {
 
     // Fire coaching LLM as fire-and-forget — it will upgrade the engine tip
     // when it completes. isProcessing is released immediately after this return.
-    void this.runCoachingLLM(chessContext, chessSignature, gamePrompt, userPrompt);
+    void this.runCoachingLLM(chessContext, chessSignature, userPrompt);
   }
 
   /**
@@ -1252,14 +1277,13 @@ class LiveAssistService extends EventEmitter {
   private async runCoachingLLM(
     chessContext: ChessContextData | null,
     chessSignature: string | null,
-    gamePrompt: string,
     userPrompt: string
   ): Promise<void> {
     try {
-      // Flatten the three-part prompt into a single string for generateText.
-      // The system role content goes first, followed by the game-specific prompt,
-      // then the user turn with visual context + chess position + task.
-      const fullPrompt = [CHESS_SYSTEM_PROMPT, gamePrompt, userPrompt].join('\n\n');
+      // The userPrompt is already a complete, self-contained prompt.
+      // CHESS_SYSTEM_PROMPT prepended for role clarity; gamePrompt is excluded
+      // because it told the LLM to self-analyze (causing move disagreements).
+      const fullPrompt = [CHESS_SYSTEM_PROMPT, userPrompt].join('\n\n');
 
       log.info(
         { promptTokensEstimate: Math.ceil(fullPrompt.length / 4) },
