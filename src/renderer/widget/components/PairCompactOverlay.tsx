@@ -566,7 +566,8 @@ export function PairCompactOverlay({
               <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}>
                 {chessParagraphText || chessEngineText || chessDrillText || chessWaitingText || null}
               </div>
-              {chessEngineText && (
+              {/* Only show engine line separately when there is also a coaching paragraph */}
+              {chessParagraphText && chessEngineText && (
                 <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 4, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                   {chessEngineText}
                 </div>

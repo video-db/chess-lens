@@ -27,10 +27,11 @@ const TIP_REPLACE_COOLDOWN_MS = 5000;
 const VISUAL_DUPLICATE_WINDOW_MS = 900;
 /**
  * Hard ceiling on a single processTranscriptInner() execution.
- * Set to 40s — above the coaching LLM's own 30s timeout so the inner call
- * can either complete or time out naturally before the safety net fires.
+ * The coaching LLM is now fire-and-forget so this only needs to cover
+ * the engine API call (~2s) plus the immediate emit path.
+ * Set to 10s — if processTranscriptInner itself hangs, release the lock.
  */
-const PROCESS_TRANSCRIPT_TIMEOUT_MS = 40000;
+const PROCESS_TRANSCRIPT_TIMEOUT_MS = 10000;
 
 const CHESS_SYSTEM_PROMPT = `You are a chess coach. Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation before or after.
 Format: {"say_this":"<one sentence with best move and why>","ask_this":"<one short drill>"}
@@ -706,6 +707,45 @@ class LiveAssistService extends EventEmitter {
     };
   }
 
+  /**
+   * Format engine analysis as a readable coaching sentence for the overlay.
+   * Extracts the best move (SAN), evaluation, and side to move to produce
+   * a clear one-line tip instead of a raw engine dump.
+   */
+  private formatEngineAsTip(ctx: ChessContextData): string {
+    const summary = ctx.engineSummary || '';
+    const turn = ctx.turn === 'b' ? 'Black' : 'White';
+
+    // Extract SAN from the summary text (e.g. "Best move SAN: Nf6")
+    const sanMatch = summary.match(/Best move SAN:\s*(\S+)/i);
+    const san = sanMatch?.[1] ?? null;
+
+    // Extract evaluation (e.g. "Eval: -0.33" or "Mate: -3")
+    const mateMatch = summary.match(/Mate:\s*(-?\d+)/i);
+    const evalMatch = summary.match(/Eval:\s*(-?[\d.]+)/i);
+
+    let evalStr = '';
+    if (mateMatch) {
+      const m = parseInt(mateMatch[1], 10);
+      evalStr = m < 0
+        ? `Mate in ${Math.abs(m)} for ${turn === 'White' ? 'Black' : 'White'}`
+        : `Mate in ${m} for ${turn}`;
+    } else if (evalMatch) {
+      const e = parseFloat(evalMatch[1]);
+      const adv = Math.abs(e) < 0.3 ? 'equal' : e > 0 ? 'White is better' : 'Black is better';
+      evalStr = `${adv} (${e > 0 ? '+' : ''}${e.toFixed(2)})`;
+    }
+
+    if (san) {
+      const parts = [`${turn} to move: play ${san}`];
+      if (evalStr) parts.push(evalStr);
+      return parts.join(' — ');
+    }
+
+    // No SAN available — fall back to a cleaned summary
+    return this.sanitizeInsightText(summary).split('\n')[0].slice(0, 200);
+  }
+
   private stripNonActionableVisualText(text: string): string {
     const parts = text
       .split(/\|\|\||\n+/)
@@ -1163,11 +1203,9 @@ class LiveAssistService extends EventEmitter {
       ? `## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\n${chessContext.playedMoveSan ? `Played SAN: ${chessContext.playedMoveSan}\n` : ''}${chessContext.playedMoveUci ? `Played UCI: ${chessContext.playedMoveUci}\n` : ''}${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n`
       : '';
 
-    // Emit an immediate engine-only tip so the user sees something while the
-    // coaching LLM runs (pro can take 20–30s). If the coaching call succeeds,
-    // it will replace this tip; if it fails/times out, the engine tip stays.
+    // Emit an immediate engine-only tip so the user sees something instantly.
     if (this.activeGameId === 'chess' && chessContext?.engineSummary) {
-      const engineFallback = `Engine: ${this.sanitizeInsightText(chessContext.engineSummary).slice(0, 320)}`;
+      const engineFallback = this.formatEngineAsTip(chessContext);
       this.emit('insights', {
         insights: { say_this: [engineFallback], ask_this: [] },
         processedAt: Date.now(),
@@ -1176,260 +1214,207 @@ class LiveAssistService extends EventEmitter {
       log.debug({ chessSignature }, '[LiveAssist] Emitted immediate engine-only tip while coaching LLM runs');
     }
 
+    // Full coaching prompt — original format with visual feed + chess context + task.
     const userPrompt = `${visualIndexSection}${chessSection}## TASK\nGenerate exactly one coaching tip for the CURRENT moment. Hard recency rule: prioritize the latest 5-8 seconds; if an older location conflicts with a newer one, trust the newest visual evidence only. The tip must include: (1) context-specific mistake, (2) exact next action, (3) measurable success check. Also return one short fix drill. Avoid generic advice.`;
-  const gamePrompt = getGameLiveAssistPrompt(this.activeGameId);
+    const gamePrompt = getGameLiveAssistPrompt(this.activeGameId);
 
     log.info({ visualCount: promptVisuals.length, hasVisual: !!visualIndexSection }, 'Processing gameplay feed for live assist');
 
-    try {
-      const systemPrompt = CHESS_SYSTEM_PROMPT;
+    // Mark this position as processed immediately so isProcessing is released.
+    // The coaching LLM fires in the background and upgrades the engine tip when ready.
+    if (this.activeGameId === 'chess' && chessSignature) {
+      this.lastChessSignature = chessSignature;
+      this.lastChessBoard = chessContext?.board || chessSignature;
+      this.lastChessTurn = chessContext?.turn || this.lastChessTurn;
+      this.pendingChessSignature = null;
+      this.pendingChessSignatureCount = 0;
+      const whitePerspFen = chessContext?.fen || `${chessSignature} ${this.lastChessTurn || 'w'} - - 0 1`;
+      const dFen = this.buildDisplayFen(whitePerspFen, this.lastChessPerspective);
+      this.emit('fen', {
+        fen: whitePerspFen,
+        displayFen: dFen,
+        board: this.lastChessBoard,
+        turn: this.lastChessTurn,
+      });
+    }
+    this.lastProcessedTimestamp = now;
 
-      // Combine system + game + user prompts into a single prompt string since
-      // generateText is a one-shot call (no chat message structure).
-      const fullPrompt = `${systemPrompt}\n\n${gamePrompt}\n\n${userPrompt}`;
+    // Fire coaching LLM as fire-and-forget — it will upgrade the engine tip
+    // when it completes. isProcessing is released immediately after this return.
+    void this.runCoachingLLM(chessContext, chessSignature, gamePrompt, userPrompt);
+  }
+
+  /**
+   * Fire-and-forget coaching LLM call.
+   * Runs after isProcessing has been released so new moves are never blocked.
+   * Upgrades the engine-only tip with a full coaching explanation when it resolves.
+   */
+  private async runCoachingLLM(
+    chessContext: ChessContextData | null,
+    chessSignature: string | null,
+    gamePrompt: string,
+    userPrompt: string
+  ): Promise<void> {
+    try {
+      // Flatten the three-part prompt into a single string for generateText.
+      // The system role content goes first, followed by the game-specific prompt,
+      // then the user turn with visual context + chess position + task.
+      const fullPrompt = [CHESS_SYSTEM_PROMPT, gamePrompt, userPrompt].join('\n\n');
 
       log.info(
-        { promptLength: fullPrompt.length },
-        '[LiveAssist] Requesting coaching tip via VideoDB generateText (pro, json)',
+        { promptTokensEstimate: Math.ceil(fullPrompt.length / 4) },
+        '[LiveAssist] Requesting coaching tip via VideoDB generateText (pro, json) [background]',
       );
 
       const videodb = getVideoDBServiceFromConfig();
       if (!videodb) {
-        log.warn('No VideoDB service available (no API key) — skipping coaching tip');
-        this.lastProcessedTimestamp = now;
+        log.warn('[LiveAssist] No VideoDB service available — skipping coaching LLM');
         return;
       }
 
-      // generateText with responseType='json' asks the model to return valid JSON.
-      // Returns the raw text/JSON string which we parse below.
-      const rawText = await videodb.generateCoachingText(fullPrompt, 'pro', 'json', 30000);
+      // generateCoachingText uses collection.generateText() which handles async
+      // polling via the SDK — no OpenAI-client 12s timeout applies here.
+      // 45s is generous but keeps the user experience snappy on stale positions.
+      const rawText = await videodb.generateCoachingText(fullPrompt, 'pro', 'json', 45000);
 
-      this.lastProcessedTimestamp = now;
+      // Discard if position has moved on
+      if (chessSignature && chessSignature !== this.lastChessSignature) {
+        log.debug({ chessSignature }, '[LiveAssist] Coaching response stale — position changed, discarding');
+        return;
+      }
 
-      // Parse the JSON response. Strip any markdown fences defensively.
       const parseCoachingJson = (text: string | null): LiveInsights | null => {
         if (!text) return null;
         let s = text.trim();
         const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (fenceMatch) {
-          s = fenceMatch[1].trim();
-        } else {
-          s = s.replace(/^```(?:json)?\s*/i, '').trim();
-        }
-        const jsonStart = s.indexOf('{');
-        const jsonEnd   = s.lastIndexOf('}');
-        if (jsonStart !== -1 && jsonEnd > jsonStart) {
-          s = s.slice(jsonStart, jsonEnd + 1);
-        }
+        if (fenceMatch) s = fenceMatch[1].trim();
+        else s = s.replace(/^```(?:json)?\s*/i, '').trim();
+        const j0 = s.indexOf('{'), j1 = s.lastIndexOf('}');
+        if (j0 !== -1 && j1 > j0) s = s.slice(j0, j1 + 1);
         try {
-          return JSON.parse(s) as LiveInsights;
-        } catch (err) {
-          log.warn({ error: err, preview: s.slice(0, 200) }, '[LiveAssist] Failed to parse coaching JSON');
-          return null;
+          const raw = JSON.parse(s) as Record<string, unknown>;
+          // The VideoDB SDK converts snake_case response keys to camelCase
+          // (sayThis, askThis) but LiveInsights expects snake_case (say_this,
+          // ask_this). Accept both forms so the tip is never silently dropped.
+          return {
+            say_this: (raw.say_this ?? raw.sayThis ?? []) as string[],
+            ask_this: (raw.ask_this ?? raw.askThis ?? []) as string[],
+          } as LiveInsights;
         }
+        catch { return null; }
       };
 
-      const parsed = parseCoachingJson(rawText);
+      const parsed: LiveInsights | null = parseCoachingJson(rawText);
 
       log.debug(
         {
           hasData: !!parsed,
-          rawLength: rawText?.length ?? 0,
-          dataPreview: parsed
-            ? {
-                say_this: String(parsed.say_this ?? '').slice(0, 80),
-                ask_this: String(parsed.ask_this ?? '').slice(0, 80),
-              }
-            : null,
+          rawPreview: (rawText ?? '').slice(0, 300),
+          say_this: String(parsed?.say_this ?? '').slice(0, 80),
         },
-        'Live assist coaching response received',
+        '[LiveAssist] Background coaching response received',
       );
 
       if (!parsed) {
-        if (this.activeGameId === 'chess' && chessContext?.engineSummary) {
-          const engineFallback = `Engine: ${this.sanitizeInsightText(chessContext.engineSummary).slice(0, 320)}`;
-          this.emit('insights', {
-            insights: { say_this: [engineFallback], ask_this: [] },
-            processedAt: Date.now(),
-            clearExisting: true,
-          });
-        }
-        log.warn('Failed to parse coaching response — emitted engine fallback');
+        log.warn('[LiveAssist] Coaching response null — keeping engine fallback');
         return;
       }
 
-      const { say_this, ask_this } = parsed;
-      log.debug({ say_this, ask_this }, 'Insights generated for this chunk');
+      const sayValue = String(parsed.say_this ?? '');
+      if (sayValue.trim().length <= 10) {
+        log.warn('[LiveAssist] Coaching response empty/short — keeping engine fallback');
+        return;
+      }
 
       const normalizeInsights = (value: unknown): string[] => {
         if (!value) return [];
-        if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+        if (Array.isArray(value)) return (value as unknown[]).filter((i): i is string => typeof i === 'string');
         if (typeof value === 'string') return [value];
         return [];
       };
 
-      const sayThisList = normalizeInsights(say_this);
-      const askThisList = normalizeInsights(ask_this);
-
-      // Filter out duplicates from previous rounds
-      const newSayThis = sayThisList
+      const sayThisList = normalizeInsights(parsed.say_this)
         .map(item => this.sanitizeInsightText(item))
         .filter(Boolean)
         .filter(item => !this.previousSayThis.has(item.toLowerCase()))
-        .sort((a, b) => this.rankInsightPriority(b) - this.rankInsightPriority(a))
         .slice(0, 3);
-
-      const newAskThis = askThisList
+      const askThisList = normalizeInsights(parsed.ask_this)
         .map(item => this.sanitizeInsightText(item))
         .filter(Boolean)
         .filter(item => !this.previousAskThis.has(item.toLowerCase()))
-        .sort((a, b) => this.rankInsightPriority(b) - this.rankInsightPriority(a))
         .slice(0, 3);
-
-      // Chess uses detailed tips; pass through without shooter-oriented compression.
-      const contextAdjusted = { sayThis: newSayThis, askThis: newAskThis, clearExisting: false };
 
       let finalSayThis: string[] = [];
       let finalAskThis: string[] = [];
 
-      if (this.activeGameId === 'chess') {
-        // Preserve the LLM paragraph tip (3-5 sentences) for the overlay.
-        const paragraph =
-          contextAdjusted.sayThis.map((item) => this.sanitizeInsightText(item)).find(Boolean) ||
-          '';
-        const maxParagraphChars = 1000;
-        const trimmedParagraph = paragraph.length > maxParagraphChars
-          ? paragraph.slice(0, maxParagraphChars).trim()
-          : paragraph;
-        if (trimmedParagraph) {
-          // Guard: sometimes the LLM returns the raw FEN or board text instead of
-          // the requested analysis paragraph. Detect and ignore those so the
-          // overlay shows analysis (or engine fallback) rather than the board.
-          const looksLikeFullFen = /[prnbqkPRNBQK1-8\/]+\s+[wb]\s+(?:-|[KQkq]{1,4})\s+(?:-|[a-h][36])\s+\d+\s+\d+/.test(trimmedParagraph);
-          const looksLikeBoardOnly = /^[prnbqkPRNBQK1-8]+(?:\/[prnbqkPRNBQK1-8]+){7}$/.test(trimmedParagraph);
-          if (!looksLikeFullFen && !looksLikeBoardOnly) {
-            finalSayThis.push(trimmedParagraph);
-          } else {
-            log.debug({ trimmedParagraph }, '[LiveAssist] Discarding paragraph that looks like FEN/board-only');
-          }
-        }
-
-        // Add a compact engine snippet (best move + eval/top line) when available.
-        const engineCompact = (() => {
-          const raw = chessContext?.engineSummary || '';
-          if (!raw) return '';
-          const lines = raw
-            .split('\n')
-            .map((l) => this.sanitizeInsightText(l))
-            .filter(Boolean);
-
-          const pick = (prefix: string): string =>
-            lines.find((l) => l.toLowerCase().startsWith(prefix)) || '';
-
-          const best = pick('best move') || pick('best');
-          const evalLine = pick('eval') || pick('mate');
-          const top = pick('top lines') || pick('top');
-          const parts = [best, evalLine, top].filter(Boolean);
-          const combined = (parts.length > 0 ? parts.join(' | ') : lines.slice(0, 2).join(' | ')).trim();
-          return combined.length > 220 ? combined.slice(0, 220).trim() : combined;
-        })();
-        if (engineCompact) {
-          finalSayThis.push(`Engine: ${engineCompact}`);
-        }
-
-        // Keep the drill short and clearly labeled.
-        const drill =
-          contextAdjusted.askThis.map((item) => this.sanitizeInsightText(item)).find(Boolean) ||
-          '';
-        if (drill) {
-          const maxDrillChars = 160;
-          const trimmedDrill = drill.length > maxDrillChars ? drill.slice(0, maxDrillChars).trim() : drill;
-          finalAskThis.push(/^drill:/i.test(trimmedDrill) ? trimmedDrill : `Drill: ${trimmedDrill}`);
+      // Build the full coaching output — paragraph tip + engine line + drill
+      const paragraph = sayThisList.find(Boolean) || '';
+      const maxParagraphChars = 1000;
+      const trimmedParagraph = paragraph.length > maxParagraphChars
+        ? paragraph.slice(0, maxParagraphChars).trim() : paragraph;
+      if (trimmedParagraph) {
+        const looksLikeFullFen = /[prnbqkPRNBQK1-8\/]+\s+[wb]\s+(?:-|[KQkq]{1,4})\s+(?:-|[a-h][36])\s+\d+\s+\d+/.test(trimmedParagraph);
+        const looksLikeBoardOnly = /^[prnbqkPRNBQK1-8]+(?:\/[prnbqkPRNBQK1-8]+){7}$/.test(trimmedParagraph);
+        if (!looksLikeFullFen && !looksLikeBoardOnly) {
+          finalSayThis.push(trimmedParagraph);
         }
       }
 
-      // Do not emit empty updates (prevents flicker/brief clears).
-      if (finalSayThis.length === 0 && finalAskThis.length === 0) {
-        return;
+      // Compact engine snippet
+      const engineCompact = (() => {
+        const raw = chessContext?.engineSummary || '';
+        if (!raw) return '';
+        const lines = raw.split('\n').map(l => this.sanitizeInsightText(l)).filter(Boolean);
+        const pick = (prefix: string) => lines.find(l => l.toLowerCase().startsWith(prefix)) || '';
+        const best = pick('best move') || pick('best');
+        const evalLine = pick('eval') || pick('mate');
+        const top = pick('top lines') || pick('top');
+        const parts = [best, evalLine, top].filter(Boolean);
+        const combined = (parts.length > 0 ? parts.join(' | ') : lines.slice(0, 2).join(' | ')).trim();
+        return combined.length > 220 ? combined.slice(0, 220).trim() : combined;
+      })();
+      if (engineCompact) finalSayThis.push(`Engine: ${engineCompact}`);
+
+      const drill = askThisList.find(Boolean) || '';
+      if (drill) {
+        const trimmedDrill = drill.length > 160 ? drill.slice(0, 160).trim() : drill;
+        finalAskThis.push(/^drill:/i.test(trimmedDrill) ? trimmedDrill : `Drill: ${trimmedDrill}`);
       }
 
-      // Keep a tip on-screen long enough before replacing with a new one.
+      if (finalSayThis.length === 0 && finalAskThis.length === 0) return;
+
+      // Cooldown check — don't replace a fresh tip
       const nowMs = Date.now();
       const nextTipNormalized = finalSayThis[0]?.toLowerCase().trim() || null;
       const isSameTip = !!nextTipNormalized && nextTipNormalized === this.currentVisibleTip;
       const nextInstructionSignature = this.getInstructionSignature(finalSayThis, finalAskThis);
       const isSameInstruction = !!nextInstructionSignature && nextInstructionSignature === this.lastInstructionSignature;
       const withinReplaceCooldown = this.roundTipVisible && (nowMs - this.lastTipShownAt) < TIP_REPLACE_COOLDOWN_MS;
-      if (isSameTip || isSameInstruction) {
-        log.debug('Skipping identical tip refresh');
-        return;
-      }
-      if (withinReplaceCooldown && !isSameTip && !isSameInstruction) {
-        log.debug({ nextTip: finalSayThis[0] }, 'Skipping tip replacement during cooldown');
-        return;
-      }
+      if (isSameTip || isSameInstruction) { log.debug('Skipping identical tip refresh'); return; }
+      if (withinReplaceCooldown) { log.debug('Skipping tip replacement during cooldown'); return; }
 
-      const shouldClearExisting = true;
-
-      // Track these to avoid repetition
+      // Track to avoid repetition
       finalSayThis.forEach(item => this.previousSayThis.add(item.toLowerCase()));
       finalAskThis.forEach(item => this.previousAskThis.add(item.toLowerCase()));
+      if (this.previousSayThis.size > 20) this.previousSayThis = new Set(Array.from(this.previousSayThis).slice(-20));
+      if (this.previousAskThis.size > 20) this.previousAskThis = new Set(Array.from(this.previousAskThis).slice(-20));
 
-      // Keep previous sets manageable (last 20 each)
-      if (this.previousSayThis.size > 20) {
-        const arr = Array.from(this.previousSayThis);
-        this.previousSayThis = new Set(arr.slice(-20));
-      }
-      if (this.previousAskThis.size > 20) {
-        const arr = Array.from(this.previousAskThis);
-        this.previousAskThis = new Set(arr.slice(-20));
-      }
+      log.info({ sayCount: finalSayThis.length, askCount: finalAskThis.length }, '[LiveAssist] Coaching tip ready — upgrading engine fallback');
 
-      if (finalSayThis.length > 0 || finalAskThis.length > 0 || shouldClearExisting) {
-        log.info({ sayCount: finalSayThis.length, askCount: finalAskThis.length, clearExisting: shouldClearExisting }, 'Generated new live insights');
-        if (this.activeGameId === 'chess' && chessSignature) {
-          this.lastChessSignature = chessSignature;
-          this.lastChessBoard = chessContext?.board || chessSignature;
-          this.lastChessTurn = chessContext?.turn || this.lastChessTurn;
-          this.pendingChessSignature = null;
-          this.pendingChessSignatureCount = 0;
-          // Emit confirmed FEN so the overlay can render the board for verification.
-          // - fen: always white's perspective (used by the chess engine and coaching LLM)
-          // - displayFen: original perspective as the player sees it on screen
-          const whitePerspectiveFen = chessContext?.fen || `${chessSignature} ${this.lastChessTurn || 'w'} - - 0 1`;
-          const displayFen = this.buildDisplayFen(whitePerspectiveFen, this.lastChessPerspective);
-          this.emit('fen', {
-            fen: whitePerspectiveFen,
-            displayFen,
-            board: this.lastChessBoard,
-            turn: this.lastChessTurn,
-          });
-        }
-        this.emit('insights', {
-          insights: { say_this: finalSayThis, ask_this: finalAskThis },
-          processedAt: Date.now(),
-          clearExisting: shouldClearExisting,
-        });
-        this.roundTipVisible = finalSayThis.length > 0;
-        this.roundTipAutoClearAt = this.roundTipVisible ? Date.now() + TIP_VISIBLE_MS : null;
-        this.currentVisibleTip = finalSayThis[0]?.toLowerCase().trim() || null;
-        this.lastInstructionSignature = nextInstructionSignature || null;
-        this.lastTipShownAt = Date.now();
-        this.pendingRoundEndAt = null;
-      }
+      this.emit('insights', {
+        insights: { say_this: finalSayThis, ask_this: finalAskThis },
+        processedAt: Date.now(),
+        clearExisting: true,
+      });
+      this.roundTipVisible = finalSayThis.length > 0;
+      this.roundTipAutoClearAt = this.roundTipVisible ? Date.now() + TIP_VISIBLE_MS : null;
+      this.currentVisibleTip = finalSayThis[0]?.toLowerCase().trim() || null;
+      this.lastInstructionSignature = nextInstructionSignature || null;
+      this.lastTipShownAt = Date.now();
+      this.pendingRoundEndAt = null;
+
     } catch (error) {
-      // Fallback: if LLM timed out, still emit engine-only tip for chess
-      if (this.activeGameId === 'chess' && chessContext?.engineSummary) {
-        const engineFallback = `Engine: ${this.sanitizeInsightText(chessContext.engineSummary).slice(0, 320)}`;
-        this.emit('insights', {
-          insights: { say_this: [engineFallback], ask_this: [] },
-          processedAt: Date.now(),
-          clearExisting: true,
-        });
-        log.warn({ error }, 'LLM failed; emitted chess engine fallback');
-      } else {
-        log.error({ error }, 'Error processing transcript for live assist');
-      }
+      log.warn({ error: error instanceof Error ? error.message : String(error) }, '[LiveAssist] Background coaching (generateText) failed — engine tip stays');
     }
   }
 

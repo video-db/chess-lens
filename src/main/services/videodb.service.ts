@@ -7,9 +7,14 @@ import { createChildLogger } from '../lib/logger';
 
 const logger = createChildLogger('videodb-service');
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Collection = any;
+
 interface CachedConnection {
   connection: Connection;
   apiKey: string;
+  /** Cached default collection object — avoids a GET /collection round-trip on every coaching call. */
+  defaultCollection?: Collection;
 }
 
 let cachedConnection: CachedConnection | null = null;
@@ -56,6 +61,30 @@ export class VideoDBService {
     };
 
     return connection;
+  }
+
+  /**
+   * Get the default collection, reusing a cached instance to avoid a network
+   * GET on every call. The cache is invalidated whenever the connection changes
+   * (i.e. when the API key changes). A specific collectionId on this service
+   * instance always forces a fresh fetch.
+   */
+  private async getDefaultCollection(): Promise<Collection> {
+    const conn = this.getConnection();
+    if (this.collectionId) {
+      // Specific collection requested — always fetch fresh so callers get the
+      // exact collection they asked for (no risk of returning the wrong one).
+      return conn.getCollection(this.collectionId);
+    }
+    // Default collection: reuse cached object if the connection hasn't changed.
+    if (cachedConnection && cachedConnection.defaultCollection) {
+      return cachedConnection.defaultCollection;
+    }
+    const collection = await conn.getCollection();
+    if (cachedConnection) {
+      cachedConnection.defaultCollection = collection;
+    }
+    return collection;
   }
 
   async verifyApiKey(): Promise<boolean> {
@@ -179,8 +208,7 @@ export class VideoDBService {
   }
 
   async getVideo(videoId: string) {
-    const conn = this.getConnection();
-    const collection = await conn.getCollection(this.collectionId);
+    const collection = await this.getDefaultCollection();
     return collection.getVideo(videoId);
   }
 
@@ -193,8 +221,7 @@ export class VideoDBService {
 
   async generateInsights(videoId: string, customPrompt?: string): Promise<string | null> {
     logger.info({ videoId, collectionId: this.collectionId }, 'Generating AI insights');
-    const conn = this.getConnection();
-    const collection = await conn.getCollection(this.collectionId);
+    const collection = await this.getDefaultCollection();
     const video = await this.getVideo(videoId);
 
     // Fetch transcript text (like Python version)
@@ -296,15 +323,14 @@ ${transcriptText}`;
     responseType: 'text' | 'json' = 'text',
     timeoutMs = 30000
   ): Promise<string | null> {
-    const conn = this.getConnection();
-    const collection = await conn.getCollection(this.collectionId);
+    const collection = await this.getDefaultCollection();
 
     logger.info(
       { modelName, responseType, promptLength: prompt.length },
       'Generating coaching text via VideoDB generateText',
     );
 
-    // Wrap in Promise.race for a hard timeout — generateText has no built-in timeout.
+    // Wrap entire operation in a hard timeout.
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`generateCoachingText timed out after ${timeoutMs}ms`)), timeoutMs),
     );
@@ -315,21 +341,100 @@ ${transcriptText}`;
         timeoutPromise,
       ]);
 
-      // generateText returns:
-      // - responseType='text': a string (or object with output/text field)
-      // - responseType='json': an already-parsed object (NOT a string)
-      // We always return a string so the caller can parse it consistently.
+      logger.debug({ resultType: typeof result, resultKeys: result && typeof result === 'object' ? Object.keys(result as object) : [] }, 'generateCoachingText raw result');
+
+      // The SDK returns different shapes depending on whether the job is sync or async:
+      //
+      // Sync (basic model): result is a string or { output: string } directly.
+      //
+      // Async (pro/ultra model): the API returns status='processing' with
+      // request_type='async', causing the SDK to return the raw job envelope
+      // immediately (it does NOT poll in this branch). The envelope looks like:
+      //   { status: 'processing', data: { output_url: '...', ... }, request_type: 'async' }
+      // In this case we must poll output_url ourselves until the job finishes.
+      //
+      // We detect the async case by checking for output_url in the result or its
+      // data sub-object.
+
+      const extractOutputUrl = (obj: Record<string, unknown>): string | null => {
+        if (typeof obj.output_url === 'string') return obj.output_url;
+        const data = obj.data as Record<string, unknown> | undefined;
+        if (data && typeof data.output_url === 'string') return data.output_url;
+        return null;
+      };
+
+      const pollOutputUrl = async (url: string): Promise<string | null> => {
+        const POLL_INTERVAL_MS = 3000;
+        const deadline = Date.now() + timeoutMs;
+
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+          let pollData: Record<string, unknown>;
+          try {
+            // Use the VideoDB SDK's own HTTP client (via a raw collection method isn't
+            // available, so we call the VideoDB API URL directly using the SDK's axios
+            // instance — but the easiest path is a plain fetch with the same auth header).
+            const apiKey = this.apiKey;
+            const res = await fetch(url, {
+              headers: { 'x-access-token': apiKey },
+            });
+            pollData = await res.json() as Record<string, unknown>;
+          } catch (fetchErr) {
+            logger.warn({ fetchErr }, 'generateCoachingText: poll fetch failed, retrying');
+            continue;
+          }
+
+          const status = (pollData.status as string | undefined)?.toLowerCase();
+          logger.debug({ status, url }, 'generateCoachingText: poll tick');
+
+          if (status === 'processing' || status === 'in progress') continue;
+
+          if (pollData.success === false) {
+            logger.warn({ message: pollData.message }, 'generateCoachingText: async job failed');
+            return null;
+          }
+
+          // Successful response — extract the actual text output.
+          // Shape: { success: true, data: { output: "..." } } or { response: { data: { output: "..." } } }
+          const inner =
+            (pollData.response as Record<string, unknown> | undefined)?.data as Record<string, unknown> | undefined
+            ?? pollData.data as Record<string, unknown> | undefined
+            ?? pollData;
+
+          const output =
+            (inner.output as string | undefined) ||
+            (inner.text as string | undefined) ||
+            (typeof inner === 'string' ? inner : null);
+
+          logger.info({ outputLength: output?.length ?? 0 }, 'generateCoachingText: async job completed');
+          return output ?? null;
+        }
+
+        logger.warn({ url }, 'generateCoachingText: polling timed out');
+        return null;
+      };
+
+      // --- Async path: SDK returned a job envelope with output_url ---
+      if (result !== null && result !== undefined && typeof result === 'object') {
+        const obj = result as Record<string, unknown>;
+        const outputUrl = extractOutputUrl(obj);
+        if (outputUrl) {
+          logger.info({ outputUrl }, 'generateCoachingText: async job detected — polling output_url');
+          const polledText = await Promise.race([pollOutputUrl(outputUrl), timeoutPromise]);
+          return polledText ?? null;
+        }
+      }
+
+      // --- Sync path: SDK returned the result directly ---
       let text: string;
       if (typeof result === 'string') {
         text = result;
       } else if (result !== null && result !== undefined) {
-        // Object — either the JSON result (responseType='json') or a wrapper
         const obj = result as Record<string, unknown>;
-        // If it looks like the coaching JSON directly, stringify it
         if ('say_this' in obj || 'ask_this' in obj) {
           text = JSON.stringify(obj);
         } else {
-          // Wrapper object with an output/text field
           const inner = (obj.output as string) ||
                         (obj.text as string) ||
                         ((obj.data as Record<string, unknown>)?.text as string) ||
@@ -356,8 +461,7 @@ ${transcriptText}`;
   static clearCache(): void {
     cachedConnection = null;
     logger.info('VideoDB connection cache cleared');
-  }
-}
+  }}
 
 export function createVideoDBService(apiKey: string, baseUrl?: string, collectionId?: string): VideoDBService {
   return new VideoDBService(apiKey, baseUrl, collectionId);

@@ -228,10 +228,14 @@ export function resizeWidgetToContent(contentHeight: number): void {
   const maxAllowedHeight = displayHeight - WIDGET_MARGIN;
   const clampedHeight = Math.min(targetHeight, maxAllowedHeight);
 
-  // If the bottom edge would go off-screen, shift the window up
+  // If the bottom edge would go off-screen, shift the window up just enough
+  // to keep it visible. Clamp to at least WIDGET_MARGIN from the top so the
+  // window never disappears behind the menu bar / taskbar.
   const bottomEdge = winY + clampedHeight;
   const screenBottom = displayY + displayHeight - WIDGET_MARGIN;
-  const newY = bottomEdge > screenBottom ? Math.max(displayY, screenBottom - clampedHeight) : winY;
+  const newY = bottomEdge > screenBottom
+    ? Math.max(displayY + WIDGET_MARGIN, screenBottom - clampedHeight)
+    : winY;
 
   if (newY !== winY) {
     widgetWindow.setPosition(winX, newY);

@@ -32,10 +32,11 @@ export const RTSTREAM_VISION_MODEL = 'openai/gpt-5.4';
  * More reliable than AbortSignal on Windows/Electron.
  *
  * Vision calls (gpt-5.4): 12s — benchmark avg ~10s
- * Coaching calls (pro):   30s — pro text model can be slow under load
+ * Coaching calls (pro):   60s — fire-and-forget background call; engine tip
+ *                               is already on screen so no user impact if slow
  */
 const VISION_TIMEOUT_MS  = 12000;
-const COACHING_TIMEOUT_MS = 30000;
+const COACHING_TIMEOUT_MS = 60000;
 
 /** Wraps a promise with a hard timeout. Rejects with an error if exceeded. */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -246,7 +247,7 @@ export class LLMService {
     }));
   }
 
-  async chatCompletion(messages: ChatMessage[]): Promise<LLMResponse> {
+  async chatCompletion(messages: ChatMessage[], timeoutMs?: number): Promise<LLMResponse> {
     if (!this.config.apiKey) {
       log.error('[VideoDB] LLM API key not configured');
       return {
@@ -264,19 +265,23 @@ export class LLMService {
       messagePreview,
     }, `[VideoDB] LLM coaching request → ${this.config.model}`);
 
+    // Use caller-supplied timeout, or the default COACHING_TIMEOUT_MS.
+    // Pass Infinity to disable the timeout entirely (fire-and-forget coaching path).
+    const effectiveTimeout = timeoutMs !== undefined ? timeoutMs : COACHING_TIMEOUT_MS;
+
     try {
-      const response = await withTimeout(
-        this.client.chat.completions.create({
-          model: this.config.model,
-          messages: this.formatMessages(messages),
-          max_tokens: this.config.maxTokens,
-          temperature: this.config.temperature,
-          stream: false,
-          ...EXTRA_PARAMS,
-        } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>,
-        COACHING_TIMEOUT_MS,
-        'chatCompletion'
-      );
+      const apiCall = this.client.chat.completions.create({
+        model: this.config.model,
+        messages: this.formatMessages(messages),
+        max_tokens: this.config.maxTokens,
+        temperature: this.config.temperature,
+        stream: false,
+        ...EXTRA_PARAMS,
+      } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>;
+
+      const response = effectiveTimeout === Infinity
+        ? await apiCall
+        : await withTimeout(apiCall, effectiveTimeout, 'chatCompletion');
 
       const elapsed = Date.now() - startTime;
       const content = response.choices[0]?.message?.content || '';
@@ -332,9 +337,10 @@ export class LLMService {
 
   async chatCompletionJSON<T = unknown>(
     messages: ChatMessage[],
-    parseResponse?: (content: string) => T
+    parseResponse?: (content: string) => T,
+    timeoutMs?: number
   ): Promise<JSONLLMResponse<T>> {
-    const response = await this.chatCompletion(messages);
+    const response = await this.chatCompletion(messages, timeoutMs);
 
     if (!response.success) {
       return {

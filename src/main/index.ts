@@ -6,7 +6,7 @@ fixPath();
 // the VideoDB SDK's WebSocket objects accumulating 'close' listeners across
 // multiple recording sessions in the same process lifetime.
 import { EventEmitter } from 'events';
-EventEmitter.defaultMaxListeners = 30;
+EventEmitter.defaultMaxListeners = 60;
 
 import { app, BrowserWindow, Menu } from 'electron';
 import http from 'http';
