@@ -274,6 +274,7 @@ export function PairCompactOverlay({
   const compactLatestAnalysis = latestAsk ? compact(latestAsk.text, 200) : '';
 
   const chessHasCoachContent = !!(chessParagraphText || chessEngineText || chessDrillText);
+  const chessHasAnyContent = !!(chessHasCoachContent || (displayFen ?? currentFen));
   const primaryText = isChess
     ? (chessParagraphText || chessEngineText || '')
     : (compactTopTip || visualHeading || visualBody || '');
@@ -286,7 +287,7 @@ export function PairCompactOverlay({
   const inBuyPhase = false;
   const mapLocation: string | undefined = undefined;
   const hasActionableContent = isChess
-    ? !!(chessHasCoachContent || chessWaitingText || nudge)
+    ? !!(chessHasAnyContent || nudge)
     : !!(primaryText || compactLatestTip || compactLatestAnalysis || nudge);
   const urgencyTone: 'danger' | 'info' | 'neutral' = 'neutral';
 
@@ -312,7 +313,7 @@ export function PairCompactOverlay({
 
   const inAreaCooldown = false;
   const showContent = isChess
-    ? (sessionState.isRecording || hasActionableContent)
+    ? hasActionableContent   // only show when board or tip is actually available
     : (hasActionableContent && !inAreaCooldown);
 
   useEffect(() => {
@@ -563,7 +564,7 @@ export function PairCompactOverlay({
                 </div>
               )}
               <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}>
-                {chessParagraphText || chessEngineText || chessDrillText || (chessWaitingText ? chessWaitingText : 'Waiting for next move...')}
+                {chessParagraphText || chessEngineText || chessDrillText || chessWaitingText || null}
               </div>
               {chessEngineText && (
                 <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 4, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>

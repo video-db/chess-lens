@@ -3,6 +3,13 @@ import { loadRuntimeConfig } from '../lib/config';
 
 const log = logger.child({ module: 'chess-engine-service' });
 const DEFAULT_CHESS_ENGINE_API_URL = 'https://chess-api.com/v1';
+/**
+ * Hard timeout for the chess engine HTTP call.
+ * Without this, a stalled chess-api.com request would block the entire
+ * coaching pipeline indefinitely (isProcessing stays true).
+ * 2s is generous — typical call latency is 200–800ms.
+ */
+const CHESS_ENGINE_TIMEOUT_MS = 2000;
 
 export interface ChessEngineAnalyzeOptions {
   variants?: number;
@@ -69,12 +76,15 @@ export class ChessEngineService {
     };
 
     try {
+      // AbortSignal.timeout is Node 17+/Electron 29+ — ensures the fetch is
+      // cancelled after CHESS_ENGINE_TIMEOUT_MS so the pipeline never stalls.
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(CHESS_ENGINE_TIMEOUT_MS),
       });
 
       if (!response.ok) {
@@ -94,7 +104,15 @@ export class ChessEngineService {
 
       return data;
     } catch (error) {
-      log.warn({ error }, 'Chess engine request failed');
+      // AbortError = our timeout fired. Log at warn level and return null so
+      // callers treat it the same as any other engine failure.
+      const isAbort =
+        error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
+      if (isAbort) {
+        log.warn({ timeoutMs: CHESS_ENGINE_TIMEOUT_MS }, 'Chess engine request timed out');
+      } else {
+        log.warn({ error }, 'Chess engine request failed');
+      }
       return null;
     }
   }

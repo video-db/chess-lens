@@ -17,13 +17,42 @@ import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
 
 const log = logger.child({ module: 'llm-service' });
 
-// Model used for direct OpenAI-compatible API calls through the VideoDB proxy.
-// The proxy accepts its own model names (mini, basic, pro, ultra) for these calls.
+// Coaching model — sent to the VideoDB proxy.
+// 'basic' was tested but hits a hard output cap at ~16 tokens on the proxy,
+// causing every JSON response to be truncated mid-object.
+// 'pro' returns complete JSON responses reliably.
 const PRIMARY_MODEL = 'pro';
 
 // Model used for RTStream indexVisuals() — passed as modelName to the SDK,
 // not as a direct API call, so the full openai/ namespace is supported.
 export const RTSTREAM_VISION_MODEL = 'openai/gpt-5.4';
+
+/**
+ * Per-request timeouts enforced via Promise.race + setTimeout.
+ * More reliable than AbortSignal on Windows/Electron.
+ *
+ * Vision calls (gpt-5.4): 12s — benchmark avg ~10s
+ * Coaching calls (pro):   30s — pro text model can be slow under load
+ */
+const VISION_TIMEOUT_MS  = 12000;
+const COACHING_TIMEOUT_MS = 30000;
+
+/** Wraps a promise with a hard timeout. Rejects with an error if exceeded. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
+/**
+ * Extra parameters sent to the VideoDB proxy on every chat completion request.
+ * reasoning_effort='low' asks the model to use less compute for faster responses.
+ * If the proxy doesn't support it the field is silently ignored.
+ */
+const EXTRA_PARAMS = { reasoning_effort: 'low' } as Record<string, unknown>;
 
 /** Returns true when the error indicates the requested model is unavailable. */
 function isModelUnavailableError(error: unknown): boolean {
@@ -129,14 +158,17 @@ export class LLMService {
       apiKey: config?.apiKey || appConfig.apiKey || '',
       apiBase: config?.apiBase || runtimeConfig.apiUrl || 'https://api.videodb.io',
       model: config?.model || PRIMARY_MODEL,
-      maxTokens: config?.maxTokens || 4096,
+      maxTokens: config?.maxTokens || 800,
       temperature: config?.temperature || 0.7,
     };
 
-    // VideoDB proxy client — used for all LLM calls including vision
+    // VideoDB proxy client — used for all LLM calls including vision.
+    // timeout: hard ceiling so a hung request never stalls the pipeline.
+    // 10s is enough for the pro model; gpt-5.4 avg ~10s per the benchmark.
     this.client = new OpenAI({
       apiKey: this.config.apiKey,
       baseURL: this.config.apiBase,
+      timeout: 12000,  // 12s — slightly above benchmark avg to avoid cutting off valid responses
     });
 
     log.info({
@@ -233,12 +265,18 @@ export class LLMService {
     }, `[VideoDB] LLM coaching request → ${this.config.model}`);
 
     try {
-      const response = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: this.formatMessages(messages),
-        max_tokens: this.config.maxTokens,
-        temperature: this.config.temperature,
-      });
+      const response = await withTimeout(
+        this.client.chat.completions.create({
+          model: this.config.model,
+          messages: this.formatMessages(messages),
+          max_tokens: this.config.maxTokens,
+          temperature: this.config.temperature,
+          stream: false,
+          ...EXTRA_PARAMS,
+        } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>,
+        COACHING_TIMEOUT_MS,
+        'chatCompletion'
+      );
 
       const elapsed = Date.now() - startTime;
       const content = response.choices[0]?.message?.content || '';
@@ -310,10 +348,21 @@ export class LLMService {
     try {
       let jsonString = response.content.trim();
 
-      // Strip markdown code blocks if present
-      const jsonMatch = jsonString.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (jsonMatch) {
-        jsonString = jsonMatch[1].trim();
+      // 1. Strip markdown code fences if present (handles both complete and partial fences)
+      const completeFenceMatch = jsonString.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (completeFenceMatch) {
+        jsonString = completeFenceMatch[1].trim();
+      } else {
+        // Partial fence (model truncated before closing ```) — strip opening fence only
+        jsonString = jsonString.replace(/^```(?:json)?\s*/i, '').trim();
+      }
+
+      // 2. Extract the JSON object by finding the outermost { } pair.
+      // This handles cases where the model emits explanatory text before/after the JSON.
+      const jsonStart = jsonString.indexOf('{');
+      const jsonEnd   = jsonString.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd > jsonStart) {
+        jsonString = jsonString.slice(jsonStart, jsonEnd + 1);
       }
 
       const data = parseResponse
@@ -359,14 +408,20 @@ export class LLMService {
       const formattedMessages = this.formatMessages(messages);
       const formattedTools = tools.length > 0 ? this.formatTools(tools) : undefined;
 
-      const response = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: formattedMessages,
-        tools: formattedTools,
-        tool_choice: formattedTools ? 'auto' : undefined,
-        max_tokens: this.config.maxTokens,
-        temperature: this.config.temperature,
-      });
+      const response = await withTimeout(
+        this.client.chat.completions.create({
+          model: this.config.model,
+          messages: formattedMessages,
+          tools: formattedTools,
+          tool_choice: formattedTools ? 'auto' : undefined,
+          max_tokens: this.config.maxTokens,
+          temperature: this.config.temperature,
+          stream: false,
+          ...EXTRA_PARAMS,
+        } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>,
+        COACHING_TIMEOUT_MS,
+        'chatCompletionWithTools'
+      );
 
       const elapsed = Date.now() - startTime;
       const message = response.choices[0]?.message;
@@ -437,83 +492,6 @@ export class LLMService {
   }
 
   /**
-   * Detect the chessboard bounding box inside a full-screen screenshot.
-   *
-   * Sends a lightweight, single-turn vision prompt (no board analysis) that
-   * asks the model to return only a JSON bounding box as fractions of the
-   * image dimensions.  The result is intended to be cached by the caller
-   * (ChessScreenshotService) and used to crop every subsequent screenshot
-   * before the full FEN-extraction pipeline runs.
-   *
-   * Returns null if detection fails or the response cannot be parsed.
-   */
-  async detectChessBoardRegion(
-    imageBuffer: Buffer
-  ): Promise<{ x: number; y: number; w: number; h: number } | null> {
-    const base64Image = imageBuffer.toString('base64');
-    const dataUrl = `data:image/png;base64,${base64Image}`;
-
-    const detectionPrompt =
-      'Locate the chessboard in this screenshot. ' +
-      'Return ONLY a single line of valid JSON with exactly four keys: ' +
-      '{"x": <0-1>, "y": <0-1>, "w": <0-1>, "h": <0-1>} ' +
-      'where each value is a decimal fraction of the full image dimensions ' +
-      '(x and y are the top-left corner, w and h are width and height). ' +
-      'No markdown, no explanation, no extra text — just the JSON object.';
-
-    type VisionMessage = {
-      role: 'user';
-      content: Array<{ type: string; text?: string; image_url?: { url: string } }>;
-    };
-    const messages: VisionMessage[] = [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: detectionPrompt },
-          { type: 'image_url', image_url: { url: dataUrl } },
-        ],
-      },
-    ];
-
-    log.info({ model: this.config.model }, '[VideoDB] detectChessBoardRegion starting');
-
-    try {
-      const response = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: messages as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
-        max_tokens: 64,
-      });
-
-      const rawText = response.choices[0]?.message?.content?.trim() || '';
-
-      // Strip markdown code fences if the model wraps the JSON
-      const jsonText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-
-      const parsed = JSON.parse(jsonText) as { x: unknown; y: unknown; w: unknown; h: unknown };
-
-      const x = Number(parsed.x);
-      const y = Number(parsed.y);
-      const w = Number(parsed.w);
-      const h = Number(parsed.h);
-
-      if (
-        [x, y, w, h].some((v) => isNaN(v) || v < 0 || v > 1) ||
-        w <= 0.01 || h <= 0.01
-      ) {
-        log.warn({ rawText, parsed }, '[VideoDB] detectChessBoardRegion: parsed values out of range');
-        return null;
-      }
-
-      log.info({ x, y, w, h }, '[VideoDB] detectChessBoardRegion succeeded');
-      return { x, y, w, h };
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      log.warn({ error: errMsg }, '[VideoDB] detectChessBoardRegion failed');
-      return null;
-    }
-  }
-
-  /**
    * Extract a FEN string from a screenshot buffer.
    *
    * This is a direct port of the Python benchmark script's
@@ -535,7 +513,7 @@ export class LLMService {
     imageBuffer: Buffer,
     mimeType: 'image/png' | 'image/jpeg' | 'image/webp',
     indexingPrompt: string,
-    maxRetries = 2
+    maxRetries = 1
   ): Promise<{ fenBoard: string; perspective: 'white' | 'black' } | null> {
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
@@ -557,15 +535,21 @@ export class LLMService {
 
     let savedPerspective: 'white' | 'black' = 'white';
 
-    log.info({ model: this.config.model }, '[VideoDB] extractFenFromImage starting');
+    log.info({ model: RTSTREAM_VISION_MODEL }, '[VideoDB] extractFenFromImage starting');
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const response = await this.client.chat.completions.create({
-          model: this.config.model,
-          messages: messages as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
-          max_tokens: 2048,
-        });
+        const response = await withTimeout(
+          this.client.chat.completions.create({
+            model: RTSTREAM_VISION_MODEL,
+            messages: messages as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
+            max_tokens: 768,
+            stream: false,
+            ...EXTRA_PARAMS,
+          } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>,
+          VISION_TIMEOUT_MS,
+          'extractFenFromImage'
+        );
 
         const rawText = response.choices[0]?.message?.content?.trim() || '';
 
@@ -628,6 +612,12 @@ export class LLMService {
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log.error({ attempt, error: errMsg }, '[VideoDB] extractFenFromImage error');
+        // Don't retry on server errors (5xx) or timeouts — they won't resolve
+        // with a math-correction follow-up and just waste time.
+        const status = (error as { status?: number }).status;
+        if (!status || status >= 500 || errMsg.toLowerCase().includes('timeout')) {
+          return null;
+        }
         return null;
       }
     }

@@ -828,6 +828,18 @@ export function setupCaptureHandlers(): void {
 
       logger.info({ sessionId: config.sessionId, enableTranscription }, 'Starting recording - IPC handler called');
 
+      // Show the overlay immediately so the user sees it as soon as capture
+      // is requested — before the async setup (listChannels, startSession, etc.)
+      // which can take several seconds. The widget's built-in "Connecting..."
+      // status text is displayed until the session state is updated to isRecording.
+      updateWidgetSessionState({
+        isRecording: false,
+        isPaused: false,
+        startTime: null,
+        gameId: params.gameId || '',
+      });
+      showWidgetWindow();
+
       const user = getUserByAccessToken(accessToken);
       if (!user?.apiKey) {
         logger.error({ hasUser: Boolean(user) }, 'Missing VideoDB API key for capture session');

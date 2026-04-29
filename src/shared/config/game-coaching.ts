@@ -73,7 +73,7 @@ IMPORTANT: ALWAYS ensure each row strictly sums to 8. ALWAYS scan Top-to-Bottom,
     liveAssistPrompt:
       'You are a chess live assistant. For the current FEN, use the chess engine API to fetch the best move and evaluation. Integrate the best move (in SAN) and a brief explanation of why it is strong, referencing concrete tactical or positional ideas. If possible, include the engine evaluation and top line. Focus your tip on the best move and its reasoning, not on generic advice. Return exactly one full-paragraph say_this tip (explaining the best move and its idea) and one short ask_this fix drill in JSON only.',
     ...SLOW_GAME_CADENCE,
-    liveAssistIntervalMs: 5000,
+    liveAssistIntervalMs: 2000,
   }
 ];
 

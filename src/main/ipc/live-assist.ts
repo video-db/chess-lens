@@ -40,6 +40,9 @@ export function setupLiveAssistHandlers(): void {
       'Starting live assist and MCP inference'
     );
 
+    // Clear any stale tips/FEN from the previous session before starting a new one.
+    updateWidgetLiveAssist({ sayThis: [], askThis: [], clearExisting: true });
+
     // Start Live Assist service
     const liveAssistService = getLiveAssistService();
     liveAssistService.removeAllListeners('insights');

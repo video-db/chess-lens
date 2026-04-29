@@ -54,7 +54,23 @@ export function WidgetApp() {
 
     // Set up listeners
     const unsubSession = api.onSessionState((state) => {
-      setSessionState(state);
+      setSessionState((prev) => {
+        // Transitioning recording → not recording: clear all coaching state
+        if (prev.isRecording && !state.isRecording) {
+          setSayThis([]);
+          setAskThis([]);
+          setCurrentFen(null);
+          setDisplayFen(null);
+        }
+        // Transitioning not-recording → recording: also clear (fresh session)
+        if (!prev.isRecording && state.isRecording) {
+          setSayThis([]);
+          setAskThis([]);
+          setCurrentFen(null);
+          setDisplayFen(null);
+        }
+        return state;
+      });
       if (state.isRecording) {
         setIsConnecting(false);
       }

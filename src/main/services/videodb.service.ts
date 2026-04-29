@@ -280,6 +280,79 @@ ${transcriptText}`;
     };
   }
 
+  /**
+   * Generate text directly via VideoDB's generateText API — no video required.
+   * Used for lightweight coaching/chat generation where the full video pipeline
+   * isn't needed.  Accepts a plain prompt and returns the raw text output.
+   *
+   * @param prompt       The full prompt including any context (FEN, engine data, etc.)
+   * @param modelName    'basic' | 'pro' | 'ultra' (default 'pro')
+   * @param responseType 'text' | 'json' (default 'text')
+   * @param timeoutMs    Hard timeout in ms (default 30s)
+   */
+  async generateCoachingText(
+    prompt: string,
+    modelName: 'basic' | 'pro' | 'ultra' = 'pro',
+    responseType: 'text' | 'json' = 'text',
+    timeoutMs = 30000
+  ): Promise<string | null> {
+    const conn = this.getConnection();
+    const collection = await conn.getCollection(this.collectionId);
+
+    logger.info(
+      { modelName, responseType, promptLength: prompt.length },
+      'Generating coaching text via VideoDB generateText',
+    );
+
+    // Wrap in Promise.race for a hard timeout — generateText has no built-in timeout.
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`generateCoachingText timed out after ${timeoutMs}ms`)), timeoutMs),
+    );
+
+    try {
+      const result = await Promise.race([
+        collection.generateText(prompt, modelName, responseType),
+        timeoutPromise,
+      ]);
+
+      // generateText returns:
+      // - responseType='text': a string (or object with output/text field)
+      // - responseType='json': an already-parsed object (NOT a string)
+      // We always return a string so the caller can parse it consistently.
+      let text: string;
+      if (typeof result === 'string') {
+        text = result;
+      } else if (result !== null && result !== undefined) {
+        // Object — either the JSON result (responseType='json') or a wrapper
+        const obj = result as Record<string, unknown>;
+        // If it looks like the coaching JSON directly, stringify it
+        if ('say_this' in obj || 'ask_this' in obj) {
+          text = JSON.stringify(obj);
+        } else {
+          // Wrapper object with an output/text field
+          const inner = (obj.output as string) ||
+                        (obj.text as string) ||
+                        ((obj.data as Record<string, unknown>)?.text as string) ||
+                        JSON.stringify(obj);
+          text = inner;
+        }
+      } else {
+        text = '';
+      }
+
+      if (!text) {
+        logger.warn({ modelName }, 'generateCoachingText: empty response');
+        return null;
+      }
+
+      return typeof text === 'string' ? text.trim() : JSON.stringify(text);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error({ error: msg, modelName }, 'generateCoachingText failed');
+      return null;
+    }
+  }
+
   static clearCache(): void {
     cachedConnection = null;
     logger.info('VideoDB connection cache cleared');
@@ -288,4 +361,33 @@ ${transcriptText}`;
 
 export function createVideoDBService(apiKey: string, baseUrl?: string, collectionId?: string): VideoDBService {
   return new VideoDBService(apiKey, baseUrl, collectionId);
+}
+
+/**
+ * Get a VideoDBService configured from the current app + runtime config.
+ * Reads apiKey from AppConfig and apiUrl + collectionId from the user record.
+ * Returns null if no API key is configured.
+ */
+export function getVideoDBServiceFromConfig(): VideoDBService | null {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { loadAppConfig, loadRuntimeConfig } = require('../lib/config');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getUserByAccessToken } = require('../db');
+
+  const appConfig = loadAppConfig();
+  const runtimeConfig = loadRuntimeConfig();
+
+  let apiKey = appConfig.apiKey as string | undefined;
+  let collectionId: string | undefined;
+
+  if (!apiKey && appConfig.accessToken) {
+    const user = getUserByAccessToken(appConfig.accessToken);
+    if (user) {
+      apiKey = user.apiKey;
+      collectionId = user.collectionId || undefined;
+    }
+  }
+
+  if (!apiKey) return null;
+  return new VideoDBService(apiKey, runtimeConfig.apiUrl, collectionId);
 }

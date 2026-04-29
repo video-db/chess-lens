@@ -25,7 +25,8 @@ function getLogFilePath(): string {
   return path.join(logsDir, `app-${date}.log`);
 }
 
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const isElectron = Boolean(app?.isPackaged);
+const isDev = process.env.NODE_ENV === 'development' || !isElectron;
 
 // Create file stream for logging in production
 let fileStream: fs.WriteStream | null = null;

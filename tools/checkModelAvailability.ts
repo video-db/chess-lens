@@ -42,7 +42,7 @@ import { RTSTREAM_VISION_MODEL } from '../src/main/services/llm.service';
 
 // ─── Constants — mirrors visual-index.ts exactly ────────────────────────────
 
-const MODEL_NAME      = RTSTREAM_VISION_MODEL; // 'openai/gpt-5.4'
+const MODEL_NAME      = 'openai/gpt-5.4'; // 'openai/gpt-5.4'
 const DEFAULT_API_URL = 'https://api.videodb.io';
 const MAX_RETRIES     = 60;
 const RETRY_DELAY_MS  = 2000;
@@ -119,7 +119,7 @@ async function checkWebSocket(
   }
 }
 
-// ─── Check 2: RTStream discovery — mirrors findScreenRTStream() exactly ──────
+// ─── Check 2: RTStream discovery — mirrors findScreenRTStream() exactly ─────
 
 async function checkRTStream(
   sessionId: string,

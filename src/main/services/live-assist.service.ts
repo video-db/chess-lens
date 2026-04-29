@@ -10,6 +10,7 @@ import { EventEmitter } from 'events';
 import { logger } from '../lib/logger';
 import { getLLMService } from './llm.service';
 import { getChessEngineService } from './chess-engine.service';
+import { getVideoDBServiceFromConfig } from './videodb.service';
 import type { LiveInsights } from '../../shared/types/live-assist.types';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
 import {
@@ -22,23 +23,18 @@ import {
 const log = logger.child({ module: 'live-assist' });
 
 const TIP_VISIBLE_MS = 60000;
-const TIP_REPLACE_COOLDOWN_MS = 10000;
+const TIP_REPLACE_COOLDOWN_MS = 5000;
 const VISUAL_DUPLICATE_WINDOW_MS = 900;
+/**
+ * Hard ceiling on a single processTranscriptInner() execution.
+ * Set to 40s — above the coaching LLM's own 30s timeout so the inner call
+ * can either complete or time out naturally before the safety net fires.
+ */
+const PROCESS_TRANSCRIPT_TIMEOUT_MS = 40000;
 
-const CHESS_SYSTEM_PROMPT = `ROLE
-You are a chess coach focused on the current board only.
-
-SOURCE RESTRICTIONS
-- Use only the provided current visual board/FEN context and chess engine output.
-- Do not use transcript/audio.
-
-STRICT RULES
-- Return ONLY JSON with keys say_this and ask_this.
-- say_this: exactly one clear paragraph explaining the best move and why it is best in this position.
-- ask_this: exactly one short drill sentence.
-- Prioritize concrete tactical/positional reasons (threats, king safety, piece activity, pawn structure, forcing lines).
-- If engine details are present, use them directly.
-- Do not output markdown.`;
+const CHESS_SYSTEM_PROMPT = `You are a chess coach. Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation before or after.
+Format: {"say_this":"<one sentence with best move and why>","ask_this":"<one short drill>"}
+Use engine output if provided. Keep say_this under 60 words.`;
 
 export interface MeetingContext {
   name?: string;
@@ -195,9 +191,11 @@ class LiveAssistService extends EventEmitter {
       if (squares !== 8) return false;
     }
 
-    // Require at least one king total — endgame positions or partially-visible
-    // boards may show only one side's king; rejecting them causes persistent
-    // FEN extraction failures on real games.
+    // Enforce king counts: each side must have exactly 0 or 1 king,
+    // and there must be at least 1 king total (to reject empty/garbage boards).
+    // The RTStream board_mapping sometimes produces boards with 2+ kings
+    // (OCR confusion between K and other pieces) — these cause engine rejections.
+    if (whiteKings > 1 || blackKings > 1) return false;
     return whiteKings + blackKings >= 1;
   }
 
@@ -426,15 +424,45 @@ class LiveAssistService extends EventEmitter {
   }
 
   private extractLatestFen(visuals: VisualIndexChunk[]): string | null {
-    // Chess should only advance when a valid recent FEN is visible.
-    // Scan the current prompt window from newest to oldest, but only within
-    // the fresh visuals that are already being processed.
+    // Preference order: items injected by the screenshot path carry a
+    // <source>screenshot</source> tag — these are validated, voted, and
+    // normalised to white's perspective. Always prefer them over RTStream
+    // board_mapping items which are often noisy or incorrectly normalised.
+    //
+    // Pass 1: screenshot-path items only (tagged_raw_board + screenshot source tag).
+    for (let i = visuals.length - 1; i >= 0; i--) {
+      if (!visuals[i].text.includes('<source>') || !visuals[i].text.includes('screenshot')) continue;
+      const candidates = this.extractFenCandidates(visuals[i].text);
+      const preferred = candidates.find((c) => c.source === 'tagged_raw_board');
+      if (preferred) {
+        log.debug(
+          { source: 'screenshot_raw_board', fen: preferred.fen },
+          '[LiveAssist] Selected latest chess FEN (screenshot path)'
+        );
+        return preferred.fen;
+      }
+    }
+
+    // Pass 2: any tagged_raw_board (RTStream may also produce these).
+    for (let i = visuals.length - 1; i >= 0; i--) {
+      const candidates = this.extractFenCandidates(visuals[i].text);
+      const preferred = candidates.find((c) => c.source === 'tagged_raw_board');
+      if (preferred) {
+        log.debug(
+          { source: preferred.source, fen: preferred.fen },
+          '[LiveAssist] Selected latest chess FEN (tagged_raw_board fallback)'
+        );
+        return preferred.fen;
+      }
+    }
+
+    // Pass 3: fall back to any valid FEN source.
     for (let i = visuals.length - 1; i >= 0; i--) {
       const candidates = this.extractFenCandidates(visuals[i].text);
       if (candidates.length > 0) {
         log.debug(
           { source: candidates[0].source, fen: candidates[0].fen },
-          '[LiveAssist] Selected latest chess FEN'
+          '[LiveAssist] Selected latest chess FEN (any source fallback)'
         );
         return candidates[0].fen;
       }
@@ -484,7 +512,11 @@ class LiveAssistService extends EventEmitter {
     lastKnownTurn: 'w' | 'b' | null
   ): 'w' | 'b' {
     if (!prevBoard || prevBoard === currBoard) {
-      // No change detected — keep whatever we knew
+      // No change detected (or cold start) — use lastKnownTurn if available.
+      // IMPORTANT: if lastKnownTurn is null it means we have no history yet
+      // (e.g. "Live assist already running" path where start() returned early
+      // and state wasn't fully reset). Always use the caller's seed in this case
+      // rather than blindly defaulting to 'w'.
       return lastKnownTurn ?? 'w';
     }
 
@@ -521,18 +553,43 @@ class LiveAssistService extends EventEmitter {
     return flipped;
   }
 
-  private applyNextTurnToFen(fen: string): { fen: string; board: string; turn: 'w' | 'b' } {
+  private applyNextTurnToFen(fen: string, visuals?: VisualIndexChunk[]): { fen: string; board: string; turn: 'w' | 'b' } {
     const parts = fen.trim().split(/\s+/);
     if (parts.length < 4) {
-      return { fen, board: fen.split(' ')[0] || fen, turn: 'w' };
+      return { fen, board: fen.split(' ')[0] || fen, turn: this.lastChessTurn ?? 'w' };
     }
 
     const [board, , castling, enPassant, halfmove = '0', fullmove = '1'] = parts;
 
-    // Use piece-count comparison to determine whose turn it actually is
-    const inferredTurn = this.inferTurnFromBoards(this.lastChessBoard, board, this.lastChessTurn);
+    // Prefer the turn already tracked in lastChessTurn — this is set by
+    // injectConfirmedFen() using only screenshot-path boards (reliable).
+    // Fall back to piece-count inference only when there is no tracked turn.
+    let inferredTurn: 'w' | 'b';
+    if (this.lastChessTurn !== null) {
+      inferredTurn = this.lastChessTurn;
+    } else {
+      // Cold start: try to detect perspective from the latest visual buffer entry
+      // (RTStream board_mapping carries <perspective> tags) if lastChessPerspective
+      // hasn't been set yet by the screenshot path.
+      let detectedPerspective: 'white' | 'black' = this.lastChessPerspective;
+      if (visuals && visuals.length > 0) {
+        for (let i = visuals.length - 1; i >= 0; i--) {
+          const m = visuals[i].text.match(/<perspective>\s*(white|black)\s*<\/perspective>/i);
+          if (m) {
+            detectedPerspective = m[1].toLowerCase() as 'white' | 'black';
+            break;
+          }
+        }
+      }
+      const seedTurn: 'w' | 'b' = detectedPerspective === 'black' ? 'b' : 'w';
+      inferredTurn = this.inferTurnFromBoards(this.lastChessBoard, board, seedTurn);
+    }
 
     const nextFen = `${board} ${inferredTurn} ${castling} ${enPassant} ${halfmove} ${fullmove}`;
+    log.debug(
+      { board: board.slice(0, 30), inferredTurn, perspective: this.lastChessPerspective },
+      '[LiveAssist] applyNextTurnToFen: turn determined'
+    );
     return { fen: nextFen, board, turn: inferredTurn };
   }
 
@@ -613,29 +670,29 @@ class LiveAssistService extends EventEmitter {
       );
       return null;
     }
-    const resolvedFen = this.applyNextTurnToFen(fen);
+    const resolvedFen = this.applyNextTurnToFen(fen, visuals);
     const latestMove = this.extractLatestChessMove(visuals);
 
     const engine = getChessEngineService();
     log.info(
       {
-        fen,
+        rawFen: fen,
+        resolvedFen: resolvedFen.fen,
+        inferredTurn: resolvedFen.turn,
         playedMoveSan: latestMove.san,
         playedMoveUci: latestMove.uci,
       },
       '[LiveAssist] Sending chess engine request'
     );
-    const result = await engine.analyzeByFen(fen, {
+    // Pass the turn-corrected FEN so the engine analyses the right side to move.
+    const result = await engine.analyzeByFen(resolvedFen.fen, {
       variants: 5,
       depth: 12,
       maxThinkingTime: 50,
     });
 
     if (!result) {
-      // Engine had no analysis (invalid FEN, network error, etc.).
-      // Return null so the caller skips the LLM tip — a tip without engine
-      // backing would be hallucinated and potentially wrong.
-      log.warn({ fen }, '[LiveAssist] Chess engine returned no analysis — skipping tip for this position');
+      log.warn({ resolvedFen: resolvedFen.fen, inferredTurn: resolvedFen.turn }, '[LiveAssist] Chess engine returned no analysis — skipping tip for this position');
       return null;
     }
 
@@ -846,13 +903,52 @@ class LiveAssistService extends EventEmitter {
   injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white'): boolean {
     if (!this.isRunning) return false;
 
-    log.debug({ fenBoard, perspective }, '[LiveAssist] injectConfirmedFen: pushing voted FEN into visual buffer');
+    // If lastChessTurn is null it means this is the first FEN of a new game
+    // (state was reset by start() or we're on a fresh session). In this case
+    // also reset lastChessBoard so we don't inherit a stale board from a
+    // previous game — which would cause prevBoard===currBoard to keep the
+    // wrong turn even though we have a fresh perspective seed.
+    if (this.lastChessTurn === null) {
+      this.lastChessBoard = null;
+    }
+
+    // Compute the turn by comparing against the last confirmed board.
+    // This uses only screenshot-path boards — never RTStream boards — so
+    // the piece-count diff is always between two consistently-normalised boards.
+    const seedTurn: 'w' | 'b' | null = this.lastChessTurn ??
+      (perspective === 'black' ? 'b' : 'w');
+    const inferredTurn = this.inferTurnFromBoards(this.lastChessBoard, fenBoard, seedTurn);
+
+    // Update tracked state immediately so processTranscriptInner uses the
+    // correct turn even before a coaching tip is generated.
+    this.lastChessTurn = inferredTurn;
+    this.lastChessBoard = fenBoard;
+
+    log.debug(
+      { fenBoard: fenBoard.slice(0, 30), perspective, inferredTurn, seedTurn },
+      '[LiveAssist] injectConfirmedFen: turn determined from screenshot boards'
+    );
 
     // Store the perspective so we can emit it with the 'fen' event
     this.lastChessPerspective = perspective;
 
-    // The pipeline always works in white's perspective
-    const syntheticText = `<perspective>\nwhite\n</perspective>\n\n<raw_board>\n${fenBoard}\n</raw_board>`;
+    // Emit 'fen' immediately so the overlay board updates the moment a new
+    // confirmed position is available — even if the coaching LLM call
+    // fails/times out later. This decouples board display from tip generation.
+    const whitePerspectiveFen = `${fenBoard} ${inferredTurn} - - 0 1`;
+    const displayFen = this.buildDisplayFen(whitePerspectiveFen, perspective);
+    this.emit('fen', {
+      fen: whitePerspectiveFen,
+      displayFen,
+      board: fenBoard,
+      turn: inferredTurn,
+    });
+
+    // The pipeline always works in white's perspective.
+    // The <source>screenshot</source> tag marks this as coming from the
+    // validated screenshot path so extractLatestFen can prefer it over
+    // RTStream board_mapping items which may be noisy or incorrectly normalised.
+    const syntheticText = `<source>\nscreenshot\n</source>\n\n<perspective>\nwhite\n</perspective>\n\n<raw_board>\n${fenBoard}\n</raw_board>`;
     this.addVisualIndex(syntheticText);
     return true;
   }
@@ -937,7 +1033,17 @@ class LiveAssistService extends EventEmitter {
 
     this.isProcessing = true;
     try {
-      await this.processTranscriptInner();
+      // Race the inner call against a hard timeout so isProcessing is always
+      // released even if the OpenAI SDK's own timeout doesn't fire.
+      await Promise.race([
+        this.processTranscriptInner(),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('processTranscript timed out')), PROCESS_TRANSCRIPT_TIMEOUT_MS)
+        ),
+      ]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn({ error: msg }, 'processTranscript: inner call failed or timed out — releasing isProcessing lock');
     } finally {
       this.isProcessing = false;
     }
@@ -1010,26 +1116,10 @@ class LiveAssistService extends EventEmitter {
       return;
     }
 
-    if (this.activeGameId === 'chess' && chessSignature && chessSignature !== this.lastChessSignature) {
-      if (this.pendingChessSignature !== chessSignature) {
-        this.pendingChessSignature = chessSignature;
-        this.pendingChessSignatureCount = 1;
-        log.debug({ chessSignature }, '[LiveAssist] Waiting for chess FEN to stabilize');
-        this.scheduleProcessing();
-        return;
-      }
-
-      this.pendingChessSignatureCount += 1;
-      if (this.pendingChessSignatureCount < 1) {
-        log.debug(
-          { chessSignature, pendingCount: this.pendingChessSignatureCount },
-          '[LiveAssist] Waiting for repeated chess FEN before updating'
-        );
-        this.scheduleProcessing();
-        return;
-      }
-    }
-
+    // Chess: the FEN reaching live-assist has already been majority-voted by
+    // ChessScreenshotService (the vote buffer requires matching readings before
+    // the FEN is injected). No additional stabilization wait is needed here —
+    // on a new signature, proceed straight to the engine + coaching pipeline.
     if (this.activeGameId === 'chess' && chessSignature) {
       this.pendingChessSignature = chessSignature;
       this.pendingChessSignatureCount = Math.max(this.pendingChessSignatureCount, 1);
@@ -1073,68 +1163,89 @@ class LiveAssistService extends EventEmitter {
       ? `## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\n${chessContext.playedMoveSan ? `Played SAN: ${chessContext.playedMoveSan}\n` : ''}${chessContext.playedMoveUci ? `Played UCI: ${chessContext.playedMoveUci}\n` : ''}${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n`
       : '';
 
+    // Emit an immediate engine-only tip so the user sees something while the
+    // coaching LLM runs (pro can take 20–30s). If the coaching call succeeds,
+    // it will replace this tip; if it fails/times out, the engine tip stays.
+    if (this.activeGameId === 'chess' && chessContext?.engineSummary) {
+      const engineFallback = `Engine: ${this.sanitizeInsightText(chessContext.engineSummary).slice(0, 320)}`;
+      this.emit('insights', {
+        insights: { say_this: [engineFallback], ask_this: [] },
+        processedAt: Date.now(),
+        clearExisting: true,
+      });
+      log.debug({ chessSignature }, '[LiveAssist] Emitted immediate engine-only tip while coaching LLM runs');
+    }
+
     const userPrompt = `${visualIndexSection}${chessSection}## TASK\nGenerate exactly one coaching tip for the CURRENT moment. Hard recency rule: prioritize the latest 5-8 seconds; if an older location conflicts with a newer one, trust the newest visual evidence only. The tip must include: (1) context-specific mistake, (2) exact next action, (3) measurable success check. Also return one short fix drill. Avoid generic advice.`;
   const gamePrompt = getGameLiveAssistPrompt(this.activeGameId);
 
     log.info({ visualCount: promptVisuals.length, hasVisual: !!visualIndexSection }, 'Processing gameplay feed for live assist');
 
     try {
-      const llm = getLLMService();
       const systemPrompt = CHESS_SYSTEM_PROMPT;
 
-      const requestPayload = [
-        { role: 'system' as const, content: systemPrompt },
-        { role: 'system' as const, content: gamePrompt },
-        { role: 'user' as const, content: userPrompt },
-      ];
+      // Combine system + game + user prompts into a single prompt string since
+      // generateText is a one-shot call (no chat message structure).
+      const fullPrompt = `${systemPrompt}\n\n${gamePrompt}\n\n${userPrompt}`;
 
-      const isRetryableError = (error: unknown): boolean => {
-        if (!error) return false;
-        const message = error instanceof Error ? error.message : String(error);
-        return /504|gateway timeout|cloudfront|timeout/i.test(message);
-      };
-
-      const callWithRetry = async (attempts: number): Promise<ReturnType<typeof llm.chatCompletionJSON<LiveInsights>>> => {
-        let lastError: unknown;
-        for (let attempt = 1; attempt <= attempts; attempt++) {
-          try {
-            if (attempt > 1) {
-              const backoffMs = 500 * attempt;
-              await new Promise((resolve) => setTimeout(resolve, backoffMs));
-            }
-            return await llm.chatCompletionJSON<LiveInsights>(requestPayload);
-          } catch (error) {
-            lastError = error;
-            if (!isRetryableError(error) || attempt === attempts) {
-              throw error;
-            }
-            log.warn({ attempt, error: error instanceof Error ? error.message : String(error) }, 'Retrying LLM request after transient error');
-          }
-        }
-
-        throw lastError instanceof Error ? lastError : new Error('LLM request failed');
-      };
-
-      const response = await callWithRetry(3);
-
-      log.debug(
-        {
-          success: response.success,
-          hasData: !!response.data,
-          error: response.error,
-          dataPreview: response.data
-            ? {
-                say_this: response.data.say_this?.slice(0, 2),
-                ask_this: response.data.ask_this?.slice(0, 2),
-              }
-            : null,
-        },
-        'Live assist LLM response received'
+      log.info(
+        { promptLength: fullPrompt.length },
+        '[LiveAssist] Requesting coaching tip via VideoDB generateText (pro, json)',
       );
+
+      const videodb = getVideoDBServiceFromConfig();
+      if (!videodb) {
+        log.warn('No VideoDB service available (no API key) — skipping coaching tip');
+        this.lastProcessedTimestamp = now;
+        return;
+      }
+
+      // generateText with responseType='json' asks the model to return valid JSON.
+      // Returns the raw text/JSON string which we parse below.
+      const rawText = await videodb.generateCoachingText(fullPrompt, 'pro', 'json', 30000);
 
       this.lastProcessedTimestamp = now;
 
-      if (!response.success || !response.data) {
+      // Parse the JSON response. Strip any markdown fences defensively.
+      const parseCoachingJson = (text: string | null): LiveInsights | null => {
+        if (!text) return null;
+        let s = text.trim();
+        const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (fenceMatch) {
+          s = fenceMatch[1].trim();
+        } else {
+          s = s.replace(/^```(?:json)?\s*/i, '').trim();
+        }
+        const jsonStart = s.indexOf('{');
+        const jsonEnd   = s.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd > jsonStart) {
+          s = s.slice(jsonStart, jsonEnd + 1);
+        }
+        try {
+          return JSON.parse(s) as LiveInsights;
+        } catch (err) {
+          log.warn({ error: err, preview: s.slice(0, 200) }, '[LiveAssist] Failed to parse coaching JSON');
+          return null;
+        }
+      };
+
+      const parsed = parseCoachingJson(rawText);
+
+      log.debug(
+        {
+          hasData: !!parsed,
+          rawLength: rawText?.length ?? 0,
+          dataPreview: parsed
+            ? {
+                say_this: String(parsed.say_this ?? '').slice(0, 80),
+                ask_this: String(parsed.ask_this ?? '').slice(0, 80),
+              }
+            : null,
+        },
+        'Live assist coaching response received',
+      );
+
+      if (!parsed) {
         if (this.activeGameId === 'chess' && chessContext?.engineSummary) {
           const engineFallback = `Engine: ${this.sanitizeInsightText(chessContext.engineSummary).slice(0, 320)}`;
           this.emit('insights', {
@@ -1143,11 +1254,11 @@ class LiveAssistService extends EventEmitter {
             clearExisting: true,
           });
         }
-        log.warn({ error: response.error }, 'Failed to get live assist response');
+        log.warn('Failed to parse coaching response — emitted engine fallback');
         return;
       }
 
-      const { say_this, ask_this } = response.data;
+      const { say_this, ask_this } = parsed;
       log.debug({ say_this, ask_this }, 'Insights generated for this chunk');
 
       const normalizeInsights = (value: unknown): string[] => {
