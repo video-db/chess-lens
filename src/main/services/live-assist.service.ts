@@ -34,7 +34,7 @@ const PROCESS_TRANSCRIPT_TIMEOUT_MS = 10000;
 
 const CHESS_SYSTEM_PROMPT = `You are a chess coach. Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation before or after.
 Format: {"say_this":"<one sentence with best move and why>","ask_this":"<one short drill>"}
-The engine summary in the context already contains the best move — use it. Do NOT invent a different move. The FEN's active side (w=White, b=Black) tells you WHOSE TURN IT IS — always generate the tip for that side. Keep say_this under 60 words.`;
+The engine summary in the context already contains the best move — use it. Do NOT invent a different move. The context specifies which color the player is — always generate the tip for that player's pieces. Keep say_this under 60 words.`;
 
 export interface MeetingContext {
   name?: string;
@@ -561,28 +561,15 @@ class LiveAssistService extends EventEmitter {
 
     const [board, , castling, enPassant, halfmove = '0', fullmove = '1'] = parts;
 
-    // Prefer the turn already tracked in lastChessTurn — this is set by
-    // injectConfirmedFen() using only screenshot-path boards (reliable).
-    // Fall back to piece-count inference only when there is no tracked turn.
+    // Use the player's color (perspective) as the side to move.
+    // This matches what injectConfirmedFen sets, so lastChessTurn is always
+    // the player's color once a screenshot-path FEN has been confirmed.
     let inferredTurn: 'w' | 'b';
     if (this.lastChessTurn !== null) {
       inferredTurn = this.lastChessTurn;
     } else {
-      // Cold start: try to detect perspective from the latest visual buffer entry
-      // (RTStream board_mapping carries <perspective> tags) if lastChessPerspective
-      // hasn't been set yet by the screenshot path.
-      let detectedPerspective: 'white' | 'black' = this.lastChessPerspective;
-      if (visuals && visuals.length > 0) {
-        for (let i = visuals.length - 1; i >= 0; i--) {
-          const m = visuals[i].text.match(/<perspective>\s*(white|black)\s*<\/perspective>/i);
-          if (m) {
-            detectedPerspective = m[1].toLowerCase() as 'white' | 'black';
-            break;
-          }
-        }
-      }
-      const seedTurn: 'w' | 'b' = detectedPerspective === 'black' ? 'b' : 'w';
-      inferredTurn = this.inferTurnFromBoards(this.lastChessBoard, board, seedTurn);
+      // Cold start before the first screenshot-path FEN: derive from perspective.
+      inferredTurn = this.lastChessPerspective === 'black' ? 'b' : 'w';
     }
 
     const nextFen = `${board} ${inferredTurn} ${castling} ${enPassant} ${halfmove} ${fullmove}`;
@@ -959,24 +946,19 @@ class LiveAssistService extends EventEmitter {
       this.lastChessBoard = null;
     }
 
-    // Determine the seed turn for inferTurnFromBoards:
+    // Determine the inferred turn.
     //
-    //  1. LLM-reported turn (from <turn> tag): most accurate — the model reads
-    //     the chess app's clock / active-player indicator directly.  Used
-    //     whenever available, even for mid-game cold starts.
+    // Since turn detection from screenshots is unreliable (the LLM may not
+    // always read the highlight correctly), we use the player's perspective
+    // as the authoritative source: the player is always the side at the
+    // visual bottom of the screen. This ensures the coaching tip is always
+    // generated for the player's pieces, not the opponent's.
     //
-    //  2. Already-tracked turn (lastChessTurn): used for every move after the
-    //     first confirmed FEN — the heuristic flip logic takes over from here.
-    //
-    //  3. Perspective-derived fallback: only if both of the above are null.
-    //     This is the least reliable because perspective (which side is at
-    //     the bottom) is not the same as whose turn it is.
-    const seedTurn: 'w' | 'b' | null =
-      reportedTurn ??         // (1) LLM UI indicator — authoritative
-      this.lastChessTurn ??   // (2) tracked from previous moves
-      (perspective === 'black' ? 'b' : 'w');  // (3) perspective fallback
-
-    const inferredTurn = this.inferTurnFromBoards(this.lastChessBoard, fenBoard, seedTurn);
+    // Perspective → player color → that is the side we always advise.
+    // White at bottom → player is White → turn = 'w'
+    // Black at bottom → player is Black → turn = 'b'
+    const playerColor: 'w' | 'b' = perspective === 'black' ? 'b' : 'w';
+    const inferredTurn: 'w' | 'b' = playerColor;
 
     // Update tracked state immediately so processTranscriptInner uses the
     // correct turn even before a coaching tip is generated.
@@ -984,7 +966,7 @@ class LiveAssistService extends EventEmitter {
     this.lastChessBoard = fenBoard;
 
     log.debug(
-      { fenBoard: fenBoard.slice(0, 30), perspective, reportedTurn, inferredTurn, seedTurn },
+      { fenBoard: fenBoard.slice(0, 30), perspective, reportedTurn, inferredTurn },
       '[LiveAssist] injectConfirmedFen: turn determined from screenshot boards'
     );
 
@@ -1211,8 +1193,9 @@ class LiveAssistService extends EventEmitter {
       return;
     }
 
+    const playerColorLabel = this.lastChessPerspective === 'black' ? 'Black' : 'White';
     const chessSection = chessContext
-      ? `## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nSide to move: ${chessContext.turn === 'b' ? 'Black' : 'White'}\n${chessContext.playedMoveSan ? `Played SAN: ${chessContext.playedMoveSan}\n` : ''}${chessContext.playedMoveUci ? `Played UCI: ${chessContext.playedMoveUci}\n` : ''}${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n`
+      ? `## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nPlayer is: ${playerColorLabel} (generate the tip for ${playerColorLabel}'s best move)\n${chessContext.playedMoveSan ? `Played SAN: ${chessContext.playedMoveSan}\n` : ''}${chessContext.playedMoveUci ? `Played UCI: ${chessContext.playedMoveUci}\n` : ''}${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n`
       : '';
 
     // Emit an immediate engine-only tip so the user sees something instantly.

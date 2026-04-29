@@ -206,10 +206,15 @@ class ChessScreenshotService {
     }
 
     if (bestCount >= FEN_VOTE_THRESHOLD && bestFen !== null) {
-      const latestEntry = [...this.fenVoteBuffer]
-        .reverse()
-        .find((e) => e.fenBoard === bestFen);
-      return latestEntry ?? null;
+      const matchingEntries = [...this.fenVoteBuffer]
+        .filter((e) => e.fenBoard === bestFen);
+
+      // Prefer the entry that has a non-null reportedTurn — this means the LLM
+      // successfully read the move highlight and the turn value is reliable.
+      // Falling back to the latest entry (which may have reportedTurn=null due
+      // to highlight fadeout on the second reading) caused systematic turn errors.
+      const withTurn = matchingEntries.filter((e) => e.reportedTurn !== null);
+      return withTurn[withTurn.length - 1] ?? matchingEntries[matchingEntries.length - 1] ?? null;
     }
     return null;
   }
