@@ -304,6 +304,9 @@ function ensureRecordingColumns(): void {
   addColumnIfMissing('collection_id', "ALTER TABLE recordings ADD COLUMN collection_id TEXT");
   addColumnIfMissing('post_meeting_checklist', "ALTER TABLE recordings ADD COLUMN post_meeting_checklist TEXT");
   addColumnIfMissing('post_meeting_checklist_completed', "ALTER TABLE recordings ADD COLUMN post_meeting_checklist_completed TEXT");
+  // coaching_tips: JSON array of { sayThis: string; askThis: string } objects captured during the session.
+  // Used by the summary generator for chess sessions that have no mic transcript.
+  addColumnIfMissing('coaching_tips', "ALTER TABLE recordings ADD COLUMN coaching_tips TEXT");
 }
 
 function ensureNudgesHistorySchema(): void {
@@ -478,6 +481,42 @@ export function updateRecordingBySessionId(
     .where(eq(schema.recordings.sessionId, sessionId))
     .returning()
     .get();
+}
+
+// ─── Coaching Tips ─────────────────────────────────────────────────────────────
+
+export interface CoachingTip {
+  sayThis: string;
+  askThis: string;
+  timestamp: number;
+}
+
+/**
+ * Persist the current list of coaching tips for a recording.
+ * Overwrites any previously saved tips (called once at session end).
+ */
+export function saveCoachingTips(recordingId: number, tips: CoachingTip[]): void {
+  if (!sqlite) return;
+  sqlite
+    .prepare('UPDATE recordings SET coaching_tips = ? WHERE id = ?')
+    .run(JSON.stringify(tips), recordingId);
+}
+
+/**
+ * Retrieve all coaching tips saved for a recording.
+ * Returns an empty array if none were saved.
+ */
+export function getCoachingTipsByRecording(recordingId: number): CoachingTip[] {
+  if (!sqlite) return [];
+  const row = sqlite
+    .prepare('SELECT coaching_tips FROM recordings WHERE id = ?')
+    .get(recordingId) as { coaching_tips: string | null } | undefined;
+  if (!row?.coaching_tips) return [];
+  try {
+    return JSON.parse(row.coaching_tips) as CoachingTip[];
+  } catch {
+    return [];
+  }
 }
 
 

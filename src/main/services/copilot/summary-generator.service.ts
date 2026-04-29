@@ -1,20 +1,25 @@
 /**
  * Summary Generator Service
  *
- * Generates post-meeting summaries using three specialized prompts:
+ * Generates post-game summaries using three specialized prompts:
  * 1. Short Overview - A narrative paragraph summary (3-5 sentences)
  * 2. Key Points - Structured JSON with topics and attributed points
- * 3. Post-Meeting Checklist - Action items and follow-ups from the conversation
+ * 3. Post-Game Checklist - Training goals and corrections from the session
+ *
+ * For chess sessions (which have no mic transcript), the summary is generated
+ * from the live coaching tips captured during the game. Raw FEN strings and
+ * board-mapping XML are stripped before the data reaches the LLM.
  */
 
 import { logger } from '../../lib/logger';
 import { getLLMService } from '../llm.service';
-import { getTranscriptSegmentsByRecording, getVisualIndexItemsByRecording } from '../../db';
-import { getGameCoachingProfile, getGameIndexingPrompt, type SupportedGameId } from '../../../shared/config/game-coaching';
+import { getVideoDBServiceFromConfig } from '../videodb.service';
+import { getTranscriptSegmentsByRecording, getCoachingTipsByRecording } from '../../db';
+import { getGameCoachingProfile, type SupportedGameId } from '../../../shared/config/game-coaching';
 
 const log = logger.child({ module: 'summary-generator' });
 
-// Types
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
 export interface KeyPoint {
   topic: string;
@@ -42,178 +47,240 @@ export interface MeetingContext {
   checklist?: string[];
 }
 
-// System Prompts
+// ─── System Prompts ─────────────────────────────────────────────────────────────
 
 function buildGameSummarySystemPrompt(gameId: SupportedGameId, section: 'overview' | 'keyPoints' | 'checklist'): string {
   const profile = getGameCoachingProfile(gameId);
   const gameName = profile.name;
 
   if (section === 'overview') {
-    return `You are a ${gameName} post-game analyst. This is a gameplay session, not a meeting.
-Summarize what happened in the session using gameplay language only.
+    return `You are a ${gameName} post-game coach. The data below is a log of coaching tips and engine suggestions captured during a live chess game.
+Summarize what happened in the session using chess language only.
 
 Rules:
 - Write 3-5 short sentences.
-- Focus on rounds, fights, mistakes, advantages, clutch moments, positioning, and decision-making.
-- Do not mention meetings, discussions, colleagues, agenda, or action items.
-- Be concrete and game-specific.
+- Reference specific chess concepts: piece activity, pawn structure, king safety, tactical threats, positional advantages, opening choices, endgame technique.
+- Do NOT mention FEN strings, board coordinates, XML tags, or raw notation unless it forms part of a natural chess sentence (e.g. "played ...Nc6").
+- Do not mention meetings, discussions, colleagues, or agenda items.
 - Use past tense.
 
 Return only the summary paragraph.`;
   }
 
   if (section === 'keyPoints') {
-    return `You are a ${gameName} post-game analyst. This is a gameplay session, not a meeting.
-Return the key gameplay takeaways as JSON.
+    return `You are a ${gameName} post-game coach. The data below is a log of coaching tips and engine suggestions from a live chess game.
+Return the key chess takeaways as JSON.
 
 Rules:
-- Group by gameplay themes such as Aim, Positioning, Decision-making, Movement, and Game sense.
-- Each point should describe a concrete in-game moment or repeated pattern.
-- Do not mention meetings, discussions, attendees, or agenda items.
-- Use short topic names and concrete points.
+- Group by chess themes: Tactics, Piece Activity, Pawn Structure, King Safety, Opening/Middlegame, Endgame, Decision-Making.
+- Each point should describe a concrete chess idea, mistake, or pattern observed during the game.
+- Do NOT echo FEN strings, board mappings, XML, or coordinate dumps — only human-readable chess analysis.
+- Do not mention meetings, attendees, or agenda items.
 
 Output format:
 {
   "key_points": [
     {
       "topic": "Topic Name",
-      "points": ["Concrete gameplay point."]
+      "points": ["Concrete chess observation."]
     }
   ]
 }`;
   }
 
-  return `You are a ${gameName} post-game analyst. This is a gameplay session, not a meeting.
-Extract the next-match goals, drills, and corrections from the session.
+  return `You are a ${gameName} post-game coach. The data below is a log of coaching tips and engine suggestions from a live chess game.
+Extract training goals and corrections for the next game.
 
 Rules:
-- Return 3-10 concise items.
-- Make each item a gameplay correction or training goal.
-- Do not mention meetings, discussions, coworkers, or follow-up calls.
-- Prefer drills and behavior changes over vague advice.
+- Return 3-8 concise items.
+- Each item should be a specific chess training goal, pattern to study, or mistake to avoid.
+- Do NOT include FEN strings, board mappings, or XML fragments.
+- Do not mention meetings, discussions, or follow-up calls.
+- Prefer concrete drills: "Study the Bc4 attacking ideas against the Sicilian Dragon" is better than "improve your opening".
 
 Output format:
 {
   "checklist": [
-    "Actionable gameplay goal"
+    "Actionable chess training goal"
   ]
 }`;
 }
 
-// Summary Generator Service
+// ─── Summary Generator Service ─────────────────────────────────────────────────
 
 export class SummaryGeneratorService {
   constructor() {}
 
   /**
-   * Generate short overview, key points, and post-meeting checklist from full transcript
+   * Generate short overview, key points, and post-game checklist.
+   *
+   * For chess sessions with no mic transcript, uses the visual index items
+   * (live coaching tips + engine suggestions) as the data source after
+   * stripping all FEN/XML noise.
    */
   async generate(
     recordingId: number,
     context: MeetingContext
   ): Promise<PostMeetingSummary> {
-    // Fetch full transcript from database
     const dbSegments = getTranscriptSegmentsByRecording(recordingId);
-
-    if (!dbSegments || dbSegments.length === 0) {
-      log.warn({ recordingId }, 'No transcript segments found for recording');
-      return this.visualFallbackResults(recordingId, context);
-    }
-
-    log.info({ recordingId, segmentCount: dbSegments.length }, 'Generating post-meeting summaries');
-
-    const transcript = this.formatTranscript(dbSegments);
-    const userPrompt = this.buildUserPrompt(transcript, context);
     const gameId: SupportedGameId = context.gameId || 'chess';
 
-    // Generate all summaries in parallel using chess coaching prompts
+    // If there's a real spoken transcript, use it (non-chess sessions).
+    if (dbSegments && dbSegments.length > 0) {
+      log.info({ recordingId, segmentCount: dbSegments.length }, 'Generating summary from transcript');
+      const transcript = this.formatTranscript(dbSegments);
+      const userPrompt = this.buildUserPrompt(transcript, context);
+      const [shortOverview, keyPoints, postMeetingChecklist] = await Promise.all([
+        this.generateGameOverview(userPrompt, gameId),
+        this.generateGameKeyPoints(userPrompt, gameId),
+        this.generateGameChecklist(userPrompt, gameId),
+      ]);
+      return { shortOverview, keyPoints, postMeetingChecklist, generatedAt: Date.now() };
+    }
+
+    // Chess path: build the session log from visual index items (coaching tips).
+    log.warn({ recordingId }, 'No transcript segments found for recording');
+    return this.generateFromVisualData(recordingId, context, gameId);
+  }
+
+  /**
+   * Generate summary from coaching tips saved during the session.
+   * Falls back to a helpful empty-state message if no tips were captured.
+   */
+  private async generateFromVisualData(
+    recordingId: number,
+    context: MeetingContext,
+    gameId: SupportedGameId
+  ): Promise<PostMeetingSummary> {
+    const gameName = getGameCoachingProfile(gameId).name;
+
+    // Primary source: coaching tips persisted by the live assist pipeline.
+    const savedTips = getCoachingTipsByRecording(recordingId);
+
+    if (savedTips.length === 0) {
+      log.warn({ recordingId }, 'No coaching tips found in DB — returning generic fallback');
+      return this.emptyChessFallback(gameName);
+    }
+
+    log.info({ recordingId, tipCount: savedTips.length }, 'Generating summary from saved coaching tips');
+
+    // Format as a readable game log for the LLM.
+    // Each tip has a sayThis (coaching paragraph) and an askThis (drill).
+    const gameLog = savedTips
+      .map((tip, i) => `[Move ${i + 1}] Coach: ${tip.sayThis}\n  Drill: ${tip.askThis}`)
+      .join('\n\n');
+
+    const userPrompt = this.buildChessUserPrompt(gameLog, context, gameName);
+
     const [shortOverview, keyPoints, postMeetingChecklist] = await Promise.all([
       this.generateGameOverview(userPrompt, gameId),
       this.generateGameKeyPoints(userPrompt, gameId),
       this.generateGameChecklist(userPrompt, gameId),
     ]);
 
-    return {
-      shortOverview,
-      keyPoints,
-      postMeetingChecklist,
-      generatedAt: Date.now(),
-    };
+    return { shortOverview, keyPoints, postMeetingChecklist, generatedAt: Date.now() };
+  }
+
+  /**
+   * Build the user prompt for the LLM using a log of chess coaching tips.
+   */
+  private buildChessUserPrompt(gameLog: string, context: MeetingContext, gameName: string): string {
+    const title = context.meetingName || `${gameName} Session`;
+
+    const probingQA = context.probingQuestions?.length
+      ? context.probingQuestions.map((q, i) => {
+          const answer = q.customAnswer ? `${q.answer} (${q.customAnswer})` : q.answer;
+          return `Q${i + 1}: ${q.question}\nA${i + 1}: ${answer}`;
+        }).join('\n\n')
+      : '';
+
+    const preContext = probingQA ? `Pre-Session Goals:\n${probingQA}\n\n` : '';
+
+    return `${gameName} Session: ${title}
+${preContext}Live Coaching Tips (captured during the game):
+${gameLog}`;
   }
 
   private async generateGameOverview(userPrompt: string, gameId: SupportedGameId): Promise<string> {
-    const llm = getLLMService();
-
+    const systemPrompt = buildGameSummarySystemPrompt(gameId, 'overview');
+    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
     try {
-      const response = await llm.complete(userPrompt, buildGameSummarySystemPrompt(gameId, 'overview'));
-
-      if (response.success && response.content) {
-        return response.content.trim();
+      const videodb = getVideoDBServiceFromConfig();
+      if (videodb) {
+        const result = await videodb.generateCoachingText(fullPrompt, 'pro', 'text', 60000);
+        if (result) return result.trim();
       }
+      // Fallback to LLM direct call
+      const llm = getLLMService();
+      const response = await llm.complete(userPrompt, systemPrompt);
+      if (response.success && response.content) return response.content.trim();
     } catch (error) {
       log.error({ error, gameId }, 'Game overview generation failed');
     }
-
     return 'Unable to generate gameplay summary.';
   }
 
   private async generateGameKeyPoints(userPrompt: string, gameId: SupportedGameId): Promise<KeyPoint[]> {
-    const llm = getLLMService();
-
+    const systemPrompt = buildGameSummarySystemPrompt(gameId, 'keyPoints');
+    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
     try {
-      const response = await llm.complete(userPrompt, buildGameSummarySystemPrompt(gameId, 'keyPoints'));
-
+      const videodb = getVideoDBServiceFromConfig();
+      if (videodb) {
+        const result = await videodb.generateCoachingText(fullPrompt, 'pro', 'json', 60000);
+        if (result) {
+          const parsed = this.parseKeyPointsResponse(result);
+          if (parsed) return parsed;
+        }
+      }
+      // Fallback to LLM direct call
+      const llm = getLLMService();
+      const response = await llm.complete(userPrompt, systemPrompt);
       if (response.success && response.content) {
         const parsed = this.parseKeyPointsResponse(response.content);
-        if (parsed) {
-          return parsed;
-        }
+        if (parsed) return parsed;
       }
     } catch (error) {
       log.error({ error, gameId }, 'Game key points generation failed');
     }
-
     return [];
   }
 
   private async generateGameChecklist(userPrompt: string, gameId: SupportedGameId): Promise<string[]> {
-    const llm = getLLMService();
-
+    const systemPrompt = buildGameSummarySystemPrompt(gameId, 'checklist');
+    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
     try {
-      const response = await llm.complete(userPrompt, buildGameSummarySystemPrompt(gameId, 'checklist'));
-
+      const videodb = getVideoDBServiceFromConfig();
+      if (videodb) {
+        const result = await videodb.generateCoachingText(fullPrompt, 'pro', 'json', 60000);
+        if (result) {
+          const parsed = this.parseChecklistResponse(result);
+          if (parsed) return parsed;
+        }
+      }
+      // Fallback to LLM direct call
+      const llm = getLLMService();
+      const response = await llm.complete(userPrompt, systemPrompt);
       if (response.success && response.content) {
         const parsed = this.parseChecklistResponse(response.content);
-        if (parsed) {
-          return parsed;
-        }
+        if (parsed) return parsed;
       }
     } catch (error) {
       log.error({ error, gameId }, 'Game checklist generation failed');
     }
-
     return [];
   }
 
-  /**
-   * Parse key points JSON response
-   */
   private parseKeyPointsResponse(content: string): KeyPoint[] | null {
     try {
-      // Remove markdown fences if present
       let cleaned = content.trim();
       if (cleaned.startsWith('```')) {
         cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
       }
-
       const parsed = JSON.parse(cleaned);
-
-      // Handle both { key_points: [...] } and direct array
       const keyPoints = parsed.key_points || parsed;
-
       if (Array.isArray(keyPoints)) {
         return keyPoints.map((kp: { topic: string; points: string[] }) => ({
-          topic: kp.topic || 'Discussion',
+          topic: kp.topic || 'Chess Analysis',
           points: Array.isArray(kp.points) ? kp.points : [],
         }));
       }
@@ -223,22 +290,14 @@ export class SummaryGeneratorService {
     return null;
   }
 
-  /**
-   * Parse checklist JSON response
-   */
   private parseChecklistResponse(content: string): string[] | null {
     try {
-      // Remove markdown fences if present
       let cleaned = content.trim();
       if (cleaned.startsWith('```')) {
         cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
       }
-
       const parsed = JSON.parse(cleaned);
-
-      // Handle both { checklist: [...] } and direct array
       const checklist = parsed.checklist || parsed;
-
       if (Array.isArray(checklist)) {
         return checklist.filter((item: unknown) => typeof item === 'string' && item.trim().length > 0);
       }
@@ -248,29 +307,23 @@ export class SummaryGeneratorService {
     return null;
   }
 
-  /**
-   * Build the user prompt with meeting context
-   */
   private buildUserPrompt(transcript: string, context: MeetingContext): string {
     const title = context.meetingName || (context.gameId ? `${getGameCoachingProfile(context.gameId).name} Session` : 'Chess Session');
     const description = context.meetingDescription || 'Gameplay session';
 
-    // Format probing questions and answers
     const probingQA = context.probingQuestions?.length
       ? context.probingQuestions.map((q, i) => {
-          const answer = q.customAnswer
-            ? `${q.answer} (${q.customAnswer})`
-            : q.answer;
+          const answer = q.customAnswer ? `${q.answer} (${q.customAnswer})` : q.answer;
           return `Q${i + 1}: ${q.question}\nA${i + 1}: ${answer}`;
         }).join('\n\n')
-      : 'No pre-meeting context provided';
+      : 'No pre-session context provided';
 
     const checklist = context.checklist?.length
       ? context.checklist.map((item, i) => `${i + 1}. ${item}`).join('\n')
       : 'No checklist';
 
     return `Game Session Title: ${title}
-  Session Context: ${description}
+Session Context: ${description}
 
 Pre-Session Context (Q&A):
 ${probingQA}
@@ -282,9 +335,6 @@ Transcript:
 ${transcript}`;
   }
 
-  /**
-   * Format transcript segments for the LLM
-   */
   private formatTranscript(segments: { channel: string; text: string; startTime: number }[]): string {
     return segments
       .map(s => {
@@ -295,9 +345,6 @@ ${transcript}`;
       .join('\n');
   }
 
-  /**
-   * Format time as MM:SS
-   */
   private formatTime(seconds: number): string {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -305,154 +352,31 @@ ${transcript}`;
   }
 
   /**
-   * Return empty results
+   * Generic chess fallback when no coaching tips were captured at all.
    */
-  private visualFallbackResults(recordingId: number, context: MeetingContext): PostMeetingSummary {
-    const visualItems = getVisualIndexItemsByRecording(recordingId);
-    const gameName = context.gameId ? getGameCoachingProfile(context.gameId).name : 'game';
-
-    const coachingBuckets = {
-      positioning: [] as string[],
-      timing: [] as string[],
-      decisionMaking: [] as string[],
-      awareness: [] as string[],
-    };
-
-    for (const item of visualItems || []) {
-      const text = item.text.replace(/\s+/g, ' ').trim();
-      const lower = text.toLowerCase();
-
-      if (!text || /no actionable gameplay moment/i.test(lower)) continue;
-
-      if (/angle|cover|exposed|off[- ]angle|high ground|peek|hold|position|crosshair|flank/.test(lower)) {
-        coachingBuckets.positioning.push(text);
-        continue;
-      }
-
-      if (/rotate|timing|utility|flash|smoke|molotov|nade|ult|ability|cooldown|tempo/.test(lower)) {
-        coachingBuckets.timing.push(text);
-        continue;
-      }
-
-      if (/push|commit|fight|trade|chase|take|save|reset|engage|escape|peek again/.test(lower)) {
-        coachingBuckets.decisionMaking.push(text);
-        continue;
-      }
-
-      coachingBuckets.awareness.push(text);
-    }
-
-    if (!visualItems || visualItems.length === 0) {
-      const shortOverview = context.gameId
-        ? `No transcript was captured for this ${gameName} session, but the coach can still help. For the next match, focus on cleaner positioning, earlier rotations, and tighter fight selection so the replay has more actionable moments.`
-        : 'No transcript was captured for this session. Start recording with game audio/mic enabled for richer post-session analysis.';
-
-      return {
-        shortOverview,
-        keyPoints: context.gameId
-          ? [
-              {
-                topic: 'Next Match Priorities',
-                points: [
-                  'Hold tighter positions and use cover before taking fights.',
-                  'Rotate earlier when the round state becomes unfavorable.',
-                  'Take fewer low-value fights and look for cleaner trade setups.',
-                ],
-              },
-            ]
-          : [],
-        postMeetingChecklist: context.gameId
-          ? [
-              'Review one lost round and identify the first safer position you could have taken.',
-              'Practice slowing down before peeking so you can choose better fights.',
-              'Track one round where an earlier rotate or reset would have improved the outcome.',
-            ]
-          : [],
-        generatedAt: Date.now(),
-      };
-    }
-
-    const uniqueTips = Array.from(
-      new Set(
-        visualItems
-          .map((item) => item.text.replace(/\s+/g, ' ').trim())
-          .filter((text) => !!text && !/no actionable gameplay moment/i.test(text))
-      )
-    ).slice(0, 4);
-
-    const positioningPoints = Array.from(new Set(coachingBuckets.positioning)).slice(0, 3);
-    const timingPoints = Array.from(new Set(coachingBuckets.timing)).slice(0, 3);
-    const decisionPoints = Array.from(new Set(coachingBuckets.decisionMaking)).slice(0, 3);
-    const awarenessPoints = Array.from(new Set(coachingBuckets.awareness)).slice(0, 3);
-
-    const keyPoints: KeyPoint[] = [];
-
-    if (positioningPoints.length > 0) {
-      keyPoints.push({
-        topic: 'Positioning & Cover',
-        points: positioningPoints,
-      });
-    }
-
-    if (timingPoints.length > 0) {
-      keyPoints.push({
-        topic: 'Timing & Utility',
-        points: timingPoints,
-      });
-    }
-
-    if (decisionPoints.length > 0) {
-      keyPoints.push({
-        topic: 'Decision-Making',
-        points: decisionPoints,
-      });
-    }
-
-    if (awarenessPoints.length > 0) {
-      keyPoints.push({
-        topic: 'Awareness & Fight Sense',
-        points: awarenessPoints,
-      });
-    }
-
-    if (keyPoints.length === 0 && uniqueTips.length > 0) {
-      keyPoints.push({
-        topic: 'Visual Gameplay Highlights',
-        points: uniqueTips,
-      });
-    }
-
-    const shortOverview = keyPoints.length > 0
-      ? `This ${gameName} session showed a few repeatable improvement areas: tighter positioning, cleaner timing, and better fight selection. The strongest opportunities were around when to commit, when to reset, and how to turn visible advantages into safer rounds.`
-      : `Visual analysis captured mostly non-actionable moments in this ${gameName} session. Keep recording active in-round gameplay so the coach can produce sharper strategy and tactics feedback.`;
-
-    const checklist = keyPoints.length > 0
-      ? [
-          'Pick one round and review whether a safer position or earlier rotate would have improved the outcome.',
-          'Practice one drill around the most common timing mistake from this session.',
-          'Aim to convert one advantage state into a cleaner finish instead of forcing a risky fight.',
-        ]
-      : [];
-
+  private emptyChessFallback(gameName: string): PostMeetingSummary {
     return {
-      shortOverview,
-      keyPoints,
-      postMeetingChecklist: checklist,
-      generatedAt: Date.now(),
-    };
-  }
-
-  private emptyResults(): PostMeetingSummary {
-    return {
-      shortOverview: 'No transcript available to summarize.',
-      keyPoints: [],
-      postMeetingChecklist: [],
+      shortOverview: `No coaching tips were captured during this ${gameName} session. For richer post-game analysis, ensure the overlay is active and visible during gameplay so the live coach can record position-specific suggestions.`,
+      keyPoints: [
+        {
+          topic: 'Getting Started',
+          points: [
+            'Start a recording with the overlay visible on screen while playing.',
+            'The coach captures engine suggestions and position analysis in real time.',
+            'After the session, tips are automatically organised into key themes here.',
+          ],
+        },
+      ],
+      postMeetingChecklist: [
+        'Start a new session with the overlay active to capture live coaching tips.',
+        'Play at least 10–15 moves so the engine has time to analyse meaningful positions.',
+      ],
       generatedAt: Date.now(),
     };
   }
 }
 
-// Singleton Instance
+// ─── Singleton ─────────────────────────────────────────────────────────────────
 
 let instance: SummaryGeneratorService | null = null;
 
@@ -460,7 +384,7 @@ export function getSummaryGenerator(): SummaryGeneratorService {
   if (!instance) {
     instance = new SummaryGeneratorService();
   }
-  return instance;
+  return instance!;
 }
 
 export function resetSummaryGenerator(): void {

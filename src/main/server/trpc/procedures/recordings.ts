@@ -21,6 +21,7 @@ import {
   getRecordingById,
   getTranscriptSegmentsByRecording,
   getVisualIndexItemsByRecording,
+  getCoachingTipsByRecording,
 } from '../../../db';
 import { createChildLogger } from '../../../lib/logger';
 import { loadRuntimeConfig } from '../../../lib/config';
@@ -271,8 +272,29 @@ export const recordingsRouter = router({
       tip: z.string(),
     })))
     .query(async ({ input }) => {
-      const items = getVisualIndexItemsByRecording(input.recordingId);
+      // Primary source: coaching tips persisted from the live assist pipeline.
+      // These are clean human-readable chess tips ("The best move is a4 because...").
+      const coachingTips = getCoachingTipsByRecording(input.recordingId);
 
+      if (coachingTips.length > 0) {
+        // Use tip timestamps relative to the first tip for readable display times.
+        const sessionStart = coachingTips[0].timestamp;
+        return coachingTips
+          .map((tip, idx) => {
+            const startTime = Math.round((tip.timestamp - sessionStart) / 1000);
+            return {
+              id: `coaching-tip-${idx}`,
+              startTime,
+              endTime: startTime + 5,
+              tip: tip.sayThis,
+            };
+          })
+          .filter((item) => !!item.tip);
+      }
+
+      // Fallback to visual index items for older sessions that predate coaching_tips.
+      // Apply toGameplayTip to strip raw FEN/XML.
+      const items = getVisualIndexItemsByRecording(input.recordingId);
       return items
         .map((item) => ({
           id: item.id,

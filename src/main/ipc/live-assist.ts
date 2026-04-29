@@ -9,6 +9,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { getLiveAssistService, resetLiveAssistService } from '../services/live-assist.service';
 import type { MeetingContext } from '../services/live-assist.service';
 import { getMCPInferenceService, resetMCPInferenceService } from '../services/mcp-inference.service';
+import { getMeetingCopilot } from '../services/copilot/sales-copilot.service';
 import { createChildLogger } from '../lib/logger';
 import { updateWidgetLiveAssist, updateWidgetFen } from './widget';
 import type { LiveInsightsEvent } from '../../shared/types/live-assist.types';
@@ -63,6 +64,18 @@ export function setupLiveAssistHandlers(): void {
         askThis: event.insights.ask_this,
         clearExisting: event.clearExisting,
       });
+      // Persist full coaching tips (Stage 2: has both say_this and ask_this) to the
+      // DB so the post-session summary generator can use them.
+      // Stage 1 (engine-only) has an empty ask_this array — skip those.
+      const sayText = event.insights.say_this[0] ?? '';
+      const askText = event.insights.ask_this[0] ?? '';
+      if (sayText && askText) {
+        try {
+          getMeetingCopilot().addCoachingTip(sayText, askText);
+        } catch {
+          // Copilot may not be active (e.g. tests) — silently ignore
+        }
+      }
     });
     liveAssistService.on('fen', (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null }) => {
       sendToRenderer('live-assist:fen', data);

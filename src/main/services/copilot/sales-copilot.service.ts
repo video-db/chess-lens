@@ -15,6 +15,8 @@ import {
   createCallMetricsSnapshot,
   createNudge,
   getTranscriptSegmentsByRecording,
+  saveCoachingTips,
+  type CoachingTip,
 } from '../../db';
 
 import {
@@ -99,6 +101,8 @@ export class MeetingCopilotService extends EventEmitter {
   private compressionTimer: NodeJS.Timeout | null = null;
   private processingQueue: TranscriptSegmentData[] = [];
   private isProcessing: boolean = false;
+  /** Coaching tips accumulated during the current session. Flushed to DB on endCall(). */
+  private coachingTips: CoachingTip[] = [];
 
   private readonly DEFAULT_CONFIG: CopilotConfig = {
     enableTranscription: true,
@@ -133,6 +137,17 @@ export class MeetingCopilotService extends EventEmitter {
   }
 
   /**
+   * Accumulate a coaching tip produced during the session.
+   * Called from the live-assist IPC handler on every 'insights' event
+   * that carries a non-empty coaching tip (not the engine-only stage-1 tip).
+   */
+  addCoachingTip(sayThis: string, askThis: string): void {
+    if (!this.callState?.isActive) return;
+    this.coachingTips.push({ sayThis, askThis, timestamp: Date.now() });
+    log.debug({ total: this.coachingTips.length }, 'Coaching tip accumulated');
+  }
+
+  /**
    * Start tracking a call
    */
   async startCall(recordingId: number, sessionId: string): Promise<void> {
@@ -152,6 +167,7 @@ export class MeetingCopilotService extends EventEmitter {
     this.transcriptBuffer.startCall(sessionId, recordingId);
     this.nudgeEngine.reset();
     this.metricsService.clear(sessionId);
+    this.coachingTips = []; // reset for fresh session
 
     // Start periodic metrics updates
     if (this.config.enableMetrics) {
@@ -381,6 +397,12 @@ export class MeetingCopilotService extends EventEmitter {
         ? JSON.parse((recording as any).meetingChecklist)
         : undefined,
     };
+
+    // Persist accumulated coaching tips so the summary generator can use them.
+    if (this.coachingTips.length > 0) {
+      saveCoachingTips(recordingId, this.coachingTips);
+      log.info({ recordingId, tipCount: this.coachingTips.length }, 'Coaching tips saved to DB');
+    }
 
     // Generate summaries (fetches full transcript from DB)
     let summary: PostMeetingSummary;
