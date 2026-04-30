@@ -29,9 +29,12 @@
  */
 
 import { desktopCapturer, app } from 'electron';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { logger } from '../lib/logger';
+import { pipelineLatency } from '../lib/pipeline-latency';
+import type { VoteMeta } from '../lib/pipeline-latency';
 import { getLiveAssistService } from './live-assist.service';
 import { getLLMService } from './llm.service';
 
@@ -58,6 +61,29 @@ const BURST_INTERVAL_MS = 500;
  */
 const FEN_VOTE_WINDOW = 2;
 const FEN_VOTE_THRESHOLD = 2;
+
+// ─── Frame deduplication ──────────────────────────────────────────────────────
+//
+// Before calling the vision LLM, compute a fast hash of the PNG buffer to
+// detect frames that are pixel-for-pixel identical to the previous one.
+// On a static board this skips the ~6 s fenExtract call entirely.
+//
+// Implementation: sample every FRAME_HASH_STRIDE-th byte and SHA-1 the sample.
+// On a 6 MB PNG (~6 million bytes) with stride 512 that's ~11,700 bytes hashed
+// — takes < 1 ms and catches any real board change.
+//
+// Burst captures always bypass the check so the vote window fills correctly
+// after a move.
+
+const FRAME_HASH_STRIDE = 512;
+
+function sampleHash(buf: Buffer): string {
+  const hash = crypto.createHash('sha1');
+  for (let i = 0; i < buf.length; i += FRAME_HASH_STRIDE) {
+    hash.update(buf.subarray(i, i + 1));
+  }
+  return hash.digest('hex');
+}
 
 // ─── Debug frame writer ───────────────────────────────────────────────────────
 //
@@ -117,6 +143,12 @@ interface VoteEntry {
   /** Whose turn it is as reported by the LLM from UI indicators. Null when the
    *  LLM could not determine the turn (no clock/indicator visible). */
   reportedTurn: 'w' | 'b' | null;
+  /** Wall-clock time (Date.now()) when this entry was added to the buffer.
+   *  Used as the start anchor for fenStabilization phase latency. */
+  seenAt: number;
+  /** How long the fenExtract LLM call took for this entry, in ms.
+   *  Stored so the confirming cycle can report fenExtract1Ms in its summary. */
+  fenExtractMs: number;
 }
 
 class ChessScreenshotService {
@@ -135,6 +167,17 @@ class ChessScreenshotService {
   // Debug frame sequence counter
   private debugSeq = 0;
 
+  // Frame deduplication — hash of the last PNG sent to the LLM
+  private lastFrameHash: string | null = null;
+
+  // Latency: per-FEN vote metadata keyed by fenBoard string.
+  // Stores both the wall-clock time of vote read 1 (seenAt) and how long
+  // that extraction took (fenExtract1Ms) so the confirming cycle can report
+  // the full fenStabilization phase duration.
+  // Entries are evicted when a FEN is promoted or when its buffer slot is
+  // overwritten, keeping memory bounded at FEN_VOTE_WINDOW entries.
+  private fenVoteMeta = new Map<string, VoteMeta>();
+
   // ─── Public API ──────────────────────────────────────────────────────────
 
   start(indexingPrompt: string): void {
@@ -150,6 +193,8 @@ class ChessScreenshotService {
     this.lastConfirmedFen = null;
     this.burstPending = false;
     this.debugSeq = 0;
+    this.lastFrameHash = null;
+    this.fenVoteMeta.clear();
 
     if (DEBUG_ENABLED) {
       log.info({ dir: getDebugDir() }, '[ChessScreenshot] Debug frame saving ENABLED');
@@ -175,6 +220,8 @@ class ChessScreenshotService {
     this.fenVoteBuffer = [];
     this.lastConfirmedFen = null;
     this.burstPending = false;
+    this.lastFrameHash = null;
+    this.fenVoteMeta.clear();
 
     log.info('[ChessScreenshot] Screenshot loop stopped');
   }
@@ -182,9 +229,23 @@ class ChessScreenshotService {
   // ─── Vote helpers ─────────────────────────────────────────────────────────
 
   private pushToVoteBuffer(entry: VoteEntry): void {
+    // Record vote-read-1 metadata the first time this fenBoard appears.
+    // Subsequent reads of the same board don't overwrite it — the first
+    // extraction is the true start of the fenStabilization phase.
+    if (!this.fenVoteMeta.has(entry.fenBoard)) {
+      this.fenVoteMeta.set(entry.fenBoard, {
+        seenAt: entry.seenAt,
+        fenExtract1Ms: entry.fenExtractMs,
+      });
+    }
     this.fenVoteBuffer.push(entry);
     if (this.fenVoteBuffer.length > FEN_VOTE_WINDOW) {
-      this.fenVoteBuffer.shift();
+      const evicted = this.fenVoteBuffer.shift();
+      // If the evicted FEN is no longer referenced by any remaining entry,
+      // remove it from the meta map to keep memory bounded.
+      if (evicted && !this.fenVoteBuffer.some(e => e.fenBoard === evicted.fenBoard)) {
+        this.fenVoteMeta.delete(evicted.fenBoard);
+      }
     }
   }
 
@@ -270,7 +331,11 @@ class ChessScreenshotService {
   }
 
   private async doCapture(isBurst: boolean): Promise<void> {
+    // Create a new pipeline latency cycle for this capture tick.
+    const cycleId = pipelineLatency.newCycle();
+
     // ── Step 1: Capture full primary screen ────────────────────────────────
+    pipelineLatency.startStep(cycleId, 'screenshot');
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
       thumbnailSize: { width: 1920, height: 1080 },
@@ -278,6 +343,8 @@ class ChessScreenshotService {
 
     if (!sources.length) {
       log.warn('[ChessScreenshot] No screen sources available');
+      pipelineLatency.endStep(cycleId, 'screenshot', 'no sources');
+      pipelineLatency.endCycle(cycleId, 'noSources');
       return;
     }
 
@@ -285,6 +352,8 @@ class ChessScreenshotService {
 
     if (!thumbnail || thumbnail.isEmpty()) {
       log.warn('[ChessScreenshot] Screen thumbnail is empty');
+      pipelineLatency.endStep(cycleId, 'screenshot', 'empty thumbnail');
+      pipelineLatency.endCycle(cycleId, 'emptyThumbnail');
       return;
     }
 
@@ -292,8 +361,23 @@ class ChessScreenshotService {
     const pngBuffer = thumbnail.toPNG();
     if (!pngBuffer || pngBuffer.length === 0) {
       log.warn('[ChessScreenshot] Failed to encode screenshot as PNG');
+      pipelineLatency.endStep(cycleId, 'screenshot', 'PNG encode failed');
+      pipelineLatency.endCycle(cycleId, 'pngEncodeFailed');
       return;
     }
+    pipelineLatency.endStep(cycleId, 'screenshot');
+
+    // ── Frame deduplication ────────────────────────────────────────────────
+    // Hash a strided sample of the PNG buffer. If it matches the previous
+    // frame AND this is not a burst capture, the board hasn't changed —
+    // skip the expensive vision LLM call entirely.
+    const frameHash = sampleHash(pngBuffer);
+    if (!isBurst && frameHash === this.lastFrameHash) {
+      log.debug('[ChessScreenshot] Frame unchanged — skipping fenExtract');
+      pipelineLatency.endCycle(cycleId, 'frameUnchanged');
+      return;
+    }
+    this.lastFrameHash = frameHash;
 
     log.debug(
       { bytes: pngBuffer.length, isBurst },
@@ -302,7 +386,10 @@ class ChessScreenshotService {
 
     // ── Step 3: Raw FEN extraction ─────────────────────────────────────────
     const llm = getLLMService();
-    const rawResult = await llm.extractFenFromImage(pngBuffer, 'image/png', this.indexingPrompt);
+    pipelineLatency.startStep(cycleId, 'fenExtract');
+    const fenExtractStart = Date.now();
+    const rawResult = await llm.extractFenFromImage(pngBuffer, 'image/png', this.indexingPrompt, 1, cycleId);
+    const fenExtractMs = Date.now() - fenExtractStart;
 
     // ── Step 3b: Debug frame save ──────────────────────────────────────────
     if (DEBUG_ENABLED) {
@@ -333,12 +420,24 @@ class ChessScreenshotService {
 
     // ── Step 4: Handle null result ─────────────────────────────────────────
     if (rawResult === null) {
+      pipelineLatency.endStep(cycleId, 'fenExtract', 'null result');
+      pipelineLatency.endCycle(cycleId, 'fenNull');
       log.debug('[ChessScreenshot] FEN extraction returned null');
       return;
     }
+    pipelineLatency.endStep(cycleId, 'fenExtract');
+
+    // Stamp seenAt and fenExtractMs so pushToVoteBuffer can build VoteMeta
+    // for the phase latency report on the confirming cycle.
+    const voteEntry: VoteEntry = {
+      ...rawResult,
+      seenAt: Date.now(),
+      fenExtractMs,
+    };
 
     // ── Step 5: Vote ───────────────────────────────────────────────────────
-    this.pushToVoteBuffer(rawResult);
+    pipelineLatency.startStep(cycleId, 'voteConfirm');
+    this.pushToVoteBuffer(voteEntry);
     const votedEntry = this.computeVotedFen();
 
     log.debug(
@@ -355,12 +454,16 @@ class ChessScreenshotService {
     );
 
     if (votedEntry === null) {
+      pipelineLatency.endStep(cycleId, 'voteConfirm', 'inconclusive');
+      pipelineLatency.endCycle(cycleId, 'voteInconclusive');
       log.debug('[ChessScreenshot] Vote inconclusive — waiting for consensus');
       return;
     }
+    pipelineLatency.endStep(cycleId, 'voteConfirm');
 
     // ── Step 6: Promote voted FEN if changed ──────────────────────────────
     if (votedEntry.fenBoard === this.lastConfirmedFen) {
+      pipelineLatency.endCycle(cycleId, 'fenUnchanged');
       log.debug({ votedFen: votedEntry.fenBoard }, '[ChessScreenshot] Voted FEN unchanged — no push needed');
       return;
     }
@@ -371,13 +474,20 @@ class ChessScreenshotService {
     );
     this.lastConfirmedFen = votedEntry.fenBoard;
 
+    // Look up vote-read-1 metadata and clean up now that the FEN is promoted.
+    const voteMeta = this.fenVoteMeta.get(votedEntry.fenBoard);
+    this.fenVoteMeta.delete(votedEntry.fenBoard);
+
     const liveAssist = getLiveAssistService();
-    liveAssist.injectConfirmedFen(votedEntry.fenBoard, votedEntry.perspective, votedEntry.reportedTurn);
+    // Pass cycleId and voteMeta so live-assist can attach them to the tracker
+    // and report the full fenStabilization phase in the cycle summary.
+    liveAssist.injectConfirmedFen(votedEntry.fenBoard, votedEntry.perspective, votedEntry.reportedTurn, cycleId, voteMeta);
 
     // ── Step 7: Burst to confirm new position quickly ─────────────────────
     if (!isBurst) {
       this.scheduleBurst();
     }
+    // Note: cycle is NOT ended here — live-assist will end it after coachingTip.
   }
 }
 

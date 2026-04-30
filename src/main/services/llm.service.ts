@@ -13,6 +13,7 @@ import type {
   ChatCompletionAssistantMessageParam,
 } from 'openai/resources/chat/completions';
 import { logger } from '../lib/logger';
+import { pipelineLatency } from '../lib/pipeline-latency';
 import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
 
 const log = logger.child({ module: 'llm-service' });
@@ -519,7 +520,8 @@ export class LLMService {
     imageBuffer: Buffer,
     mimeType: 'image/png' | 'image/jpeg' | 'image/webp',
     indexingPrompt: string,
-    maxRetries = 1
+    maxRetries = 1,
+    cycleId?: number
   ): Promise<{ fenBoard: string; perspective: 'white' | 'black'; reportedTurn: 'w' | 'b' | null } | null> {
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
@@ -580,6 +582,7 @@ export class LLMService {
         const rawBoardMatches = [...rawText.matchAll(/<raw_board>\s*(.*?)\s*<\/raw_board>/gis)];
         if (!rawBoardMatches.length) {
           log.warn({ attempt }, '[VideoDB] No <raw_board> tag found in response');
+          if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'fenExtract', 'no raw_board tag');
           return null;
         }
 
@@ -616,6 +619,7 @@ export class LLMService {
             fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
           }
           log.info({ fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn, attempt }, '[VideoDB] FEN extracted successfully');
+          // cycleId endStep is called by the chess-screenshot service after this returns
           return { fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn };
         }
 
@@ -631,6 +635,7 @@ export class LLMService {
         // Don't retry on server errors (5xx) or timeouts — they won't resolve
         // with a math-correction follow-up and just waste time.
         const status = (error as { status?: number }).status;
+        if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'fenExtract', errMsg.slice(0, 80));
         if (!status || status >= 500 || errMsg.toLowerCase().includes('timeout')) {
           return null;
         }
@@ -639,6 +644,7 @@ export class LLMService {
     }
 
     log.warn({ maxRetries }, '[VideoDB] extractFenFromImage failed after all attempts');
+    if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'fenExtract', 'all attempts failed');
     return null;
   }
 

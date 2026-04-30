@@ -69,6 +69,11 @@ export const logger = pino(
             colorize: true,
             translateTime: 'SYS:standard',
             ignore: 'pid,hostname',
+            // Increase object depth so nested fields like phases/steps are
+            // not truncated in the terminal output. Default is 4.
+            objectPrintDepth: 10,
+            // Print each key on its own line for readability.
+            singleLine: false,
           },
         }
       : undefined,

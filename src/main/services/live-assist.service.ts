@@ -8,6 +8,8 @@
 
 import { EventEmitter } from 'events';
 import { logger } from '../lib/logger';
+import { pipelineLatency } from '../lib/pipeline-latency';
+import type { VoteMeta } from '../lib/pipeline-latency';
 import { getLLMService } from './llm.service';
 import { getChessEngineService } from './chess-engine.service';
 import { getVideoDBServiceFromConfig } from './videodb.service';
@@ -98,6 +100,13 @@ class LiveAssistService extends EventEmitter {
   private pendingChessSignature: string | null = null;
   private pendingChessSignatureCount = 0;
   private isProcessing = false; // guard against concurrent processTranscript calls
+  /** Pipeline latency cycle ID propagated from ChessScreenshotService. */
+  private currentCycleId: number | undefined = undefined;
+  /** Vote-read-1 metadata for the current cycle — used to compute phase latency. */
+  private currentVoteMeta: VoteMeta | undefined = undefined;
+  /** True when runCoachingLLM has been fired for currentCycleId and hasn't
+   *  finished yet — prevents signatureUnchanged from closing the cycle early. */
+  private coachingInFlight = false;
 
   private getTipLengthLimits(): { maxSayWords: number; maxAskWords: number; maxFinalSayCount: number; maxFinalAskCount: number } {
     return { maxSayWords: 20, maxAskWords: 16, maxFinalSayCount: 2, maxFinalAskCount: 2 };
@@ -672,6 +681,7 @@ class LiveAssistService extends EventEmitter {
       '[LiveAssist] Sending chess engine request'
     );
     // Pass the turn-corrected FEN so the engine analyses the right side to move.
+    if (this.currentCycleId !== undefined) pipelineLatency.startStep(this.currentCycleId, 'engineCall');
     const result = await engine.analyzeByFen(resolvedFen.fen, {
       variants: 5,
       depth: 12,
@@ -679,9 +689,11 @@ class LiveAssistService extends EventEmitter {
     });
 
     if (!result) {
+      if (this.currentCycleId !== undefined) pipelineLatency.endStep(this.currentCycleId, 'engineCall', 'no analysis');
       log.warn({ resolvedFen: resolvedFen.fen, inferredTurn: resolvedFen.turn }, '[LiveAssist] Chess engine returned no analysis — skipping tip for this position');
       return null;
     }
+    if (this.currentCycleId !== undefined) pipelineLatency.endStep(this.currentCycleId, 'engineCall');
 
     return {
       fen: resolvedFen.fen,
@@ -934,8 +946,19 @@ class LiveAssistService extends EventEmitter {
    * Returns true if the FEN was accepted into the buffer, false if the
    * service is not running.
    */
-  injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white', reportedTurn: 'w' | 'b' | null = null): boolean {
+  injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white', reportedTurn: 'w' | 'b' | null = null, cycleId?: number, voteMeta?: VoteMeta): boolean {
     if (!this.isRunning) return false;
+
+    // Store cycle ID and vote metadata so downstream steps can continue tracking.
+    if (cycleId !== undefined) {
+      this.currentCycleId = cycleId;
+      this.currentVoteMeta = voteMeta;
+      // Attach vote-read-1 metadata to the confirming cycle immediately so
+      // the tracker can compute the fenStabilization phase.
+      if (voteMeta !== undefined) {
+        pipelineLatency.setVoteMeta(cycleId, voteMeta);
+      }
+    }
 
     // If lastChessTurn is null it means this is the first FEN of a new game
     // (state was reset by start() or we're on a fresh session). In this case
@@ -1093,12 +1116,26 @@ class LiveAssistService extends EventEmitter {
   private async processTranscriptInner(): Promise<void> {
     if (!this.isRunning) return;
 
+    // Convenience wrapper — only calls endCycle when a screenshot-path cycle
+    // is active AND coaching is not still running in the background.
+    // If coachingInFlight is true, runCoachingLLM owns the cycle close.
+    // Clears currentCycleId after closing so the same cycle cannot be
+    // re-closed by a later processTranscriptInner call.
+    const endCycleIfTracked = (reason: string) => {
+      if (this.currentCycleId !== undefined && !this.coachingInFlight) {
+        pipelineLatency.endCycle(this.currentCycleId, reason);
+        this.currentCycleId = undefined;
+        this.currentVoteMeta = undefined;
+      }
+    };
+
     const now = Date.now();
 
     // Only run when fresh gameplay visuals have arrived since last processing
     const newVisuals = this.visualIndexBuffer.filter(v => v.timestamp > this.lastProcessedTimestamp);
     if (newVisuals.length === 0) {
       log.debug('No new gameplay action feed to process');
+        endCycleIfTracked('noNewVisuals');
       return;
     }
 
@@ -1106,6 +1143,7 @@ class LiveAssistService extends EventEmitter {
     if (freshGameplayVisuals.length === 0) {
       this.lastProcessedTimestamp = now;
       log.debug('Only non-actionable visual frames in latest batch; skipping update');
+        endCycleIfTracked('nonActionableVisuals');
       return;
     }
 
@@ -1122,6 +1160,7 @@ class LiveAssistService extends EventEmitter {
     if (promptVisuals.length === 0) {
       this.lastProcessedTimestamp = now;
       log.debug('No recent gameplay action feed to process');
+        endCycleIfTracked('noRecentVisuals');
       return;
     }
 
@@ -1139,6 +1178,7 @@ class LiveAssistService extends EventEmitter {
         'Skipping live assist: visuals are not recognized as gameplay feed'
       );
       this.lastProcessedTimestamp = now;
+        endCycleIfTracked('notGameplayFeed');
       // Do not emit instructional noise while waiting for valid gameplay context.
       return;
     }
@@ -1154,6 +1194,7 @@ class LiveAssistService extends EventEmitter {
     if (this.activeGameId === 'chess' && !chessSignature) {
       log.debug('Skipping chess tip: no valid FEN visible in current window');
       this.lastProcessedTimestamp = now;
+        endCycleIfTracked('noFenInWindow');
       return;
     }
 
@@ -1169,6 +1210,11 @@ class LiveAssistService extends EventEmitter {
     if (this.activeGameId === 'chess' && chessSignature === this.lastChessSignature) {
       log.debug({ chessSignature }, '[LiveAssist] Skipping chess tip: position signature unchanged');
       this.lastProcessedTimestamp = now;
+      // Only close the cycle if coaching is not still running in the background.
+      // If coachingInFlight is true, runCoachingLLM will close it when it finishes.
+      if (!this.coachingInFlight) {
+        endCycleIfTracked('signatureUnchanged');
+      }
       return;
     }
 
@@ -1187,6 +1233,7 @@ class LiveAssistService extends EventEmitter {
     if (this.activeGameId === 'chess' && !chessContext) {
       log.warn({ chessSignature }, '[LiveAssist] No engine analysis for this position — skipping LLM tip');
       this.lastProcessedTimestamp = now;
+      endCycleIfTracked('noEngineAnalysis');
       // Invalidate the pending signature so we retry when a new (valid) FEN arrives.
       this.pendingChessSignature = null;
       this.pendingChessSignatureCount = 0;
@@ -1200,12 +1247,14 @@ class LiveAssistService extends EventEmitter {
 
     // Emit an immediate engine-only tip so the user sees something instantly.
     if (this.activeGameId === 'chess' && chessContext?.engineSummary) {
+      if (this.currentCycleId !== undefined) pipelineLatency.startStep(this.currentCycleId, 'engineTip');
       const engineFallback = this.formatEngineAsTip(chessContext);
       this.emit('insights', {
         insights: { say_this: [engineFallback], ask_this: [] },
         processedAt: Date.now(),
         clearExisting: true,
       });
+      if (this.currentCycleId !== undefined) pipelineLatency.endStep(this.currentCycleId, 'engineTip');
       log.debug({ chessSignature }, '[LiveAssist] Emitted immediate engine-only tip while coaching LLM runs');
     }
 
@@ -1249,6 +1298,7 @@ class LiveAssistService extends EventEmitter {
 
     // Fire coaching LLM as fire-and-forget — it will upgrade the engine tip
     // when it completes. isProcessing is released immediately after this return.
+    this.coachingInFlight = true;
     void this.runCoachingLLM(chessContext, chessSignature, userPrompt);
   }
 
@@ -1262,6 +1312,32 @@ class LiveAssistService extends EventEmitter {
     chessSignature: string | null,
     userPrompt: string
   ): Promise<void> {
+    // Capture the cycleId at the start of this background call so it isn't
+    // overwritten by a newer injection before this completes.
+    // cycleId is undefined when coaching was triggered from the visual-index
+    // path (no screenshot cycle anchor) — latency tracking is skipped in that case.
+    const cycleId = this.currentCycleId;
+    const hasLatency = cycleId !== undefined;
+
+    // Convenience wrappers — no-op when cycleId is unavailable.
+    const startStep = (step: Parameters<typeof pipelineLatency.startStep>[1]) => {
+      if (hasLatency) pipelineLatency.startStep(cycleId!, step);
+    };
+    const endStep = (step: Parameters<typeof pipelineLatency.endStep>[1], err?: string) => {
+      if (hasLatency) pipelineLatency.endStep(cycleId!, step, err);
+    };
+    const endCycle = (reason: string) => {
+      if (hasLatency) {
+        pipelineLatency.endCycle(cycleId!, reason);
+        // Clear currentCycleId so this cycle cannot be re-closed by a
+        // subsequent visual-index-path processTranscriptInner call.
+        if (this.currentCycleId === cycleId) {
+          this.currentCycleId = undefined;
+          this.currentVoteMeta = undefined;
+        }
+      }
+    };
+
     try {
       // The userPrompt is already a complete, self-contained prompt.
       // CHESS_SYSTEM_PROMPT prepended for role clarity; gamePrompt is excluded
@@ -1276,16 +1352,20 @@ class LiveAssistService extends EventEmitter {
       const videodb = getVideoDBServiceFromConfig();
       if (!videodb) {
         log.warn('[LiveAssist] No VideoDB service available — skipping coaching LLM');
+        endCycle('noVideoDBService');
         return;
       }
 
       // generateCoachingText uses collection.generateText() which handles async
       // polling via the SDK — no OpenAI-client 12s timeout applies here.
       // 45s is generous but keeps the user experience snappy on stale positions.
+      startStep('coachingLLM');
       const rawText = await videodb.generateCoachingText(fullPrompt, 'pro', 'json', 45000);
+      endStep('coachingLLM');
 
       // Discard if position has moved on
       if (chessSignature && chessSignature !== this.lastChessSignature) {
+        endCycle('coachingStale');
         log.debug({ chessSignature }, '[LiveAssist] Coaching response stale — position changed, discarding');
         return;
       }
@@ -1323,12 +1403,14 @@ class LiveAssistService extends EventEmitter {
       );
 
       if (!parsed) {
+        endCycle('coachingNullResponse');
         log.warn('[LiveAssist] Coaching response null — keeping engine fallback');
         return;
       }
 
       const sayValue = String(parsed.say_this ?? '');
       if (sayValue.trim().length <= 10) {
+        endCycle('coachingShortResponse');
         log.warn('[LiveAssist] Coaching response empty/short — keeping engine fallback');
         return;
       }
@@ -1388,7 +1470,10 @@ class LiveAssistService extends EventEmitter {
         finalAskThis.push(/^drill:/i.test(trimmedDrill) ? trimmedDrill : `Drill: ${trimmedDrill}`);
       }
 
-      if (finalSayThis.length === 0 && finalAskThis.length === 0) return;
+      if (finalSayThis.length === 0 && finalAskThis.length === 0) {
+        endCycle('coachingEmptyOutput');
+        return;
+      }
 
       // Cooldown check — don't replace a fresh tip
       const nowMs = Date.now();
@@ -1397,8 +1482,8 @@ class LiveAssistService extends EventEmitter {
       const nextInstructionSignature = this.getInstructionSignature(finalSayThis, finalAskThis);
       const isSameInstruction = !!nextInstructionSignature && nextInstructionSignature === this.lastInstructionSignature;
       const withinReplaceCooldown = this.roundTipVisible && (nowMs - this.lastTipShownAt) < TIP_REPLACE_COOLDOWN_MS;
-      if (isSameTip || isSameInstruction) { log.debug('Skipping identical tip refresh'); return; }
-      if (withinReplaceCooldown) { log.debug('Skipping tip replacement during cooldown'); return; }
+      if (isSameTip || isSameInstruction) { endCycle('coachingIdenticalTip'); log.debug('Skipping identical tip refresh'); return; }
+      if (withinReplaceCooldown) { endCycle('coachingCooldown'); log.debug('Skipping tip replacement during cooldown'); return; }
 
       // Track to avoid repetition
       finalSayThis.forEach(item => this.previousSayThis.add(item.toLowerCase()));
@@ -1408,11 +1493,14 @@ class LiveAssistService extends EventEmitter {
 
       log.info({ sayCount: finalSayThis.length, askCount: finalAskThis.length }, '[LiveAssist] Coaching tip ready — upgrading engine fallback');
 
+      startStep('coachingTip');
       this.emit('insights', {
         insights: { say_this: finalSayThis, ask_this: finalAskThis },
         processedAt: Date.now(),
         clearExisting: true,
       });
+      endStep('coachingTip');
+      endCycle('coachingTip');
       this.roundTipVisible = finalSayThis.length > 0;
       this.roundTipAutoClearAt = this.roundTipVisible ? Date.now() + TIP_VISIBLE_MS : null;
       this.currentVisibleTip = finalSayThis[0]?.toLowerCase().trim() || null;
@@ -1421,7 +1509,10 @@ class LiveAssistService extends EventEmitter {
       this.pendingRoundEndAt = null;
 
     } catch (error) {
+      endCycle('coachingException');
       log.warn({ error: error instanceof Error ? error.message : String(error) }, '[LiveAssist] Background coaching (generateText) failed — engine tip stays');
+    } finally {
+      this.coachingInFlight = false;
     }
   }
 
@@ -1447,6 +1538,7 @@ class LiveAssistService extends EventEmitter {
     this.pendingChessSignature = null;
     this.pendingChessSignatureCount = 0;
     this.isProcessing = false;
+    this.coachingInFlight = false;
     if (this.roundStartClearTimer) {
       clearTimeout(this.roundStartClearTimer);
       this.roundStartClearTimer = null;
