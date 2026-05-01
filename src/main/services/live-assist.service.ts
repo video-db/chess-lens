@@ -987,19 +987,10 @@ class LiveAssistService extends EventEmitter {
       this.lastChessBoard = null;
     }
 
-    // Determine the inferred turn.
-    //
-    // Since turn detection from screenshots is unreliable (the LLM may not
-    // always read the highlight correctly), we use the player's perspective
-    // as the authoritative source: the player is always the side at the
-    // visual bottom of the screen. This ensures the coaching tip is always
-    // generated for the player's pieces, not the opponent's.
-    //
-    // Perspective → player color → that is the side we always advise.
-    // White at bottom → player is White → turn = 'w'
-    // Black at bottom → player is Black → turn = 'b'
-    const playerColor: 'w' | 'b' = perspective === 'black' ? 'b' : 'w';
-    const inferredTurn: 'w' | 'b' = playerColor;
+    // Prefer the turn reported directly by the indexing LLM from UI indicators
+    // (highlighted move, clocks, active-player styling). Fall back to the old
+    // perspective heuristic only when the model could not determine it.
+    const inferredTurn: 'w' | 'b' = reportedTurn ?? (perspective === 'black' ? 'b' : 'w');
 
     // Update tracked state immediately so processTranscriptInner uses the
     // correct turn even before a coaching tip is generated.
@@ -1008,7 +999,7 @@ class LiveAssistService extends EventEmitter {
 
     log.debug(
       { fenBoard: fenBoard.slice(0, 30), perspective, reportedTurn, inferredTurn },
-      '[LiveAssist] injectConfirmedFen: turn determined from screenshot boards'
+      '[LiveAssist] injectConfirmedFen: turn seeded from indexing LLM'
     );
 
     // Store the perspective so we can emit it with the 'fen' event

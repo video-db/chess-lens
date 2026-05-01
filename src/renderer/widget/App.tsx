@@ -21,6 +21,7 @@ export function WidgetApp() {
   const [nudge, setNudge] = useState<Nudge | null>(null);
   const [currentFen, setCurrentFen] = useState<string | null>(null);
   const [displayFen, setDisplayFen] = useState<string | null>(null);
+  const [currentTurn, setCurrentTurn] = useState<'w' | 'b' | null>(null);
   const [isStopping, setIsStopping] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
 
@@ -61,6 +62,7 @@ export function WidgetApp() {
           setAskThis([]);
           setCurrentFen(null);
           setDisplayFen(null);
+          setCurrentTurn(null);
         }
         // Transitioning not-recording → recording: also clear (fresh session)
         if (!prev.isRecording && state.isRecording) {
@@ -68,6 +70,7 @@ export function WidgetApp() {
           setAskThis([]);
           setCurrentFen(null);
           setDisplayFen(null);
+          setCurrentTurn(null);
         }
         return state;
       });
@@ -92,6 +95,7 @@ export function WidgetApp() {
     const unsubFen = api.onFen((data) => {
       setCurrentFen(data.fen);
       setDisplayFen(data.displayFen);
+      setCurrentTurn(data.turn);
     });
 
     const requestStateUntilRecording = () => {
@@ -193,6 +197,7 @@ export function WidgetApp() {
         nudge={nudge}
         currentFen={currentFen}
         displayFen={displayFen}
+        currentTurn={currentTurn}
         onStop={handleStop}
         onPause={handlePause}
         onResume={handleResume}

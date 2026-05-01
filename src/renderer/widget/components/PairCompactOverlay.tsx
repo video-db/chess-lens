@@ -113,6 +113,7 @@ interface PairCompactOverlayProps {
   currentFen: string | null;
   /** FEN in the original player perspective (for the overlay board display). */
   displayFen: string | null;
+  currentTurn: 'w' | 'b' | null;
   onStop: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -140,6 +141,7 @@ export function PairCompactOverlay({
   nudge,
   currentFen,
   displayFen,
+  currentTurn,
   onStop,
   onPause,
   onResume,
@@ -257,6 +259,7 @@ export function PairCompactOverlay({
   const chessParagraphText = chessParagraphCard ? compact(chessParagraphCard.text, 1000) : '';
   const chessEngineText = chessEngineCard ? compact(chessEngineCard.text, 240) : '';
   const chessDrillText = chessDrillCard ? compact(chessDrillCard.text, 220) : '';
+  const currentTurnLabel = currentTurn === 'w' ? 'White to move' : currentTurn === 'b' ? 'Black to move' : '';
   const chessWaitingText = isChess && chessParagraphCard && now - chessParagraphCard.timestamp >= 6000
     ? 'Waiting for the next move…'
     : '';
@@ -556,6 +559,11 @@ export function PairCompactOverlay({
               {(displayFen ?? currentFen) && (
                 <div style={{ marginBottom: 8 }}>
                   <ChessBoard fen={displayFen ?? currentFen ?? ''} />
+                  {currentTurnLabel && (
+                    <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.82, marginTop: 6 }}>
+                      {currentTurnLabel}
+                    </div>
+                  )}
                   <div style={{ fontSize: 9, opacity: 0.45, marginTop: 3, fontFamily: 'monospace', wordBreak: 'break-all' }}>
                     {(displayFen ?? currentFen ?? '').split(' ')[0]}
                   </div>
