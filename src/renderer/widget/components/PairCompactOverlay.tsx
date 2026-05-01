@@ -232,36 +232,34 @@ export function PairCompactOverlay({
   const latestAsk = recentAskThis[0] || null;
   const isChess = sessionState.gameId === 'chess';
 
-  // Chess: we expect a detailed paragraph tip plus optional structured lines.
-  // We keep them as separate cards so we can render them with distinct styling.
-  const chessSayCards = useMemo(
+  // Widget IPC prepends newest cards first. Pick directly from that order so the
+  // overlay always shows the latest coaching paragraph, engine line, and drill.
+  const chessParagraphCard = useMemo(
     () => (isChess
-      ? [...recentSayThis]
-          .filter((card) => !!card.text.trim())
-          .sort((a, b) => a.timestamp - b.timestamp)
-      : []),
+      ? recentSayThis.find((card) => {
+          const text = card.text.trim().toLowerCase();
+          return !!text && !text.startsWith('engine:');
+        }) || null
+      : null),
     [isChess, recentSayThis]
   );
-  const chessParagraphCards = isChess
-    ? chessSayCards.filter((card) => !card.text.trim().toLowerCase().startsWith('engine:'))
-    : [];
-  const chessEngineCard = isChess
-    ? chessSayCards.find((c) => c.text.trim().toLowerCase().startsWith('engine:')) || null
-    : null;
-
-  // Chess should stay on the latest FEN-driven paragraph tip until a new insight arrives.
-  const chessParagraphCard = useMemo(() => {
-    if (!isChess || chessParagraphCards.length === 0) return null;
-
-    return chessParagraphCards[chessParagraphCards.length - 1] || null;
-  }, [isChess, chessParagraphCards]);
+  const chessEngineCard = useMemo(
+    () => (isChess
+      ? recentSayThis.find((card) => card.text.trim().toLowerCase().startsWith('engine:')) || null
+      : null),
+    [isChess, recentSayThis]
+  );
+  const chessDrillCard = useMemo(
+    () => (isChess ? recentAskThis.find((card) => !!card.text.trim()) || null : null),
+    [isChess, recentAskThis]
+  );
 
   const chessParagraphText = chessParagraphCard ? compact(chessParagraphCard.text, 1000) : '';
   const chessEngineText = chessEngineCard ? compact(chessEngineCard.text, 240) : '';
+  const chessDrillText = chessDrillCard ? compact(chessDrillCard.text, 220) : '';
   const chessWaitingText = isChess && chessParagraphCard && now - chessParagraphCard.timestamp >= 6000
     ? 'Waiting for the next move…'
     : '';
-  const chessDrillText = '';
   const topTipMax = isChess ? 800 : 220;
   const compactTopTip = topTip ? compact(topTip.card.text, topTipMax) : null;
   const compactVisualDescription = visualDescription ? compact(visualDescription, 520) : '';
@@ -575,6 +573,11 @@ export function PairCompactOverlay({
               {chessWaitingText && (
                 <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4, fontStyle: 'italic' }}>
                   {chessWaitingText}
+                </div>
+              )}
+              {chessDrillText && (
+                <div style={{ fontSize: 12, opacity: 0.92, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                  {chessDrillText}
                 </div>
               )}
             </>

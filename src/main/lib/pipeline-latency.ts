@@ -2,7 +2,7 @@
  * Pipeline Latency Tracker
  *
  * Tracks wall-clock latency for each stage of the chess coaching pipeline
- * and logs a structured summary when a full cycle completes (or is abandoned).
+ * and logs a structured summary only when a full coaching cycle completes.
  *
  * Pipeline stages (in order):
  *   1. screenshot   — desktopCapturer.getSources() + toPNG() encode
@@ -21,10 +21,9 @@
  *   tipGenerationMs     = coachingLLM + coachingTip
  *   e2eMs               = fenStabilizationMs + engineAnalysisMs + tipGenerationMs
  *
- * Phases are only emitted on terminal cycles that ran past the vote window
- * (reason = 'coachingTip' / 'coachingStale' / 'coachingNullResponse' etc.).
- * Intermediate cycles (voteInconclusive, fenUnchanged, frameUnchanged) keep
- * the flat `steps` format.
+ * Only the final successful coaching cycle is emitted (`reason = 'coachingTip'`).
+ * Earlier abandoned cycles (voteInconclusive, fenNull, fenUnchanged, etc.) are
+ * tracked internally but intentionally not logged to keep output focused.
  *
  * ─── Usage ───────────────────────────────────────────────────────────────────
  *
@@ -179,6 +178,7 @@ class PipelineLatencyTracker {
     }
     cycle.logged = true;
     cycle.loggedReason = reason;
+    if (reason !== 'coachingTip') return;
     this._logSummary(cycle, reason);
   }
 

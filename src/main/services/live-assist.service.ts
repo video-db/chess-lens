@@ -10,9 +10,8 @@ import { EventEmitter } from 'events';
 import { logger } from '../lib/logger';
 import { pipelineLatency } from '../lib/pipeline-latency';
 import type { VoteMeta } from '../lib/pipeline-latency';
-import { getLLMService } from './llm.service';
+import { GPT_54_MODEL, getLLMService } from './llm.service';
 import { getChessEngineService } from './chess-engine.service';
-import { getVideoDBServiceFromConfig } from './videodb.service';
 import type { LiveInsights } from '../../shared/types/live-assist.types';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
 import {
@@ -34,9 +33,19 @@ const VISUAL_DUPLICATE_WINDOW_MS = 900;
  */
 const PROCESS_TRANSCRIPT_TIMEOUT_MS = 10000;
 
-const CHESS_SYSTEM_PROMPT = `You are a chess coach. Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation before or after.
-Format: {"say_this":"<one sentence with best move and why>","ask_this":"<one short drill>"}
-The engine summary in the context already contains the best move — use it. Do NOT invent a different move. The context specifies which color the player is — always generate the tip for that player's pieces. Keep say_this under 60 words.`;
+const CHESS_SYSTEM_PROMPT = `You are a strong chess coach explaining one exact engine-approved move in one exact position.
+Respond with ONLY a raw JSON object - no markdown, no code fences, no explanation before or after.
+Format: {"say_this":"<1-2 short sentences>","ask_this":"<one short calculation drill>"}
+Rules for say_this:
+- Use the required move exactly if one is provided.
+- Explain the move with concrete board-specific reasons, not generic advice.
+- Mention at least one concrete chess detail such as a piece, square, file, diagonal, pawn break, threat, capture, king-safety issue, or development gain.
+- If you mention center control or development, tie it to the exact piece(s) or line(s) opened.
+- Do NOT invent a different move. Do NOT give broad advice like "develop pieces" or "improve your position" unless anchored to this position.
+- Keep it under 90 words.
+Rules for ask_this:
+- Ask one concrete follow-up question about the next 1-2 moves, threat, recapture, or plan.
+- Keep it under 20 words.`;
 
 export interface MeetingContext {
   name?: string;
@@ -151,6 +160,15 @@ class LiveAssistService extends EventEmitter {
     if (!low) return true;
     return /^(improve aim|use cover|practice more|play better|focus up|be careful|good job|nice|keep trying)\b/.test(low)
       || /^(improve|practice|focus)\b/.test(low);
+  }
+
+  private isSpecificChessTip(text: string, requiredMove?: string | null): boolean {
+    const low = text.toLowerCase().trim();
+    if (!low || this.isGenericTip(low)) return false;
+
+    const mentionsMove = !requiredMove || low.includes(requiredMove.toLowerCase());
+    const hasConcreteSignal = /\b(center|file|diagonal|square|bishop|knight|rook|queen|king|pawn|attack|attacks|defend|defends|pressure|fork|pin|skewer|tempo|develop|development|castle|mate|threat|weak|open|opens|capture|recapture|initiative)\b/.test(low);
+    return mentionsMove && hasConcreteSignal;
   }
 
   private sanitizeInsightText(text: string): string {
@@ -646,7 +664,7 @@ class LiveAssistService extends EventEmitter {
     return {};
   }
 
-  private async buildChessContext(visuals: VisualIndexChunk[], fenOverride?: string): Promise<ChessContextData | null> {
+  private async buildChessContext(visuals: VisualIndexChunk[], fenOverride?: string, cycleId?: number): Promise<ChessContextData | null> {
     if (this.activeGameId !== 'chess') {
       log.debug(
         { activeGameId: this.activeGameId, visualCount: visuals.length },
@@ -681,7 +699,7 @@ class LiveAssistService extends EventEmitter {
       '[LiveAssist] Sending chess engine request'
     );
     // Pass the turn-corrected FEN so the engine analyses the right side to move.
-    if (this.currentCycleId !== undefined) pipelineLatency.startStep(this.currentCycleId, 'engineCall');
+    if (cycleId !== undefined) pipelineLatency.startStep(cycleId, 'engineCall');
     const result = await engine.analyzeByFen(resolvedFen.fen, {
       variants: 5,
       depth: 12,
@@ -689,11 +707,11 @@ class LiveAssistService extends EventEmitter {
     });
 
     if (!result) {
-      if (this.currentCycleId !== undefined) pipelineLatency.endStep(this.currentCycleId, 'engineCall', 'no analysis');
+      if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'engineCall', 'no analysis');
       log.warn({ resolvedFen: resolvedFen.fen, inferredTurn: resolvedFen.turn }, '[LiveAssist] Chess engine returned no analysis — skipping tip for this position');
       return null;
     }
-    if (this.currentCycleId !== undefined) pipelineLatency.endStep(this.currentCycleId, 'engineCall');
+    if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'engineCall');
 
     return {
       fen: resolvedFen.fen,
@@ -1115,6 +1133,7 @@ class LiveAssistService extends EventEmitter {
 
   private async processTranscriptInner(): Promise<void> {
     if (!this.isRunning) return;
+    const trackedCycleId = this.currentCycleId;
 
     // Convenience wrapper — only calls endCycle when a screenshot-path cycle
     // is active AND coaching is not still running in the background.
@@ -1218,6 +1237,16 @@ class LiveAssistService extends EventEmitter {
       return;
     }
 
+    // Chess latency is tracked from the screenshot-confirmed FEN pipeline.
+    // Raw websocket visual-index frames can arrive earlier with the same board,
+    // but they do not carry a cycleId, so using them would generate valid tips
+    // that cannot be attributed to the real measured pipeline.
+    if (this.activeGameId === 'chess' && trackedCycleId === undefined) {
+      this.lastProcessedTimestamp = now;
+      log.debug({ chessSignature }, '[LiveAssist] Waiting for screenshot-confirmed chess cycle before generating tip');
+      return;
+    }
+
     log.debug(
       {
         activeGameId: this.activeGameId,
@@ -1226,7 +1255,15 @@ class LiveAssistService extends EventEmitter {
       '[LiveAssist] Evaluating chess engine path'
     );
 
-    const chessContext = await this.buildChessContext(promptVisuals, latestFen || undefined);
+    const chessContext = await this.buildChessContext(promptVisuals, latestFen || undefined, trackedCycleId);
+
+    // If this pass started from the websocket path with no screenshot cycle, but a
+    // tracked screenshot cycle arrived while the engine request was in flight, let
+    // that newer cycle own latency + signature state instead of mixing phases.
+    if (trackedCycleId === undefined && this.currentCycleId !== undefined) {
+      log.debug({ adoptedCycleId: this.currentCycleId, chessSignature }, '[LiveAssist] Skipping untracked result because a tracked screenshot cycle arrived');
+      return;
+    }
 
     // If the engine rejected the FEN or returned no analysis, skip the LLM call entirely.
     // Without engine data the LLM would hallucinate moves — better to show nothing.
@@ -1247,14 +1284,14 @@ class LiveAssistService extends EventEmitter {
 
     // Emit an immediate engine-only tip so the user sees something instantly.
     if (this.activeGameId === 'chess' && chessContext?.engineSummary) {
-      if (this.currentCycleId !== undefined) pipelineLatency.startStep(this.currentCycleId, 'engineTip');
+      if (trackedCycleId !== undefined) pipelineLatency.startStep(trackedCycleId, 'engineTip');
       const engineFallback = this.formatEngineAsTip(chessContext);
       this.emit('insights', {
         insights: { say_this: [engineFallback], ask_this: [] },
         processedAt: Date.now(),
         clearExisting: true,
       });
-      if (this.currentCycleId !== undefined) pipelineLatency.endStep(this.currentCycleId, 'engineTip');
+      if (trackedCycleId !== undefined) pipelineLatency.endStep(trackedCycleId, 'engineTip');
       log.debug({ chessSignature }, '[LiveAssist] Emitted immediate engine-only tip while coaching LLM runs');
     }
 
@@ -1274,7 +1311,15 @@ class LiveAssistService extends EventEmitter {
       ? `## REQUIRED MOVE: ${bestMoveSan}\nYou MUST use "${bestMoveSan}" as the move in say_this. Do not suggest any other move.`
       : '## TASK\nUse the best move from the engine summary above.';
 
-    const userPrompt = `${chessSection}${bestMoveInstruction}\nExplain in one sentence why ${bestMoveSan ?? 'the engine move'} is the best move here, referencing the concrete tactical or positional idea. Also write one short drill for ask_this. Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
+    const userPrompt = `${chessSection}${bestMoveInstruction}
+Explain why ${bestMoveSan ?? 'the engine move'} is best in this exact position.
+For say_this, include:
+1. what changes immediately on the board,
+2. the concrete tactical or positional point,
+3. the piece, square, file, diagonal, pawn break, or threat that matters.
+Avoid generic advice.
+For ask_this, write one short calculation question about the next move or likely response.
+Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
     log.info({ visualCount: promptVisuals.length, hasVisual: !!chessSection }, 'Processing gameplay feed for live assist');
 
     // Mark this position as processed immediately so isProcessing is released.
@@ -1299,7 +1344,7 @@ class LiveAssistService extends EventEmitter {
     // Fire coaching LLM as fire-and-forget — it will upgrade the engine tip
     // when it completes. isProcessing is released immediately after this return.
     this.coachingInFlight = true;
-    void this.runCoachingLLM(chessContext, chessSignature, userPrompt);
+    void this.runCoachingLLM(chessContext, chessSignature, userPrompt, bestMoveSan, trackedCycleId);
   }
 
   /**
@@ -1310,13 +1355,10 @@ class LiveAssistService extends EventEmitter {
   private async runCoachingLLM(
     chessContext: ChessContextData | null,
     chessSignature: string | null,
-    userPrompt: string
+    userPrompt: string,
+    bestMoveSan: string | null,
+    cycleId?: number
   ): Promise<void> {
-    // Capture the cycleId at the start of this background call so it isn't
-    // overwritten by a newer injection before this completes.
-    // cycleId is undefined when coaching was triggered from the visual-index
-    // path (no screenshot cycle anchor) — latency tracking is skipped in that case.
-    const cycleId = this.currentCycleId;
     const hasLatency = cycleId !== undefined;
 
     // Convenience wrappers — no-op when cycleId is unavailable.
@@ -1345,23 +1387,21 @@ class LiveAssistService extends EventEmitter {
       const fullPrompt = [CHESS_SYSTEM_PROMPT, userPrompt].join('\n\n');
 
       log.info(
-        { promptTokensEstimate: Math.ceil(fullPrompt.length / 4) },
-        '[LiveAssist] Requesting coaching tip via VideoDB generateText (pro, json) [background]',
+        { promptTokensEstimate: Math.ceil(fullPrompt.length / 4), model: GPT_54_MODEL },
+        '[LiveAssist] Requesting coaching tip via gpt-5.4 [background]',
       );
 
-      const videodb = getVideoDBServiceFromConfig();
-      if (!videodb) {
-        log.warn('[LiveAssist] No VideoDB service available — skipping coaching LLM');
-        endCycle('noVideoDBService');
-        return;
-      }
-
-      // generateCoachingText uses collection.generateText() which handles async
-      // polling via the SDK — no OpenAI-client 12s timeout applies here.
-      // 45s is generous but keeps the user experience snappy on stale positions.
+      // Coaching now uses the same direct gpt-5.4 path as FEN extraction instead of
+      // VideoDB generateText('pro'), so analysis and tip generation stay on one model.
+      const llm = getLLMService();
       startStep('coachingLLM');
-      const rawText = await videodb.generateCoachingText(fullPrompt, 'pro', 'json', 45000);
+      const response = await llm.complete(fullPrompt, undefined, 45000, GPT_54_MODEL);
       endStep('coachingLLM');
+      const rawText = response.success ? response.content : null;
+
+      if (!response.success) {
+        log.warn({ error: response.error }, '[LiveAssist] Background coaching (gpt-5.4) failed — engine tip stays');
+      }
 
       // Discard if position has moved on
       if (chessSignature && chessSignature !== this.lastChessSignature) {
@@ -1369,6 +1409,10 @@ class LiveAssistService extends EventEmitter {
         log.debug({ chessSignature }, '[LiveAssist] Coaching response stale — position changed, discarding');
         return;
       }
+
+      // Measure the full post-LLM tip generation path: JSON cleanup, parsing,
+      // filtering, dedupe/cooldown checks, and the final emit if one occurs.
+      startStep('coachingTip');
 
       const parseCoachingJson = (text: string | null): LiveInsights | null => {
         if (!text) return null;
@@ -1391,7 +1435,7 @@ class LiveAssistService extends EventEmitter {
         catch { return null; }
       };
 
-      const parsed: LiveInsights | null = parseCoachingJson(rawText);
+      let parsed: LiveInsights | null = parseCoachingJson(rawText);
 
       log.debug(
         {
@@ -1402,7 +1446,43 @@ class LiveAssistService extends EventEmitter {
         '[LiveAssist] Background coaching response received',
       );
 
+      const normalizeInsights = (value: unknown): string[] => {
+        if (!value) return [];
+        if (Array.isArray(value)) return (value as unknown[]).filter((i): i is string => typeof i === 'string');
+        if (typeof value === 'string') return [value];
+        return [];
+      };
+
+      const maybeRepairGenericTip = async (current: LiveInsights | null): Promise<LiveInsights | null> => {
+        if (!current) return current;
+        const currentSay = normalizeInsights(current.say_this)
+          .map(item => this.sanitizeInsightText(item))
+          .find(Boolean) || '';
+
+        if (this.isSpecificChessTip(currentSay, bestMoveSan)) return current;
+
+        const repairPrompt = `${userPrompt}
+
+Previous draft was too generic:
+${currentSay || '(empty)'}
+
+Rewrite it so say_this is more position-specific. Name the required move, explain the immediate board effect, and mention the exact threat, square, line, or piece activity that improves. Return ONLY raw JSON.`;
+
+        const repairResponse = await llm.complete(repairPrompt, CHESS_SYSTEM_PROMPT, 15000, GPT_54_MODEL);
+        if (!repairResponse.success || !repairResponse.content) return current;
+
+        const repaired = parseCoachingJson(repairResponse.content);
+        const repairedSay = normalizeInsights(repaired?.say_this)
+          .map(item => this.sanitizeInsightText(item))
+          .find(Boolean) || '';
+
+        return this.isSpecificChessTip(repairedSay, bestMoveSan) ? repaired : current;
+      };
+
+      parsed = await maybeRepairGenericTip(parsed);
+
       if (!parsed) {
+        endStep('coachingTip', 'null response');
         endCycle('coachingNullResponse');
         log.warn('[LiveAssist] Coaching response null — keeping engine fallback');
         return;
@@ -1410,17 +1490,11 @@ class LiveAssistService extends EventEmitter {
 
       const sayValue = String(parsed.say_this ?? '');
       if (sayValue.trim().length <= 10) {
+        endStep('coachingTip', 'short response');
         endCycle('coachingShortResponse');
         log.warn('[LiveAssist] Coaching response empty/short — keeping engine fallback');
         return;
       }
-
-      const normalizeInsights = (value: unknown): string[] => {
-        if (!value) return [];
-        if (Array.isArray(value)) return (value as unknown[]).filter((i): i is string => typeof i === 'string');
-        if (typeof value === 'string') return [value];
-        return [];
-      };
 
       const sayThisList = normalizeInsights(parsed.say_this)
         .map(item => this.sanitizeInsightText(item))
@@ -1471,6 +1545,7 @@ class LiveAssistService extends EventEmitter {
       }
 
       if (finalSayThis.length === 0 && finalAskThis.length === 0) {
+        endStep('coachingTip', 'empty output');
         endCycle('coachingEmptyOutput');
         return;
       }
@@ -1482,8 +1557,18 @@ class LiveAssistService extends EventEmitter {
       const nextInstructionSignature = this.getInstructionSignature(finalSayThis, finalAskThis);
       const isSameInstruction = !!nextInstructionSignature && nextInstructionSignature === this.lastInstructionSignature;
       const withinReplaceCooldown = this.roundTipVisible && (nowMs - this.lastTipShownAt) < TIP_REPLACE_COOLDOWN_MS;
-      if (isSameTip || isSameInstruction) { endCycle('coachingIdenticalTip'); log.debug('Skipping identical tip refresh'); return; }
-      if (withinReplaceCooldown) { endCycle('coachingCooldown'); log.debug('Skipping tip replacement during cooldown'); return; }
+      if (isSameTip || isSameInstruction) {
+        endStep('coachingTip', 'identical tip');
+        endCycle('coachingIdenticalTip');
+        log.debug('Skipping identical tip refresh');
+        return;
+      }
+      if (withinReplaceCooldown) {
+        endStep('coachingTip', 'cooldown');
+        endCycle('coachingCooldown');
+        log.debug('Skipping tip replacement during cooldown');
+        return;
+      }
 
       // Track to avoid repetition
       finalSayThis.forEach(item => this.previousSayThis.add(item.toLowerCase()));
@@ -1493,7 +1578,6 @@ class LiveAssistService extends EventEmitter {
 
       log.info({ sayCount: finalSayThis.length, askCount: finalAskThis.length }, '[LiveAssist] Coaching tip ready — upgrading engine fallback');
 
-      startStep('coachingTip');
       this.emit('insights', {
         insights: { say_this: finalSayThis, ask_this: finalAskThis },
         processedAt: Date.now(),
@@ -1509,6 +1593,7 @@ class LiveAssistService extends EventEmitter {
       this.pendingRoundEndAt = null;
 
     } catch (error) {
+      endStep('coachingTip', error instanceof Error ? error.message.slice(0, 80) : String(error).slice(0, 80));
       endCycle('coachingException');
       log.warn({ error: error instanceof Error ? error.message : String(error) }, '[LiveAssist] Background coaching (generateText) failed — engine tip stays');
     } finally {

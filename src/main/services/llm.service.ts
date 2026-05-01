@@ -18,15 +18,14 @@ import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
 
 const log = logger.child({ module: 'llm-service' });
 
-// Coaching model — sent to the VideoDB proxy.
-// 'basic' was tested but hits a hard output cap at ~16 tokens on the proxy,
-// causing every JSON response to be truncated mid-object.
-// 'pro' returns complete JSON responses reliably.
+// Default text model for generic non-vision calls sent to the VideoDB proxy.
+// Chess coaching now overrides this per call to use gpt-5.4 directly.
 const PRIMARY_MODEL = 'pro';
 
 // Model used for RTStream indexVisuals() — passed as modelName to the SDK,
 // not as a direct API call, so the full openai/ namespace is supported.
 export const RTSTREAM_VISION_MODEL = 'openai/gpt-5.4';
+export const GPT_54_MODEL = 'openai/gpt-5.4';
 
 /**
  * Per-request timeouts enforced via Promise.race + setTimeout.
@@ -248,7 +247,7 @@ export class LLMService {
     }));
   }
 
-  async chatCompletion(messages: ChatMessage[], timeoutMs?: number): Promise<LLMResponse> {
+  async chatCompletion(messages: ChatMessage[], timeoutMs?: number, modelOverride?: string): Promise<LLMResponse> {
     if (!this.config.apiKey) {
       log.error('[VideoDB] LLM API key not configured');
       return {
@@ -258,13 +257,15 @@ export class LLMService {
       };
     }
 
+    const model = modelOverride || this.config.model;
+
     const startTime = Date.now();
     const messagePreview = messages[messages.length - 1]?.content?.slice(0, 100) || '';
     log.info({
-      model: this.config.model,
+      model,
       messageCount: messages.length,
       messagePreview,
-    }, `[VideoDB] LLM coaching request → ${this.config.model}`);
+    }, `[VideoDB] LLM coaching request → ${model}`);
 
     // Use caller-supplied timeout, or the default COACHING_TIMEOUT_MS.
     // Pass Infinity to disable the timeout entirely (fire-and-forget coaching path).
@@ -272,7 +273,7 @@ export class LLMService {
 
     try {
       const apiCall = this.client.chat.completions.create({
-        model: this.config.model,
+        model,
         messages: this.formatMessages(messages),
         max_tokens: this.config.maxTokens,
         temperature: this.config.temperature,
@@ -290,7 +291,7 @@ export class LLMService {
 
       log.info({
         elapsedMs: elapsed,
-        model: this.config.model,
+        model,
         contentLength: content.length,
         promptTokens: usage?.prompt_tokens,
         completionTokens: usage?.completion_tokens,
@@ -317,7 +318,7 @@ export class LLMService {
           code: error.code,
           type: error.type,
           message: error.message,
-          model: this.config.model,
+          model,
           elapsedMs: elapsed,
         }, '[VideoDB] LLM API error');
         return {
@@ -327,7 +328,7 @@ export class LLMService {
         };
       }
 
-      log.error({ err: error, errorMessage: errMsg, model: this.config.model, elapsedMs: elapsed }, '[VideoDB] LLM request error');
+      log.error({ err: error, errorMessage: errMsg, model, elapsedMs: elapsed }, '[VideoDB] LLM request error');
       return {
         content: '',
         success: false,
@@ -339,9 +340,10 @@ export class LLMService {
   async chatCompletionJSON<T = unknown>(
     messages: ChatMessage[],
     parseResponse?: (content: string) => T,
-    timeoutMs?: number
+    timeoutMs?: number,
+    modelOverride?: string
   ): Promise<JSONLLMResponse<T>> {
-    const response = await this.chatCompletion(messages, timeoutMs);
+    const response = await this.chatCompletion(messages, timeoutMs, modelOverride);
 
     if (!response.success) {
       return {
@@ -653,7 +655,7 @@ export class LLMService {
     return true;
   }
 
-  async complete(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
+  async complete(prompt: string, systemPrompt?: string, timeoutMs?: number, modelOverride?: string): Promise<LLMResponse> {
     const messages: ChatMessage[] = [];
 
     if (systemPrompt) {
@@ -662,12 +664,14 @@ export class LLMService {
 
     messages.push({ role: 'user', content: prompt });
 
-    return this.chatCompletion(messages);
+    return this.chatCompletion(messages, timeoutMs, modelOverride);
   }
 
   async completeJSON<T = unknown>(
     prompt: string,
-    systemPrompt?: string
+    systemPrompt?: string,
+    timeoutMs?: number,
+    modelOverride?: string
   ): Promise<JSONLLMResponse<T>> {
     const messages: ChatMessage[] = [];
 
@@ -677,7 +681,7 @@ export class LLMService {
 
     messages.push({ role: 'user', content: prompt });
 
-    return this.chatCompletionJSON<T>(messages);
+    return this.chatCompletionJSON<T>(messages, undefined, timeoutMs, modelOverride);
   }
 
   async analyze<T = unknown>(
