@@ -5,22 +5,26 @@ import {
   type SupportedGameId,
 } from '../../shared/config/game-coaching';
 
-export type MeetingSetupStep = 'sources' | 'info' | 'questions' | 'checklist' | 'ready';
+export type GameSetupStep = 'sources' | 'info' | 'questions' | 'checklist' | 'ready';
+/** @deprecated Use GameSetupStep */
+export type MeetingSetupStep = GameSetupStep;
 
-interface MeetingSetupState {
-  step: MeetingSetupStep;
+interface GameSetupState {
+  step: GameSetupStep;
   name: string;
   description: string;
   gameId: SupportedGameId;
+  coachPersonalityId: string;
   questions: ProbingQuestion[];
   checklist: string[];
   isGenerating: boolean;
   error: string | null;
 
   // Actions
-  setStep: (step: MeetingSetupStep) => void;
+  setStep: (step: GameSetupStep) => void;
   setInfo: (name: string, description: string) => void;
   setGameId: (gameId: SupportedGameId) => void;
+  setCoachPersonalityId: (id: string) => void;
   setQuestions: (questions: ProbingQuestion[]) => void;
   setQuestionAnswer: (index: number, answer: string, customAnswer?: string) => void;
   setChecklist: (checklist: string[]) => void;
@@ -34,23 +38,25 @@ interface MeetingSetupState {
     name: string;
     description: string;
     gameId: SupportedGameId;
+    coachPersonalityId: string;
     questions: ProbingQuestion[];
     checklist: string[];
   };
 }
 
 const initialState = {
-  step: 'sources' as MeetingSetupStep,
+  step: 'sources' as GameSetupStep,
   name: '',
   description: '',
   gameId: DEFAULT_GAME_ID,
+  coachPersonalityId: 'default',
   questions: [] as ProbingQuestion[],
   checklist: [] as string[],
   isGenerating: false,
   error: null as string | null,
 };
 
-export const useMeetingSetupStore = create<MeetingSetupState>((set, get) => ({
+export const useGameSetupStore = create<GameSetupState>((set, get) => ({
   ...initialState,
 
   setStep: (step) => set({ step, error: null }),
@@ -58,6 +64,8 @@ export const useMeetingSetupStore = create<MeetingSetupState>((set, get) => ({
   setInfo: (name, description) => set({ name, description }),
 
   setGameId: (gameId) => set({ gameId }),
+
+  setCoachPersonalityId: (coachPersonalityId) => set({ coachPersonalityId }),
 
   setQuestions: (questions) => set({ questions }),
 
@@ -97,8 +105,13 @@ export const useMeetingSetupStore = create<MeetingSetupState>((set, get) => ({
       name: state.name,
       description: state.description,
       gameId: state.gameId,
+      coachPersonalityId: state.coachPersonalityId,
       questions: state.questions,
       checklist: state.checklist,
     };
   },
 }));
+
+/** @deprecated Use useGameSetupStore */
+export const useMeetingSetupStore = useGameSetupStore;
+

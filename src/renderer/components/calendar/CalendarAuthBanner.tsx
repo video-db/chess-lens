@@ -51,7 +51,7 @@ export function CalendarAuthBanner() {
         <div className="flex items-center gap-3">
           <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
           <p className="text-sm text-amber-800 dark:text-amber-200">
-            Google Calendar disconnected. Reconnect to continue receiving meeting notifications.
+            Google Calendar disconnected. Reconnect to continue receiving game notifications.
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -433,7 +433,7 @@ export function LiveAssistPanel() {
               ) : (
                 <div className="flex items-center justify-center py-[14px]">
                   <p className="text-[13px] text-[#969696] text-center">
-                    See live results triggered by conversation keywords
+                    See live results triggered by position keywords
                   </p>
                 </div>
               )}

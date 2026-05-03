@@ -19,6 +19,7 @@ interface MeetingSetupData {
   name: string;
   description: string;
   gameId: SupportedGameId;
+  coachPersonalityId?: string;
   questions: ProbingQuestion[];
   checklist: string[];
 }

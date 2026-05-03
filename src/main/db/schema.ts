@@ -33,13 +33,13 @@ export const recordings = sqliteTable('recordings', {
   keyPoints: text('key_points'), // JSON: KeyPoint[] array
   playbookSnapshot: text('playbook_snapshot'), // JSON: final playbook coverage
   metricsSnapshot: text('metrics_snapshot'), // JSON: final conversation metrics
-  // Meeting Setup fields
+  // Game Setup fields
   meetingName: text('meeting_name'),
   meetingDescription: text('meeting_description'),
   probingQuestions: text('probing_questions'), // JSON: ProbingQuestion[]
-  meetingChecklist: text('meeting_checklist'), // JSON: string[] (in-meeting agenda)
-  // Post-meeting analysis
-  postMeetingChecklist: text('post_meeting_checklist'), // JSON: string[] (action items after meeting)
+  meetingChecklist: text('meeting_checklist'), // JSON: string[] (in-game checklist)
+  // Post-game analysis
+  postMeetingChecklist: text('post_meeting_checklist'), // JSON: string[] (action items after game)
   postMeetingChecklistCompleted: text('post_meeting_checklist_completed'), // JSON: number[] (indices of completed items)
 });
 

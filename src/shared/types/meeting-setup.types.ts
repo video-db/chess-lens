@@ -1,8 +1,8 @@
 import type { SupportedGameId } from '../config/game-coaching';
 
 /**
- * Meeting Setup Types
- * Types for the multi-step meeting setup flow
+ * Game Setup Types
+ * Types for the multi-step game setup flow
  */
 
 export interface ProbingQuestion {
@@ -12,7 +12,7 @@ export interface ProbingQuestion {
   customAnswer?: string; // "other" option for custom input
 }
 
-export interface MeetingSetup {
+export interface GameSetup {
   name: string;
   description: string;
   gameId: SupportedGameId;
@@ -20,9 +20,15 @@ export interface MeetingSetup {
   checklist: string[];
 }
 
-export interface MeetingSetupStep {
+/** @deprecated Use GameSetup */
+export type MeetingSetup = GameSetup;
+
+export interface GameSetupStep {
   step: 'sources' | 'info' | 'questions' | 'checklist' | 'ready';
 }
+
+/** @deprecated Use GameSetupStep */
+export type MeetingSetupStep = GameSetupStep;
 
 // Response types for LLM calls
 export interface ProbingQuestionsResponse {

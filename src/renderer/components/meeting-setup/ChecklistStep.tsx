@@ -91,14 +91,14 @@ export function ChecklistStep({
             Ready to Start
           </h1>
           <p className="text-[14px] font-normal text-[#464646] text-center leading-[21px]">
-            Your meeting checklist is ready
+            Your game checklist is ready
           </p>
         </div>
       </div>
 
-      {/* Meeting card */}
+      {/* Game card */}
       <div className="w-full bg-white border border-[#efefef] rounded-[16px] p-[20px] mb-[24px]">
-        {/* Meeting info */}
+        {/* Game info */}
         <div className="mb-[16px]">
           <h3 className="text-[16px] font-semibold text-black mb-[4px]">{name}</h3>
           <p className="text-[13px] text-[#464646] leading-[19px] line-clamp-2">{description}</p>
@@ -110,7 +110,7 @@ export function ChecklistStep({
         {/* Checklist */}
         <div>
           <p className="text-[12px] font-medium text-[#969696] uppercase tracking-[0.5px] mb-[12px]">
-            Meeting Checklist ({checklist.length} items)
+            Game Checklist ({checklist.length} items)
           </p>
           <ul className="flex flex-col gap-[10px]">
             {checklist.map((item, idx) => (

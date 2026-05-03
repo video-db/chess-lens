@@ -28,7 +28,7 @@ import {
   CallSummaryView,
 } from './components/copilot';
 import { useCopilotStore } from './stores/copilot.store';
-import { useMeetingSetupStore } from './stores/meeting-setup.store';
+import { useGameSetupStore } from './stores/meeting-setup.store';
 import { useSessionLifecycle, resetAllSessionStores } from './hooks/useSessionLifecycle';
 import { SettingsView } from './components/settings/SettingsView';
 import { MeetingSetupFlow } from './components/meeting-setup';
@@ -207,7 +207,7 @@ function PermissionsView({ onContinue }: { onContinue: () => void }) {
               <div className="flex-1 flex flex-col gap-[3px]">
                 <p className="text-[16px] font-medium text-[#141420] leading-[20px]">System audio</p>
                 <p className="text-[13px] font-normal text-[#969696] leading-[18px]">
-                  Capture audio from meeting apps like Zoom, Meet, and Teams.
+                  Capture audio from chess apps and streaming tools.
                 </p>
               </div>
               <PermissionToggle
@@ -236,7 +236,7 @@ function PermissionsView({ onContinue }: { onContinue: () => void }) {
               <div className="flex-1 flex flex-col gap-[3px]">
                 <p className="text-[16px] font-medium text-[#141420] leading-[20px]">Microphone</p>
                 <p className="text-[13px] font-normal text-[#969696] leading-[18px]">
-                  Record your voice during meetings and calls.
+                  Record your voice during games and coaching sessions.
                 </p>
               </div>
               <PermissionToggle
@@ -295,7 +295,7 @@ function PermissionsView({ onContinue }: { onContinue: () => void }) {
             <div className="flex-1 flex flex-col gap-[3px]">
               <p className="text-[16px] font-medium text-[#141420] leading-[20px]">App notifications</p>
               <p className="text-[13px] font-normal text-[#969696] leading-[18px]">
-                Get alerts before your meetings start.
+                Get alerts before your games start.
               </p>
             </div>
             <PermissionToggle
@@ -339,7 +339,7 @@ interface RecordingViewProps {
 function RecordingView({ onBack }: RecordingViewProps) {
   const { isCallActive, callSummary, nudgeHistory } = useCopilotStore();
   const { status } = useSession();
-  const meetingSetupStore = useMeetingSetupStore();
+  const meetingSetupStore = useGameSetupStore();
   const { prepareNewSession } = useSessionLifecycle();
 
   const isRecording = status === 'recording';
@@ -362,7 +362,7 @@ function RecordingView({ onBack }: RecordingViewProps) {
     }
   }, [callSummary, isRecording, onBack]);
 
-  // Get checklist from meeting setup
+  // Get checklist from game setup
   const { checklist } = meetingSetupStore;
   const hasChecklist = checklist.length > 0;
 
@@ -396,7 +396,7 @@ function RecordingView({ onBack }: RecordingViewProps) {
         <div className="flex-1 overflow-hidden p-6">
           <div className="max-w-4xl mx-auto h-full flex flex-col">
             <div className="flex items-center justify-between mb-4 shrink-0">
-              <h2 className="text-[18px] font-semibold text-[#141420]">Call Complete</h2>
+              <h2 className="text-[18px] font-semibold text-[#141420]">Game Complete</h2>
               <div className="flex gap-[8px]">
                 <button
                   onClick={handleGoBack}
@@ -408,7 +408,7 @@ function RecordingView({ onBack }: RecordingViewProps) {
                   onClick={handleStartNewCall}
                   className="px-[14px] py-[8px] bg-[#ec5b16] hover:bg-[#d9520f] rounded-[10px] text-[13px] font-medium text-white transition-colors"
                 >
-                  Start New Call
+                  Start New Game
                 </button>
               </div>
             </div>
@@ -431,9 +431,9 @@ function RecordingView({ onBack }: RecordingViewProps) {
               <Loader2 className="w-8 h-8 text-[#ec5b16] animate-spin" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-black">Generating Call Summary</h2>
+              <h2 className="text-lg font-semibold text-black">Generating Game Summary</h2>
               <p className="text-sm text-[#464646] mt-1">
-                Analyzing your conversation and preparing insights...
+                Analyzing your game and preparing coaching insights...
               </p>
             </div>
           </div>
@@ -491,9 +491,9 @@ export function App() {
 
   const configStore = useConfigStore();
   const sessionStore = useSessionStore();
-  const meetingSetupStore = useMeetingSetupStore();
+  const meetingSetupStore = useGameSetupStore();
 
-  // Check if meeting setup has any user-entered data
+  // Check if game setup has any user-entered data
   const hasMeetingSetupData = () => {
     return (
       meetingSetupStore.name.trim().length > 0 ||
@@ -503,9 +503,9 @@ export function App() {
     );
   };
 
-  // Handle tab change with meeting setup check
+  // Handle tab change with game setup check
   const handleTabChange = (tab: Tab) => {
-    // If we're in meeting setup mode and trying to navigate away
+    // If we're in game setup mode and trying to navigate away
     if (showMeetingSetup && activeTab === 'home' && tab !== 'home') {
       if (hasMeetingSetupData()) {
         // Has data - show confirmation
@@ -531,7 +531,7 @@ export function App() {
     setActiveTab(tab);
   };
 
-  // Confirm discarding meeting setup and navigate
+  // Confirm discarding game setup and navigate
   const confirmDiscardMeetingSetup = () => {
     if (pendingTabChange) {
       setShowMeetingSetup(false);
@@ -541,7 +541,7 @@ export function App() {
     }
   };
 
-  // Cancel discarding meeting setup
+  // Cancel discarding game setup
   const cancelDiscardMeetingSetup = () => {
     setPendingTabChange(null);
   };
@@ -572,7 +572,7 @@ export function App() {
     }
   }, [isActivelyRecording, showMeetingSetup]);
 
-  // Handle start recording button from HomeView - show MeetingSetupFlow
+  // Handle start recording button from HomeView - show GameSetupFlow
   const handleStartRecording = () => {
     prepareNewSession();  // Clear any stale state from previous sessions
     setShowMeetingSetup(true);
@@ -644,7 +644,7 @@ export function App() {
       return <RecordingView onBack={handleExitRecordingMode} />;
     }
 
-    // If showing meeting setup flow (after clicking Start Recording from HomeView)
+    // If showing game setup flow (after clicking Start Recording from HomeView)
     if (showMeetingSetup && activeTab === 'home') {
       return (
         <div className="flex flex-col h-full bg-white">
@@ -712,7 +712,7 @@ export function App() {
         position="bottom"
       />
 
-      {/* Discard Meeting Setup Confirmation Dialog */}
+      {/* Discard Game Setup Confirmation Dialog */}
       <Dialog open={pendingTabChange !== null} onOpenChange={(open) => !open && cancelDiscardMeetingSetup()}>
         <DialogContent className="max-w-[400px]">
           <DialogHeader>
@@ -722,12 +722,12 @@ export function App() {
               </div>
               <div>
                 <DialogTitle className="text-[16px] font-semibold text-[#141420]">
-                  Discard meeting setup?
+                  Discard game setup?
                 </DialogTitle>
               </div>
             </div>
             <DialogDescription className="text-[14px] text-[#464646] mt-[12px]">
-              You have unsaved changes in your meeting setup. If you leave now, your progress will be lost.
+              You have unsaved changes in your game setup. If you leave now, your progress will be lost.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex gap-[8px] mt-[16px]">

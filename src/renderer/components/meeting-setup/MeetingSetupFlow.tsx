@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useMeetingSetupStore } from '../../stores/meeting-setup.store';
+import { useGameSetupStore } from '../../stores/meeting-setup.store';
 import { useSession } from '../../hooks/useSession';
 import { trpc } from '../../api/trpc';
 import { InfoStep } from './InfoStep';
@@ -13,16 +13,16 @@ interface MeetingSetupFlowProps {
 
 /**
  * Generate a default session name based on current time
- * Format: "Session at 10:30 AM"
+ * Format: "Game at 10:30 AM"
  */
-function generateDefaultMeetingName(): string {
+function generateDefaultGameName(): string {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
   });
-  return `Session at ${timeStr}`;
+  return `Game at ${timeStr}`;
 }
 
 export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
@@ -31,6 +31,7 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
     name,
     description,
     gameId,
+    coachPersonalityId,
     questions,
     checklist,
     isGenerating,
@@ -38,13 +39,14 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
     setStep,
     setInfo,
     setGameId,
+    setCoachPersonalityId,
     setQuestions,
     setQuestionAnswer,
     setChecklist,
     setIsGenerating,
     setError,
     getMeetingSetupData,
-  } = useMeetingSetupStore();
+  } = useGameSetupStore();
 
   const { startRecording, isStarting } = useSession();
 
@@ -63,14 +65,17 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
     overrideName?: string,
     overrideDescription?: string,
     overrideGameId?: SupportedGameId,
+    overrideCoachPersonalityId?: string,
   ) => {
-    const finalName = (overrideName ?? name).trim() || generateDefaultMeetingName();
+    const finalName = (overrideName ?? name).trim() || generateDefaultGameName();
     const finalDescription = (overrideDescription ?? description).trim();
     const finalGameId = overrideGameId ?? gameId;
+    const finalCoachPersonalityId = overrideCoachPersonalityId ?? coachPersonalityId;
 
     // Update store so RecordingHeader can display the correct name
     setInfo(finalName, finalDescription);
     setGameId(finalGameId);
+    setCoachPersonalityId(finalCoachPersonalityId);
 
     const answeredQuestions = questions.filter(q => q.answer);
     const hasContext = finalDescription || answeredQuestions.length > 0;
@@ -93,6 +98,7 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
             name: finalName,
             description: finalDescription,
             gameId: finalGameId,
+            coachPersonalityId: finalCoachPersonalityId,
             questions: answeredQuestions,
             checklist: result.checklist,
           });
@@ -102,6 +108,7 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
             name: finalName,
             description: finalDescription,
             gameId: finalGameId,
+            coachPersonalityId: finalCoachPersonalityId,
             questions: answeredQuestions,
             checklist: [],
           });
@@ -112,6 +119,7 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
           name: finalName,
           description: finalDescription,
           gameId: finalGameId,
+          coachPersonalityId: finalCoachPersonalityId,
           questions: answeredQuestions,
           checklist: [],
         });
@@ -124,6 +132,7 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
         name: finalName,
         description: finalDescription,
         gameId: finalGameId,
+        coachPersonalityId: finalCoachPersonalityId,
         questions: [],
         checklist: [],
       });
@@ -134,9 +143,11 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
     newName: string,
     newDescription: string,
     selectedGameId: SupportedGameId,
+    selectedCoachPersonalityId: string,
   ) => {
     setInfo(newName, newDescription);
     setGameId(selectedGameId);
+    setCoachPersonalityId(selectedCoachPersonalityId);
     setIsGenerating(true);
     setError(null);
 
@@ -192,10 +203,10 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
   };
 
   const handleStartRecording = async () => {
-    // Get the meeting setup data to pass to the recording
+    // Get the game setup data to pass to the recording
     const setupData = getMeetingSetupData();
 
-    // Start the recording with meeting setup data
+    // Start the recording with game setup data
     await startRecording(setupData);
   };
 
@@ -219,6 +230,7 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
           <InfoStep
             initialName={name}
             initialDescription={description}
+            initialCoachPersonalityId={coachPersonalityId}
             isGenerating={isGenerating}
             isSkipping={isSkipping}
             onBack={onCancel}

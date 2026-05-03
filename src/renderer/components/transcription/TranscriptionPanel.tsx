@@ -3,7 +3,7 @@
  *
  * Design matching Figma:
  * - Header with transcript icon
- * - Timestamp badges (orange for You, blue for Them)
+ * - Timestamp badges (orange for Player/mic, blue for Engine/system_audio)
  * - Visual Analysis entries with blue styling
  * - Auto-scroll on new items
  */
@@ -68,7 +68,7 @@ function TranscriptMessage({ item }: TranscriptMessageProps) {
         </div>
         {/* Speaker name */}
         <span className="font-medium text-[13px] text-black leading-[16px]">
-          {isMe ? 'You' : 'Them'}
+          {isMe ? 'Player' : 'Engine'}
         </span>
       </div>
       {/* Text content */}
@@ -164,7 +164,7 @@ function PendingMessage({ text, source }: PendingMessageProps) {
           </span>
         </div>
         <span className="font-medium text-[13px] text-black leading-[16px]">
-          {isMe ? 'You' : 'Them'}
+          {isMe ? 'Player' : 'Engine'}
         </span>
       </div>
       {/* Text content */}

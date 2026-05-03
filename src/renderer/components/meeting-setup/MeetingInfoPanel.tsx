@@ -2,11 +2,11 @@ import React from 'react';
 import { FileText, MessageSquareText, CheckSquare, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
-import { useMeetingSetupStore } from '../../stores/meeting-setup.store';
+import { useGameSetupStore } from '../../stores/meeting-setup.store';
 import { cn } from '../../lib/utils';
 
 export function MeetingInfoPanel() {
-  const { name, description, questions, checklist } = useMeetingSetupStore();
+  const { name, description, questions, checklist } = useGameSetupStore();
   const [expandedSections, setExpandedSections] = React.useState({
     questions: false,
     checklist: true,
@@ -25,12 +25,12 @@ export function MeetingInfoPanel() {
 
   return (
     <div className="space-y-4 h-full overflow-auto pr-1">
-      {/* Meeting Info Card */}
+      {/* Game Info Card */}
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-primary" />
-            <CardTitle className="text-sm">Meeting</CardTitle>
+            <CardTitle className="text-sm">Game</CardTitle>
           </div>
         </CardHeader>
         <CardContent className="space-y-2">

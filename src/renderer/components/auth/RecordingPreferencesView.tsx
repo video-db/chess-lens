@@ -80,11 +80,11 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
     {
       value: 'always_ask',
       title: 'Ask me every time',
-      description: "You'll get a notification to confirm before each meeting",
+      description: "You'll get a notification to confirm before each game",
     },
     {
       value: 'default_record',
-      title: 'Record all meetings',
+      title: 'Record all games',
       description: 'Automatically join and record every calendar event',
     },
     {
@@ -122,12 +122,12 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
           </p>
         </div>
 
-        {/* Notify before meetings section */}
+        {/* Notify before games section */}
         <div className="w-full flex flex-col gap-[10px] mb-[28px]">
           <div className="flex items-center gap-[8px]">
             <NotifyIcon />
             <span className="text-[14px] font-medium text-black leading-[21px]">
-              Notify me before meetings
+              Notify me before games
             </span>
           </div>
           <div className="flex gap-[8px] w-full">

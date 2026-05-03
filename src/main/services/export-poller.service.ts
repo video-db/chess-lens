@@ -211,7 +211,7 @@ async function triggerPostExportWorkflows(sessionId: string): Promise<void> {
 
   const meetingData: MeetingCompletionData = {
     recordingId: recording.id,
-    title: (recording as any).meetingName || 'Meeting Recording',
+    title: (recording as any).meetingName || 'Game Recording',
     description: (recording as any).meetingDescription,
     startedAt: recording.createdAt,
     endedAt: new Date().toISOString(),

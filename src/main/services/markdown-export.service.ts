@@ -1,16 +1,16 @@
 /**
  * Markdown Export Service
  *
- * Exports meeting transcripts, summaries, visual analysis, and metrics to markdown files
+ * Exports chess game transcripts, summaries, visual analysis, and metrics to markdown files
  * in a globally accessible folder structure (~/.chess_lens/) for AI agents and other tools.
  *
  *   ~/.chess_lens/
- *     ├── index.md (list of all meetings)
- *     └── meetings/
+ *     ├── index.md (list of all games)
+ *     └── games/
  *         └── 2024/
  *             └── 03/
  *                 └── 24/
- *                     └── <meeting-name>/
+ *                     └── <game-name>/
  *                         ├── summary.md
  *                         ├── transcript.md
  *                         ├── visual.md
@@ -28,7 +28,7 @@ import { getGameCoachingProfile, type SupportedGameId } from '../../shared/confi
 const logger = createChildLogger('markdown-export');
 
 const CHESS_LENS_DIR = path.join(os.homedir(), '.chess_lens');
-const MEETINGS_DIR = path.join(CHESS_LENS_DIR, 'meetings');
+const MEETINGS_DIR = path.join(CHESS_LENS_DIR, 'games');
 const INDEX_FILE = path.join(CHESS_LENS_DIR, 'index.md');
 
 export interface MeetingExportData {

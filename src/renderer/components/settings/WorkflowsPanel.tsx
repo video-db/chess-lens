@@ -238,7 +238,7 @@ export function WorkflowsPanel() {
             Workflows
           </h2>
           <p className="text-[13px] text-[#969696] mt-[2px]">
-            Send meeting data to automation tools like n8n and Zapier
+            Send game data to automation tools like n8n and Zapier
           </p>
         </div>
         {!showForm && (
@@ -269,7 +269,7 @@ export function WorkflowsPanel() {
               {editingId ? 'Edit Workflow' : 'New Workflow'}
             </h3>
             <p className="text-[13px] text-[#969696] mt-[4px]">
-              Configure a webhook URL to receive meeting data after each recording.
+              Configure a webhook URL to receive game data after each recording.
             </p>
           </div>
           <div className="px-[20px] py-[20px] space-y-[16px]">
@@ -303,7 +303,7 @@ export function WorkflowsPanel() {
                 className="w-full px-[12px] py-[10px] text-[14px] text-[#141420] bg-white border border-[#ededf3] rounded-[10px] outline-none focus:border-[#ec5b16] focus:ring-1 focus:ring-[#ec5b16]/20 transition-colors placeholder:text-[#969696] font-mono text-[13px]"
               />
               <p className="text-[12px] text-[#969696]">
-                The URL that will receive POST requests with meeting data
+                The URL that will receive POST requests with game data
               </p>
             </div>
 
@@ -348,7 +348,7 @@ export function WorkflowsPanel() {
               No workflows configured yet
             </p>
             <p className="text-[13px] text-[#969696] text-center max-w-[320px] mb-[16px]">
-              Add a webhook URL to automatically send meeting recordings, summaries, and action items to your automation tools.
+              Add a webhook URL to automatically send game recordings, summaries, and coaching items to your automation tools.
             </p>
             <button
               onClick={handleAdd}
@@ -441,13 +441,13 @@ export function WorkflowsPanel() {
             Webhook Payload
           </h4>
           <p className="text-[13px] text-[#464646] mb-[8px]">
-            After each meeting recording, enabled workflows receive a POST request with:
+            After each game recording, enabled workflows receive a POST request with:
           </p>
           <ul className="text-[13px] text-[#969696] space-y-[4px] list-disc list-inside">
-            <li>Meeting title, description, and duration</li>
+            <li>Game title, description, and duration</li>
             <li>VideoDB video ID and player URL</li>
-            <li>AI-generated summary and topics</li>
-            <li>Action items and post-meeting checklist</li>
+            <li>AI-generated summary and key moments</li>
+            <li>Coaching items and post-game checklist</li>
             <li>Full transcript (if available)</li>
           </ul>
         </div>

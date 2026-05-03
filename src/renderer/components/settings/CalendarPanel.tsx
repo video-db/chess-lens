@@ -205,11 +205,11 @@ export function CalendarPanel() {
     {
       value: 'always_ask',
       title: 'Ask me every time',
-      description: "You'll get a notification to confirm before each meeting",
+      description: "You'll get a notification to confirm before each game",
     },
     {
       value: 'default_record',
-      title: 'Record all meetings',
+      title: 'Record all games',
       description: 'Automatically join and record every calendar event',
     },
     {
@@ -229,7 +229,7 @@ export function CalendarPanel() {
             Google Calendar
           </h2>
           <p className="text-[13px] text-[#969696] mt-[2px]">
-            Get notified before your meetings start
+            Get notified before your games start
           </p>
         </div>
         <div className="flex items-center gap-[8px]">
@@ -251,7 +251,7 @@ export function CalendarPanel() {
         <div className="px-[20px] py-[16px] border-b border-[#ededf3]">
           <h3 className="text-[15px] font-semibold text-[#141420]">Calendar Connection</h3>
           <p className="text-[13px] text-[#969696] mt-[4px]">
-            Connect your Google Calendar to receive notifications 2 minutes before meetings start.
+            Connect your Google Calendar to receive notifications 2 minutes before games start.
           </p>
         </div>
         <div className="px-[20px] py-[20px]">
@@ -317,7 +317,7 @@ export function CalendarPanel() {
               {upcomingEvents.length > 0 && (
                 <div className="space-y-[8px]">
                   <h4 className="text-[14px] font-medium text-[#141420]">
-                    Upcoming Meetings (next 24h)
+                    Upcoming Games (next 24h)
                   </h4>
                   <div className="space-y-[8px] max-h-[192px] overflow-y-auto">
                     {upcomingEvents.slice(0, 5).map((event) => (
@@ -354,7 +354,7 @@ export function CalendarPanel() {
 
               {upcomingEvents.length === 0 && (
                 <p className="text-[14px] text-[#969696] text-center py-[16px]">
-                  No upcoming meetings in the next 24 hours
+                  No upcoming games in the next 24 hours
                 </p>
               )}
             </div>
@@ -386,16 +386,16 @@ export function CalendarPanel() {
           <div className="px-[20px] py-[16px] border-b border-[#ededf3]">
             <h3 className="text-[15px] font-semibold text-[#141420]">Notification Preferences</h3>
             <p className="text-[13px] text-[#969696] mt-[4px]">
-              Configure when and how you want to be notified about meetings
+              Configure when and how you want to be notified about games
             </p>
           </div>
           <div className="px-[20px] py-[20px] space-y-[24px]">
-            {/* Notify before meetings */}
+            {/* Notify before games */}
             <div className="space-y-[10px]">
               <div className="flex items-center gap-[8px]">
                 <Bell className="h-[18px] w-[18px] text-[#464646]" />
                 <span className="text-[14px] font-medium text-[#141420]">
-                  Notify me before meetings
+                  Notify me before games
                 </span>
                 {isSavingPrefs && (
                   <Loader2 className="h-[14px] w-[14px] text-[#969696] animate-spin ml-auto" />

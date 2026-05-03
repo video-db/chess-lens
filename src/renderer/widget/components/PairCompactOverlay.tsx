@@ -193,6 +193,8 @@ export function PairCompactOverlay({
       .replace(/`+/g, '')
       .replace(/^\s*(say|ask)\s*:\s*/i, '')
       .replace(/\s*\|\|\|\s*/g, ' ||| ')
+      // Convert chess "...Move" notation (Black's move) to plain English
+      .replace(/\.{3}([NBRQK]?[a-h]?[1-8]?x?[a-h][1-8](?:=[NBRQ])?[+#]?)/g, "Black's $1")
       .replace(/\s+/g, ' ')
       .replace(/(No actionable gameplay moment in this frame\.\s*){2,}/gi, NON_ACTIONABLE)
       .trim();
@@ -564,6 +566,25 @@ export function PairCompactOverlay({
                       {currentTurnLabel}
                     </div>
                   )}
+                  {/* Castling rights debug display */}
+                  {(() => {
+                    const fenParts = (currentFen ?? '').split(' ');
+                    const castling = fenParts[2] ?? '-';
+                    const wK = castling.includes('K');
+                    const wQ = castling.includes('Q');
+                    const bK = castling.includes('k');
+                    const bQ = castling.includes('q');
+                    return (
+                      <div style={{ fontSize: 10, marginTop: 4, fontFamily: 'monospace', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ opacity: 0.6 }}>Castling:</span>
+                        <span style={{ color: wK ? '#7ec87e' : '#c87e7e', opacity: wK ? 1 : 0.55 }}>K</span>
+                        <span style={{ color: wQ ? '#7ec87e' : '#c87e7e', opacity: wQ ? 1 : 0.55 }}>Q</span>
+                        <span style={{ color: bK ? '#7ec87e' : '#c87e7e', opacity: bK ? 1 : 0.55 }}>k</span>
+                        <span style={{ color: bQ ? '#7ec87e' : '#c87e7e', opacity: bQ ? 1 : 0.55 }}>q</span>
+                        <span style={{ opacity: 0.45 }}>({castling})</span>
+                      </div>
+                    );
+                  })()}
                   <div style={{ fontSize: 9, opacity: 0.45, marginTop: 3, fontFamily: 'monospace', wordBreak: 'break-all' }}>
                     {(displayFen ?? currentFen ?? '').split(' ')[0]}
                   </div>

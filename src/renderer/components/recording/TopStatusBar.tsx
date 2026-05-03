@@ -24,11 +24,11 @@ export function TopStatusBar() {
   const mePercent = metrics ? Math.round(metrics.talkRatio.me * 100) : 0;
   const themPercent = metrics ? Math.round(metrics.talkRatio.them * 100) : 0;
 
-  // In idle state, show minimal status bar (MeetingSetupFlow handles recording start)
+  // In idle state, show minimal status bar (GameSetupFlow handles recording start)
   if (!isRecording && status === 'idle') {
     return (
       <div className="h-14 border-b bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg flex items-center justify-center px-6">
-        <span className="text-sm text-muted-foreground">Prepare your meeting below</span>
+        <span className="text-sm text-muted-foreground">Prepare your game below</span>
       </div>
     );
   }
@@ -105,11 +105,11 @@ export function TopStatusBar() {
 
       <div className="h-8 w-px bg-slate-200 dark:bg-slate-700" />
 
-      {/* Talk Ratio */}
+      {/* Move Ratio */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
           <Mic className="w-4 h-4 text-blue-500" />
-          <div className="text-sm font-medium text-slate-600 dark:text-slate-400">You</div>
+          <div className="text-sm font-medium text-slate-600 dark:text-slate-400">White</div>
           <div className="text-lg font-bold text-blue-600">{mePercent}%</div>
         </div>
         <div className="w-24 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -123,7 +123,7 @@ export function TopStatusBar() {
         </div>
         <div className="flex items-center gap-2">
           <div className="text-lg font-bold text-purple-600">{themPercent}%</div>
-          <div className="text-sm font-medium text-slate-600 dark:text-slate-400">Them</div>
+          <div className="text-sm font-medium text-slate-600 dark:text-slate-400">Black</div>
           <Users className="w-4 h-4 text-purple-500" />
         </div>
       </div>

@@ -12,7 +12,6 @@
  */
 
 import { logger } from '../../lib/logger';
-import { getLLMService } from '../llm.service';
 import { getVideoDBServiceFromConfig } from '../videodb.service';
 import { getTranscriptSegmentsByRecording, getCoachingTipsByRecording } from '../../db';
 import { getGameCoachingProfile, type SupportedGameId } from '../../../shared/config/game-coaching';
@@ -186,6 +185,7 @@ export class SummaryGeneratorService {
    */
   private buildChessUserPrompt(gameLog: string, context: MeetingContext, gameName: string): string {
     const title = context.meetingName || `${gameName} Session`;
+    const description = context.meetingDescription?.trim();
 
     const probingQA = context.probingQuestions?.length
       ? context.probingQuestions.map((q, i) => {
@@ -194,26 +194,42 @@ export class SummaryGeneratorService {
         }).join('\n\n')
       : '';
 
+    const descriptionBlock = description ? `Game Description: ${description}\n\n` : '';
     const preContext = probingQA ? `Pre-Session Goals:\n${probingQA}\n\n` : '';
 
     return `${gameName} Session: ${title}
-${preContext}Live Coaching Tips (captured during the game):
+${descriptionBlock}${preContext}Live Coaching Tips (captured during the game):
 ${gameLog}`;
+  }
+
+  /**
+   * Call VideoDB's generateText API with the 'pro' model.
+   * Raises on failure so callers can log the error and return a safe default.
+   */
+  private async callVideoDB(
+    fullPrompt: string,
+    responseType: 'text' | 'json',
+    label: string
+  ): Promise<string | null> {
+    const videodb = getVideoDBServiceFromConfig();
+    if (!videodb) {
+      log.warn({ label }, 'VideoDB service not available — skipping generateText call');
+      return null;
+    }
+    const result = await videodb.generateCoachingText(fullPrompt, 'pro', responseType, 90000);
+    if (!result) {
+      log.warn({ label }, 'VideoDB generateText returned empty result');
+      return null;
+    }
+    return result;
   }
 
   private async generateGameOverview(userPrompt: string, gameId: SupportedGameId): Promise<string> {
     const systemPrompt = buildGameSummarySystemPrompt(gameId, 'overview');
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
     try {
-      const videodb = getVideoDBServiceFromConfig();
-      if (videodb) {
-        const result = await videodb.generateCoachingText(fullPrompt, 'pro', 'text', 60000);
-        if (result) return result.trim();
-      }
-      // Fallback to LLM direct call
-      const llm = getLLMService();
-      const response = await llm.complete(userPrompt, systemPrompt);
-      if (response.success && response.content) return response.content.trim();
+      const result = await this.callVideoDB(fullPrompt, 'text', 'overview');
+      if (result) return result.trim();
     } catch (error) {
       log.error({ error, gameId }, 'Game overview generation failed');
     }
@@ -224,19 +240,9 @@ ${gameLog}`;
     const systemPrompt = buildGameSummarySystemPrompt(gameId, 'keyPoints');
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
     try {
-      const videodb = getVideoDBServiceFromConfig();
-      if (videodb) {
-        const result = await videodb.generateCoachingText(fullPrompt, 'pro', 'json', 60000);
-        if (result) {
-          const parsed = this.parseKeyPointsResponse(result);
-          if (parsed) return parsed;
-        }
-      }
-      // Fallback to LLM direct call
-      const llm = getLLMService();
-      const response = await llm.complete(userPrompt, systemPrompt);
-      if (response.success && response.content) {
-        const parsed = this.parseKeyPointsResponse(response.content);
+      const result = await this.callVideoDB(fullPrompt, 'json', 'keyPoints');
+      if (result) {
+        const parsed = this.parseKeyPointsResponse(result);
         if (parsed) return parsed;
       }
     } catch (error) {
@@ -249,19 +255,9 @@ ${gameLog}`;
     const systemPrompt = buildGameSummarySystemPrompt(gameId, 'checklist');
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
     try {
-      const videodb = getVideoDBServiceFromConfig();
-      if (videodb) {
-        const result = await videodb.generateCoachingText(fullPrompt, 'pro', 'json', 60000);
-        if (result) {
-          const parsed = this.parseChecklistResponse(result);
-          if (parsed) return parsed;
-        }
-      }
-      // Fallback to LLM direct call
-      const llm = getLLMService();
-      const response = await llm.complete(userPrompt, systemPrompt);
-      if (response.success && response.content) {
-        const parsed = this.parseChecklistResponse(response.content);
+      const result = await this.callVideoDB(fullPrompt, 'json', 'checklist');
+      if (result) {
+        const parsed = this.parseChecklistResponse(result);
         if (parsed) return parsed;
       }
     } catch (error) {

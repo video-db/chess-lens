@@ -384,7 +384,7 @@ export class MeetingCopilotService extends EventEmitter {
     // Calculate final metrics
     const metrics = this.metricsService.calculate(segments, duration);
 
-    // Fetch meeting context from recording
+    // Fetch game context from recording
     const recording = getRecordingById(recordingId);
     const meetingContext = {
       meetingName: (recording as any)?.meetingName || undefined,
@@ -494,7 +494,7 @@ export class MeetingCopilotService extends EventEmitter {
 
     const filePath = await exportMeetingToMarkdown({
       recordingId,
-      meetingName: meetingContext.meetingName || 'Untitled Meeting',
+      meetingName: meetingContext.meetingName || 'Untitled Game',
       meetingDescription: meetingContext.meetingDescription,
       gameId: meetingContext.gameId,
       startedAt: new Date(recording.createdAt),
@@ -506,7 +506,7 @@ export class MeetingCopilotService extends EventEmitter {
       apiKey: this.apiKey || undefined,
     });
 
-    log.info({ recordingId, filePath }, 'Meeting exported to markdown');
+    log.info({ recordingId, filePath }, 'Game exported to markdown');
   }
 
   /**

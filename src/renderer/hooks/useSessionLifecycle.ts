@@ -9,7 +9,7 @@
 import { useCallback } from 'react';
 import { useSessionStore } from '../stores/session.store';
 import { useCopilotStore } from '../stores/copilot.store';
-import { useMeetingSetupStore } from '../stores/meeting-setup.store';
+import { useGameSetupStore } from '../stores/meeting-setup.store';
 import { useTranscriptionStore } from '../stores/transcription.store';
 import { useLiveAssistStore } from '../stores/live-assist.store';
 import { useVisualIndexStore } from '../stores/visual-index.store';
@@ -23,8 +23,8 @@ export function resetAllSessionStores() {
   // Clear copilot state (metrics, nudges, summary, transcripts)
   useCopilotStore.getState().reset();
 
-  // Clear meeting setup state (name, description, questions, checklist)
-  useMeetingSetupStore.getState().reset();
+  // Clear game setup state (name, description, questions, checklist)
+  useGameSetupStore.getState().reset();
 
   // Clear transcription state
   useTranscriptionStore.getState().clear();
@@ -89,13 +89,13 @@ export function useSessionLifecycle() {
   }, []);
 
   /**
-   * Prepare for a new session and optionally pre-fill meeting info.
-   * Use this when navigating to meeting setup from notifications/calendar.
+   * Prepare for a new session and optionally pre-fill game info.
+   * Use this when navigating to game setup from notifications/calendar.
    */
   const prepareNewSessionWithInfo = useCallback(
     (name: string, description: string) => {
       prepareNewSession();
-      useMeetingSetupStore.getState().setInfo(name, description);
+      useGameSetupStore.getState().setInfo(name, description);
     },
     [prepareNewSession]
   );

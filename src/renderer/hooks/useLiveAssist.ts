@@ -8,7 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { useLiveAssistStore } from '../stores/live-assist.store';
 import { useSessionStore } from '../stores/session.store';
-import { useMeetingSetupStore } from '../stores/meeting-setup.store';
+import { useGameSetupStore } from '../stores/meeting-setup.store';
 import { getElectronAPI } from '../api/ipc';
 
 export function useLiveAssist() {
@@ -27,11 +27,12 @@ export function useLiveAssist() {
 
     if (isRecording && (!wasRecordingRef.current || startedGameIdRef.current !== currentGameId)) {
       // Recording just started, or the selected game changed while recording.
-      const meetingSetup = useMeetingSetupStore.getState();
+      const meetingSetup = useGameSetupStore.getState();
       const context = {
         name: meetingSetup.name || undefined,
         description: meetingSetup.description || undefined,
         gameId: meetingSetup.gameId || selectedGameId,
+        coachPersonalityId: meetingSetup.coachPersonalityId || undefined,
         questions: meetingSetup.questions.length > 0 ? meetingSetup.questions : undefined,
         checklist: meetingSetup.checklist.length > 0 ? meetingSetup.checklist : undefined,
       };

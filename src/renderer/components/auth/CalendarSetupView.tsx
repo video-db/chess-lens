@@ -113,9 +113,9 @@ export function CalendarSetupView({ onConnected, onSkip }: CalendarSetupViewProp
   };
 
   const features = [
-    'Auto-detect meetings from your calendar',
-    'Get notified before each meeting starts',
-    'Choose which meetings to record',
+    'Auto-detect games from your calendar',
+    'Get notified before each game starts',
+    'Choose which games to record',
   ];
 
   return (
@@ -165,7 +165,7 @@ export function CalendarSetupView({ onConnected, onSkip }: CalendarSetupViewProp
         <div className="w-full flex items-start gap-[10px] px-[14px] py-[12px] bg-[#f8f8fa] rounded-[12px] border border-[#efefef] mb-[32px]">
           <p className="text-[13px] text-[#666666] leading-[18px]">
             <span className="font-medium">Tip:</span> Make sure notifications are enabled for Chess Lens in{' '}
-            <span className="font-medium">System Settings → Notifications</span> to receive meeting reminders.
+            <span className="font-medium">System Settings → Notifications</span> to receive game reminders.
           </p>
         </div>
 

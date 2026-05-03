@@ -1,6 +1,6 @@
 /**
- * Meeting Setup tRPC Procedures
- * Endpoints for generating probing questions and meeting checklist
+ * Game Setup tRPC Procedures
+ * Endpoints for generating coaching questions and game checklist
  */
 
 import { z } from 'zod';
@@ -18,7 +18,7 @@ export const meetingSetupRouter = router({
   generateProbingQuestions: protectedProcedure
     .input(
       z.object({
-        name: z.string().min(1, 'Meeting name is required'),
+        name: z.string().min(1, 'Game name is required'),
         description: z.string().optional().default(''),
       })
     )

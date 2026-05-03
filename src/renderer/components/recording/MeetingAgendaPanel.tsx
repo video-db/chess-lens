@@ -1,7 +1,7 @@
 /**
- * Meeting Agenda Panel Component
+ * Game Checklist Panel Component
  *
- * Shows meeting checklist items during recording:
+ * Shows game checklist items during recording:
  * - Collapsible header with chevron
  * - Checkbox items with gray styling
  */
@@ -73,7 +73,7 @@ function ChecklistItem({ text, checked, onToggle }: ChecklistItemProps) {
   );
 }
 
-interface MeetingAgendaPanelProps {
+interface GameChecklistPanelProps {
   checklist: string[];
   checkedItems?: Set<number>;
   onToggleItem?: (index: number) => void;
@@ -85,7 +85,7 @@ export function MeetingAgendaPanel({
   checkedItems = new Set(),
   onToggleItem,
   defaultExpanded = true,
-}: MeetingAgendaPanelProps) {
+}: GameChecklistPanelProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [localCheckedItems, setLocalCheckedItems] = useState<Set<number>>(checkedItems);
 
@@ -120,7 +120,7 @@ export function MeetingAgendaPanel({
       >
         <div className="flex-1 flex items-center gap-[8px]">
           <ClipboardCheckIcon />
-          <span className="font-medium text-[15px] text-black">Meeting Agenda</span>
+          <span className="font-medium text-[15px] text-black">Game Checklist</span>
         </div>
         {isExpanded ? (
           <ChevronUp className="w-[24px] h-[24px] text-[#464646]" />

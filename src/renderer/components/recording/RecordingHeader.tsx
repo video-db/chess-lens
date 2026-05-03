@@ -2,7 +2,7 @@
  * Recording Header Component
  *
  * Header for recording view with:
- * - Meeting name and time
+ * - Game name and time
  * - Recording timer with red dot
  * - Pause/Stop buttons
  */
@@ -10,7 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { Pause, Square, Loader2 } from 'lucide-react';
 import { useSession } from '../../hooks/useSession';
-import { useMeetingSetupStore } from '../../stores/meeting-setup.store';
+import { useGameSetupStore } from '../../stores/meeting-setup.store';
 
 // Clock icon
 function ClockIcon() {
@@ -68,18 +68,18 @@ function formatStartTime(date: Date): string {
 
 export function RecordingHeader() {
   const { status, elapsedTime, isRecording, isStopping, isPaused, stopRecording, pauseRecording, resumeRecording } = useSession();
-  const { name } = useMeetingSetupStore();
+  const { name } = useGameSetupStore();
 
   // Capture start time once when component mounts
   const [startTime] = useState(() => new Date());
 
-  const meetingName = name || 'Meeting';
+  const gameName = name || 'Chess Game';
 
   return (
     <div className="flex items-center gap-[12px] p-[20px]">
       {/* Title section */}
       <div className="flex-1 flex flex-col gap-[10px]">
-        <h1 className="font-semibold text-[24px] text-black tracking-[0.12px]">{meetingName}</h1>
+        <h1 className="font-semibold text-[24px] text-black tracking-[0.12px]">{gameName}</h1>
         <div className="flex items-center gap-[4px]">
           <ClockIcon />
           <span className="text-[14px] text-[#464646] tracking-[0.07px]">Started at: {formatStartTime(startTime)}</span>

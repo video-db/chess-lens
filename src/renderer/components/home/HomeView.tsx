@@ -4,7 +4,7 @@
  * New home page design with:
  * - App permissions section with toggles
  * - Start Recording button
- * - Recent meetings
+ * - Recent games
  * - Today's calendar events
  * - Connected MCP servers
  */
@@ -440,7 +440,7 @@ function MCPServerItem({
         <div className="flex-1 flex flex-col gap-[6px]">
           <p className="text-[14px] font-medium text-black tracking-[0.07px]">{server.name}</p>
           <p className="text-[13px] text-[#464646] tracking-[0.065px]">
-            {server.description || 'Sync meeting notes & summaries'}
+            {server.description || 'Sync game notes & summaries'}
           </p>
         </div>
         <button

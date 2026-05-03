@@ -462,7 +462,12 @@ class ChessScreenshotService {
     pipelineLatency.endStep(cycleId, 'voteConfirm');
 
     // ── Step 6: Promote voted FEN if changed ──────────────────────────────
-    if (votedEntry.fenBoard === this.lastConfirmedFen) {
+    // Never skip the initial starting position: if the previous confirmed FEN
+    // was also the initial board (e.g. game 1 just started), a new game starting
+    // from the same position must still be pushed so live-assist can reseed
+    // castling rights and other per-game state.
+    const isInitialBoard = votedEntry.fenBoard === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+    if (votedEntry.fenBoard === this.lastConfirmedFen && !isInitialBoard) {
       pipelineLatency.endCycle(cycleId, 'fenUnchanged');
       log.debug({ votedFen: votedEntry.fenBoard }, '[ChessScreenshot] Voted FEN unchanged — no push needed');
       return;

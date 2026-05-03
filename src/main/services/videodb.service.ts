@@ -239,17 +239,17 @@ export class VideoDBService {
     }
 
     // Construct the full prompt with transcript (matching Python's format exactly)
-    const prompt = customPrompt || `Analyze the following meeting transcript and generate a comprehensive meeting report in markdown format.
+    const prompt = customPrompt || `Analyze the following chess game transcript and generate a comprehensive game report in markdown format.
 
 **Output Structure:**
-## 📋 Meeting Summary
-A brief 2-3 sentence executive summary of the meeting.
+## 📋 Game Summary
+A brief 2-3 sentence executive summary of the game.
 
-## 🎯 Key Discussion Points
-- Bullet points of the main topics discussed
+## 🎯 Key Moments
+- Bullet points of the main positions and turning points
 
 ## 💡 Key Decisions
-- Any decisions that were made during the meeting
+- Any critical moves or decisions that were made during the game
 ---
 
 Transcript:
