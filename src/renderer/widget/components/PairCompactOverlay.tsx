@@ -116,6 +116,12 @@ interface PairCompactOverlayProps {
   /** FEN in the original player perspective (for the overlay board display). */
   displayFen: string | null;
   currentTurn: 'w' | 'b' | null;
+  /** Best move SAN from the chess engine (e.g. "b8=Q+"). */
+  engineSan?: string;
+  /** Centipawn evaluation from the engine as a float (e.g. -11.62). */
+  engineEval?: number;
+  /** Mate-in-N from the engine (null = no forced mate). */
+  engineMate?: number | null;
   onStop: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -214,6 +220,9 @@ export function PairCompactOverlay({
   currentFen,
   displayFen,
   currentTurn,
+  engineSan,
+  engineEval,
+  engineMate,
   onStop,
   onPause,
   onResume,
@@ -376,20 +385,21 @@ export function PairCompactOverlay({
       : null),
     [isChess, recentSayThis]
   );
-  const chessEngineCard = useMemo(
-    () => (isChess
-      ? recentSayThis.find((card) => card.text.trim().toLowerCase().startsWith('engine:')) || null
-      : null),
-    [isChess, recentSayThis]
-  );
   const chessDrillCard = useMemo(
     () => (isChess ? recentAskThis.find((card) => !!card.text.trim()) || null : null),
     [isChess, recentAskThis]
   );
 
   const chessParagraphText = chessParagraphCard ? compact(chessParagraphCard.text, 80) : '';
-  const chessEngineText = chessEngineCard ? compact(chessEngineCard.text, 240) : '';
   const chessDrillText = chessDrillCard ? compact(chessDrillCard.text, 220) : '';
+
+  // Format the eval badge label directly from the engine prop values — no regex needed.
+  const engineEvalLabel: string | null = engineMate != null
+    ? `M${Math.abs(engineMate)}`
+    : typeof engineEval === 'number'
+      ? `${engineEval >= 0 ? '+' : ''}${engineEval.toFixed(2)}`
+      : null;
+
   const currentTurnLabel = currentTurn === 'w' ? 'White to move' : currentTurn === 'b' ? 'Black to move' : '';
   const chessWaitingText = isChess && chessParagraphCard && now - chessParagraphCard.timestamp >= 6000
     ? 'Waiting for the next move…'
@@ -405,10 +415,10 @@ export function PairCompactOverlay({
   const compactLatestTip = latestSay ? compact(latestSay.text, 200) : '';
   const compactLatestAnalysis = latestAsk ? compact(latestAsk.text, 200) : '';
 
-  const chessHasCoachContent = !!(chessParagraphText || chessEngineText || chessDrillText);
+  const chessHasCoachContent = !!(chessParagraphText || engineSan || chessDrillText);
   const chessHasAnyContent = !!(chessHasCoachContent || (displayFen ?? currentFen));
   const primaryText = isChess
-    ? (chessParagraphText || chessEngineText || '')
+    ? (chessParagraphText || engineSan || '')
     : (compactTopTip || visualHeading || visualBody || '');
   const combinedText = [primaryText, compactLatestTip, compactLatestAnalysis, nudge?.message || '']
     .filter(Boolean).join(' ').toLowerCase();
@@ -774,19 +784,19 @@ export function PairCompactOverlay({
             ) : (
               <>
                 {/* ── Best move block ── */}
-                {chessEngineText && (
+                {engineSan && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10.09 }}>
                     {/* "BEST MOVE" label — grey, no spinner */}
                     <span style={{ fontSize: 12, fontWeight: 500, color: '#969696', lineHeight: '13px', fontFamily: 'Inter, sans-serif' }}>
                       BEST MOVE
                     </span>
-                    {/* Move + badge */}
+                    {/* Move + eval badge */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10.09 }}>
                       <span style={{ fontSize: 26, fontWeight: 600, color: '#009106', fontFamily: 'Inter, sans-serif', lineHeight: '18px' }}>
-                        {chessEngineText.replace(/^engine:\s*/i, '').split(/[\s|]/)[0] || chessEngineText.replace(/^engine:\s*/i, '')}
+                        {engineSan}
                       </span>
                       <div style={{ background: 'rgba(0,145,6,0.1)', border: '0.84px solid rgba(0,145,6,0.1)', borderRadius: 30.27, padding: '1px 6px', fontSize: 12, fontWeight: 500, color: '#009106', fontFamily: 'Inter, sans-serif' }}>
-                        Best
+                        {engineEvalLabel ?? 'Best'}
                       </div>
                     </div>
                   </div>
@@ -794,7 +804,7 @@ export function PairCompactOverlay({
 
                 {/* ── Coaching tip card ── */}
                 {/* #F5F5F8 card — shows spinner+"COACHING TIP INCOMING..." when tip pending, tip text when arrived */}
-                <div style={{ background: '#F5F5F8', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ background: '#F5F5F8', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 38, boxSizing: 'border-box', justifyContent: 'center' }}>
                   {chessParagraphText ? (
                     /* Tip has arrived — single line with ellipsis */
                     <p style={{ fontSize: 13, lineHeight: '18px', color: '#464646', fontFamily: 'Inter, sans-serif', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -803,7 +813,7 @@ export function PairCompactOverlay({
                   ) : (
                     /* Tip still loading — spinner + label */
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <div style={{ width: 14, height: 14, borderRadius: '50%', background: 'conic-gradient(from 180deg at 50% 50%, #FE480B 0deg, rgba(196,196,196,0) 360deg)', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                      <div style={{ width: 14, height: 14, borderRadius: '50%', background: 'conic-gradient(from 90deg, rgba(254,72,11,1) 0deg, rgba(196,196,196,0) 360deg)', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
                       <span style={{ fontSize: 12, fontWeight: 500, color: '#464646', lineHeight: '13px', fontFamily: 'Inter, sans-serif' }}>
                         COACHING TIP INCOMING...
                       </span>

@@ -16,6 +16,9 @@ const VIDEODB_FAILED_MARKER = '__videodb_api_failed__';
 // Polling configuration
 const POLL_INTERVAL_MS = 3000; // 3 seconds
 const MAX_POLL_DURATION_MS = 30 * 60 * 1000; // 30 minutes max
+// How many times we re-trigger export when the server reports exportStatus === 'failed'
+// before we give up and mark the recording as permanently failed.
+const MAX_EXPORT_RETRIES = 3;
 
 // Track active pollers
 interface ActivePoller {
@@ -24,6 +27,7 @@ interface ActivePoller {
   apiKey: string;
   apiUrl?: string;
   collectionId?: string;
+  exportFailCount: number; // counts consecutive 'failed' exportStatus responses
 }
 
 const activePollers = new Map<string, ActivePoller>();
@@ -49,7 +53,6 @@ export function startExportPoller(
 
   const pollForExport = async () => {
     const elapsed = Date.now() - startTime;
-
     // Check timeout
       if (elapsed > MAX_POLL_DURATION_MS) {
         logger.warn({ sessionId, elapsedMs: elapsed }, 'Polling timed out');
@@ -95,13 +98,25 @@ export function startExportPoller(
         });
       }
     } else if (result.status === 'failed') {
-      logger.error({ sessionId }, 'Session failed on VideoDB');
-      stopExportPoller(sessionId);
-      updateRecordingBySessionId(sessionId, {
-        status: 'failed',
-        insightsStatus: 'failed',
-        insights: VIDEODB_FAILED_MARKER,
-      });
+      const poller = activePollers.get(sessionId);
+      const failCount = (poller?.exportFailCount ?? 0) + 1;
+      if (poller) poller.exportFailCount = failCount;
+
+      logger.warn({ sessionId, exportFailCount: failCount, maxRetries: MAX_EXPORT_RETRIES }, 'Session export failed on VideoDB');
+
+      if (failCount >= MAX_EXPORT_RETRIES) {
+        // Exhausted retries — give up
+        logger.error({ sessionId, exportFailCount: failCount }, 'Session export failed after all retries — marking recording as failed');
+        stopExportPoller(sessionId);
+        updateRecordingBySessionId(sessionId, {
+          status: 'failed',
+          insightsStatus: 'failed',
+          insights: VIDEODB_FAILED_MARKER,
+        });
+      } else {
+        // checkSessionExport already re-triggered session.export(); keep polling.
+        logger.info({ sessionId, exportFailCount: failCount, nextRetryMs: POLL_INTERVAL_MS }, 'Continuing to poll after export retry');
+      }
     } else if (result.error) {
       // Transient error, keep polling
       logger.debug({ sessionId, error: result.error }, 'Poll error, will retry');
@@ -112,7 +127,7 @@ export function startExportPoller(
   pollForExport();
   const intervalId = setInterval(pollForExport, POLL_INTERVAL_MS);
 
-  activePollers.set(sessionId, { intervalId, startTime, apiKey, apiUrl, collectionId });
+  activePollers.set(sessionId, { intervalId, startTime, apiKey, apiUrl, collectionId, exportFailCount: 0 });
 }
 
 /**

@@ -19,6 +19,7 @@ export interface ExportCheckResult {
   videoId?: string;
   status?: string;
   error?: string;
+  retryExport?: boolean; // true when export was re-triggered after a 'failed' exportStatus
 }
 
 export interface ExportRecoveryResult {
@@ -67,10 +68,26 @@ export async function checkSessionExport(
       return { exported: true, videoId: exportedVideoId, status: exportStatus };
     }
 
-    // Export pipeline failed on the server side — stop polling.
+    // Export pipeline failed on the server side — log full state and re-trigger export once.
     if (exportStatus === 'failed') {
-      logger.warn({ sessionId }, 'Export failed on server (exportStatus=failed)');
-      return { exported: false, status: 'failed' };
+      logger.warn(
+        {
+          sessionId,
+          sessionStatus,
+          exportStatus,
+          exportedVideoId,
+        },
+        'Export failed on server (exportStatus=failed) — re-triggering export'
+      );
+      // Attempt a fresh export trigger so the server can retry the pipeline.
+      try {
+        const retryRes = await session.export();
+        logger.info({ sessionId, retryResponse: retryRes }, 'Re-triggered export after failure');
+      } catch (retryErr) {
+        const retryErrMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        logger.warn({ sessionId, error: retryErrMsg }, 'Failed to re-trigger export after failure');
+      }
+      return { exported: false, status: 'failed', retryExport: true };
     }
 
     // Upload still in progress — session not yet stopped on server, skip this cycle.
@@ -83,7 +100,13 @@ export async function checkSessionExport(
     // If export is already "exporting" this is effectively a no-op on the server.
     if (!exportStatus || exportStatus === 'pending') {
       logger.info({ sessionId }, 'Triggering export for stopped session');
-      await session.export();
+      try {
+        const exportRes = await session.export();
+        logger.debug({ sessionId, exportResponse: exportRes }, 'Export triggered');
+      } catch (exportErr) {
+        const exportErrMsg = exportErr instanceof Error ? exportErr.message : String(exportErr);
+        logger.warn({ sessionId, error: exportErrMsg }, 'Export trigger threw an error');
+      }
     }
 
     // Return current (non-exported) status; next poll cycle will check progress.

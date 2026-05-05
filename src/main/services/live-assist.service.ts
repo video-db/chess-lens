@@ -73,6 +73,9 @@ interface VisualIndexChunk {
 interface ChessContextData {
   fen: string;
   engineSummary: string;
+  engineSan?: string;        // best move SAN directly from the engine response
+  engineEval?: number;       // centipawn eval (as float, e.g. -11.62) from the engine response
+  engineMate?: number | null; // mate-in-N (null if no forced mate)
   playedMoveSan?: string;
   playedMoveUci?: string;
   board?: string;
@@ -120,6 +123,10 @@ class LiveAssistService extends EventEmitter {
   private lastChessBoard: string | null = null;
   private lastChessTurn: 'w' | 'b' | null = null;
   private lastChessPerspective: 'white' | 'black' = 'white';
+  // Last engine result — carried on every fen event so the widget always has the current move/eval.
+  private lastEngineSan: string | undefined = undefined;
+  private lastEngineEval: number | undefined = undefined;
+  private lastEngineMate: number | null | undefined = undefined;
   private castlingRights: CastlingRightsState = {
     whiteKingside: false,
     whiteQueenside: false,
@@ -608,6 +615,9 @@ class LiveAssistService extends EventEmitter {
     this.lastChessBoard = null;
     this.lastChessTurn = null;
     this.lastChessPerspective = 'white';
+    this.lastEngineSan = undefined;
+    this.lastEngineEval = undefined;
+    this.lastEngineMate = undefined;
     this.pendingChessSignature = null;
     this.pendingChessSignatureCount = 0;
     this.castlingRights = {
@@ -829,6 +839,9 @@ class LiveAssistService extends EventEmitter {
     return {
       fen: resolvedFen.fen,
       engineSummary: engine.summarize(result),
+      engineSan: result.san,
+      engineEval: typeof result.eval === 'number' ? result.eval : undefined,
+      engineMate: result.mate ?? null,
       playedMoveSan: latestMove.san,
       playedMoveUci: latestMove.uci,
       board: resolvedFen.board,
@@ -1235,6 +1248,10 @@ class LiveAssistService extends EventEmitter {
     // Emit 'fen' immediately so the overlay board updates the moment a new
     // confirmed position is available — even if the coaching LLM call
     // fails/times out later. This decouples board display from tip generation.
+    // Clear engine fields so the overlay doesn't show stale move/eval for the new position.
+    this.lastEngineSan = undefined;
+    this.lastEngineEval = undefined;
+    this.lastEngineMate = undefined;
     const whitePerspectiveFen = `${fenBoard} ${inferredTurn} ${castling} - 0 1`;
     const displayFen = this.buildDisplayFen(whitePerspectiveFen, perspective);
     this.emit('fen', {
@@ -1242,6 +1259,9 @@ class LiveAssistService extends EventEmitter {
       displayFen,
       board: fenBoard,
       turn: inferredTurn,
+      engineSan: undefined,
+      engineEval: undefined,
+      engineMate: undefined,
     });
 
     // The pipeline always works in white's perspective.
@@ -1550,11 +1570,23 @@ class LiveAssistService extends EventEmitter {
         this.lastChessSignature = chessSignature;
         this.lastChessBoard = chessContext?.board || chessSignature;
         this.lastChessTurn = sideToMove;
+        // Store engine result on instance so subsequent fen emits carry it too.
+        this.lastEngineSan = chessContext?.engineSan;
+        this.lastEngineEval = chessContext?.engineEval;
+        this.lastEngineMate = chessContext?.engineMate;
         this.pendingChessSignature = null;
         this.pendingChessSignatureCount = 0;
         const whitePerspFen = chessContext?.fen || `${chessSignature} ${sideToMove} - - 0 1`;
         const dFen = this.buildDisplayFen(whitePerspFen, this.lastChessPerspective);
-        this.emit('fen', { fen: whitePerspFen, displayFen: dFen, board: this.lastChessBoard, turn: sideToMove });
+        this.emit('fen', {
+          fen: whitePerspFen,
+          displayFen: dFen,
+          board: this.lastChessBoard,
+          turn: sideToMove,
+          engineSan: this.lastEngineSan,
+          engineEval: this.lastEngineEval,
+          engineMate: this.lastEngineMate,
+        });
       }
       this.lastProcessedTimestamp = now;
 
@@ -1656,6 +1688,10 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
       this.lastChessSignature = chessSignature;
       this.lastChessBoard = chessContext?.board || chessSignature;
       this.lastChessTurn = chessContext?.turn || this.lastChessTurn;
+      // Store engine result on instance so subsequent fen emits carry it too.
+      this.lastEngineSan = chessContext?.engineSan;
+      this.lastEngineEval = chessContext?.engineEval;
+      this.lastEngineMate = chessContext?.engineMate;
       this.pendingChessSignature = null;
       this.pendingChessSignatureCount = 0;
       const whitePerspFen = chessContext?.fen || `${chessSignature} ${this.lastChessTurn || 'w'} - - 0 1`;
@@ -1665,6 +1701,9 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
         displayFen: dFen,
         board: this.lastChessBoard,
         turn: this.lastChessTurn,
+        engineSan: this.lastEngineSan,
+        engineEval: this.lastEngineEval,
+        engineMate: this.lastEngineMate,
       });
     }
     this.lastProcessedTimestamp = now;

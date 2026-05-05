@@ -22,6 +22,9 @@ export function WidgetApp() {
   const [currentFen, setCurrentFen] = useState<string | null>(null);
   const [displayFen, setDisplayFen] = useState<string | null>(null);
   const [currentTurn, setCurrentTurn] = useState<'w' | 'b' | null>(null);
+  const [engineSan, setEngineSan] = useState<string | undefined>(undefined);
+  const [engineEval, setEngineEval] = useState<number | undefined>(undefined);
+  const [engineMate, setEngineMate] = useState<number | null | undefined>(undefined);
   const [isStopping, setIsStopping] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
 
@@ -62,6 +65,9 @@ export function WidgetApp() {
           setCurrentFen(null);
           setDisplayFen(null);
           setCurrentTurn(null);
+          setEngineSan(undefined);
+          setEngineEval(undefined);
+          setEngineMate(undefined);
         }
         // Transitioning not-recording → recording: also clear (fresh session)
         if (!prev.isRecording && state.isRecording) {
@@ -70,6 +76,9 @@ export function WidgetApp() {
           setCurrentFen(null);
           setDisplayFen(null);
           setCurrentTurn(null);
+          setEngineSan(undefined);
+          setEngineEval(undefined);
+          setEngineMate(undefined);
         }
         return state;
       });
@@ -98,6 +107,9 @@ export function WidgetApp() {
       setCurrentFen(data.fen);
       setDisplayFen(data.displayFen);
       setCurrentTurn(data.turn);
+      setEngineSan(data.engineSan);
+      setEngineEval(data.engineEval);
+      setEngineMate(data.engineMate);
     });
 
     // Keep polling requestInitialState until the main process responds.
@@ -196,6 +208,9 @@ export function WidgetApp() {
         currentFen={currentFen}
         displayFen={displayFen}
         currentTurn={currentTurn}
+        engineSan={engineSan}
+        engineEval={engineEval}
+        engineMate={engineMate}
         onStop={handleStop}
         onPause={handlePause}
         onResume={handleResume}

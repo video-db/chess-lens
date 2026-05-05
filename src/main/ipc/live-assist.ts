@@ -77,7 +77,7 @@ export function setupLiveAssistHandlers(): void {
         }
       }
     });
-    liveAssistService.on('fen', (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null }) => {
+    liveAssistService.on('fen', (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineEval?: number; engineMate?: number | null }) => {
       sendToRenderer('live-assist:fen', data);
       updateWidgetFen(data);
     });
