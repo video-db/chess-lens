@@ -97,20 +97,74 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
   if (isJustEnded) {
     return (
       <div className="bg-surface-muted h-full flex flex-col overflow-hidden" style={{ padding: '0 10px' }}>
-        {/* Header */}
-        <Header
-          title={title}
-          recordingId={recordingId}
-          createdAt={recording.createdAt}
-          duration={recording.duration}
-          playerUrl={resolvedPlayerUrl}
-          onBack={onBack}
-        />
+
+        {/* Header — matches Figma exactly */}
+        <div className="flex gap-[12px] items-start" style={{ padding: '30px 20px 20px' }}>
+          {/* Left: Back + Title + Metadata */}
+          <div className="flex-1 flex gap-[16px] items-start">
+            {/* Back button */}
+            <button
+              onClick={onBack}
+              className="flex items-center justify-center bg-white hover:bg-gray-50 transition-colors"
+              style={{ width: 28, height: 28, border: '0.933px solid rgba(0,0,0,0.2)', borderRadius: 6.53, flexShrink: 0, marginTop: 2 }}
+            >
+              <ArrowLeft className="h-[15px] w-[15px] text-black" />
+            </button>
+
+            {/* Title + metadata */}
+            <div className="flex flex-col gap-[10px]">
+              <h1 className="text-[24px] font-semibold text-black" style={{ letterSpacing: '0.005em' }}>
+                {title}
+              </h1>
+              <div className="flex items-center gap-[20px]">
+                <div className="flex items-center gap-[4px]">
+                  <Calendar className="h-4 w-4 text-text-body opacity-20" />
+                  <span className="text-[13px] text-text-body" style={{ letterSpacing: '0.005em' }}>{formatDate(recording.createdAt)}</span>
+                </div>
+                {recording.duration && (
+                  <div className="flex items-center gap-[4px]">
+                    <Clock className="h-4 w-4 text-text-body opacity-20" />
+                    <span className="text-[13px] text-text-body" style={{ letterSpacing: '0.005em' }}>{formatDurationMinutes(recording.duration)}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-[4px]">
+                  <Swords className="h-4 w-4 text-text-body opacity-20" />
+                  <span className="text-[13px] text-text-body" style={{ letterSpacing: '0.005em' }}>— Moves</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Analysis status badge */}
+          <div className="flex items-start" style={{ paddingTop: 2 }}>
+            <div
+              className="flex items-center gap-[6px]"
+              style={{
+                padding: '4px 12px 4px 10px',
+                background: '#CCE9CD',
+                border: '1px solid #C9E4D5',
+                boxShadow: '0px 1.27px 15.27px rgba(0,0,0,0.05)',
+                borderRadius: 12,
+              }}
+            >
+              <Loader2 className="h-4 w-4 animate-spin" style={{ color: '#009106' }} />
+              <span className="text-[13px] font-medium" style={{ color: '#009106', letterSpacing: '0.005em' }}>
+                Analysing...
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Main container — centered dialog */}
         <div
-          className="flex-1 bg-white border border-border-default overflow-hidden flex items-center justify-center"
-          style={{ borderRadius: '20px 20px 0 0' }}
+          className="flex-1 flex items-center justify-center overflow-hidden"
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid #EFEFEF',
+            borderRadius: '20px 20px 0px 0px',
+          }}
         >
+          {/* Dialog card */}
           <div
             style={{
               display: 'flex',
@@ -123,24 +177,65 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
               borderRadius: 16,
             }}
           >
-            {/* Icon circle */}
-            <div style={{ width: 68, height: 68, background: '#F7F7F7', border: '1.7px solid #EFEFEF', borderRadius: 85, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Clock className="w-8 h-8" style={{ color: '#464646' }} />
-            </div>
+            {/* container: icon + text */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, width: 490 }}>
 
-            {/* Text */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, width: '100%' }}>
-              <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 500, color: '#000000', textAlign: 'center', margin: 0, lineHeight: '27px' }}>
-                Recording Ended
-              </h2>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 400, color: '#464646', textAlign: 'center', margin: 0, lineHeight: '150%', width: 370 }}>
-                  Your game is being processed. Analysis and insights will appear here shortly.
-                </p>
+              {/* Icon circle — 68×68, #F7F7F7 bg, #EFEFEF border */}
+              <div
+                style={{
+                  width: 68,
+                  height: 68,
+                  background: '#F7F7F7',
+                  border: '1.7px solid #EFEFEF',
+                  borderRadius: 85,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Swords className="w-8 h-8" style={{ color: '#464646', opacity: 0.6 }} />
+              </div>
+
+              {/* Text block */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, width: 490 }}>
+                {/* Heading */}
+                <h2
+                  style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: 22,
+                    fontWeight: 500,
+                    color: '#000000',
+                    textAlign: 'center',
+                    margin: 0,
+                    lineHeight: '27px',
+                    width: 490,
+                  }}
+                >
+                  Analysis in Progress
+                </h2>
+
+                {/* Detail */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, width: 490 }}>
+                  <p
+                    style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 14,
+                      fontWeight: 400,
+                      color: '#464646',
+                      textAlign: 'center',
+                      margin: 0,
+                      lineHeight: '150%',
+                      width: 370,
+                    }}
+                  >
+                    Your game is being processed. Analysis and insights will appear here shortly.
+                  </p>
+                </div>
               </div>
             </div>
 
-            {/* CTA */}
+            {/* CTA — Start New Recording */}
             <button
               onClick={onBack}
               style={{
@@ -160,7 +255,7 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
                 letterSpacing: '-0.02em',
               }}
             >
-              {/* Recording icon — outer ring + inner filled dot per Figma */}
+              {/* Recording icon — outer ring + inner dot */}
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path fillRule="evenodd" clipRule="evenodd" d="M10 2.125C5.65076 2.125 2.125 5.65076 2.125 10C2.125 14.3492 5.65076 17.875 10 17.875C14.3492 17.875 17.875 14.3492 17.875 10C17.875 5.65076 14.3492 2.125 10 2.125ZM0.875 10C0.875 4.96043 4.96043 0.875 10 0.875C15.0396 0.875 19.125 4.96043 19.125 10C19.125 15.0396 15.0396 19.125 10 19.125C4.96043 19.125 0.875 15.0396 0.875 10Z" fill="white"/>
                 <circle cx="10" cy="10" r="3.5" fill="white"/>
