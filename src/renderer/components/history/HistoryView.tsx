@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Search } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { RecordingCard } from './RecordingCard';
 import { RecordingDetailPage } from './RecordingDetailPage';
 import { trpc } from '../../api/trpc';
@@ -65,10 +65,10 @@ export function HistoryView({ initialSelectedRecordingId, onClearInitialSelectio
 
   const hasRecordings = allRecordings.length > 0;
 
-  // ── Record icon SVG ──────────────────────────────────────────────────────────
+  // ── Record icon SVG — outer ring + filled center dot per Figma ──────────────
   const RecordIcon = () => (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="10" cy="10" r="7.5" stroke="white" strokeWidth="1.5"/>
+      <path fillRule="evenodd" clipRule="evenodd" d="M10 2.125C5.65076 2.125 2.125 5.65076 2.125 10C2.125 14.3492 5.65076 17.875 10 17.875C14.3492 17.875 17.875 14.3492 17.875 10C17.875 5.65076 14.3492 2.125 10 2.125ZM0.875 10C0.875 4.96043 4.96043 0.875 10 0.875C15.0396 0.875 19.125 4.96043 19.125 10C19.125 15.0396 15.0396 19.125 10 19.125C4.96043 19.125 0.875 15.0396 0.875 10Z" fill="white"/>
       <circle cx="10" cy="10" r="3.5" fill="white"/>
     </svg>
   );
@@ -114,7 +114,7 @@ export function HistoryView({ initialSelectedRecordingId, onClearInitialSelectio
 
           {isLoading ? (
             <div className="flex items-center justify-center flex-1">
-              <RefreshCw className="h-6 w-6 animate-spin text-text-muted-brand" />
+              <Loader2 className="h-6 w-6 animate-spin text-text-muted-brand" />
             </div>
 
           ) : !hasRecordings ? (

@@ -10,10 +10,11 @@ import { Loader2, ChevronRight } from 'lucide-react';
 import { useConfigStore } from '../../stores/config.store';
 import { trpc } from '../../api/trpc';
 import { getElectronAPI } from '../../api/ipc';
-import logoOrangeIcon from '../../../../resources/icon-mono-orange-bg.png';
+import { ChessLensIconOrange } from '../ui/ChessLensIcon';
+import { ChessLensWordmark } from '../ui/ChessLensWordmark';
 
 function LogoIcon() {
-  return <img src={logoOrangeIcon} width={50} height={50} alt="Chess Lens" className="rounded-[8px]" />;
+  return <ChessLensIconOrange size={50} />;
 }
 
 // Step indicators component - exported for use in other setup views
@@ -97,7 +98,7 @@ export function AuthView() {
           <LogoIcon />
           <div className="flex flex-col items-center gap-[8px]">
             <h1 className="text-xl font-semibold text-black text-center tracking-[-0.44px]">
-              Welcome to Chess Lens
+              Welcome to <ChessLensWordmark size={20} variant="dark" />
             </h1>
             <p className="text-base font-normal text-text-body text-center">
               Record, Analyse, and get AI insights from every chess match.

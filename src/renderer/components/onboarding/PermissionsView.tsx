@@ -13,13 +13,13 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useConfigStore } from '../../stores/config.store';
 import { useNotificationPermission } from '../../hooks/useNotificationPermission';
 import { StepIndicators } from '../auth/AuthView';
-import logoIcon from '../../../../resources/icon-mono-orange-bg.png';
-import permissionsVideo from '../../../../resources/permissions.mp4';
+import { ChessLensIconOrange } from '../ui/ChessLensIcon';
+import permissionsVideo from '../../assets/permissions.mp4';
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
 function LogoIcon() {
-  return <img src={logoIcon} width={50} height={50} alt="Chess Lens" className="rounded-[8px]" />;
+  return <ChessLensIconOrange size={50} />;
 }
 
 function SystemAudioIcon() {

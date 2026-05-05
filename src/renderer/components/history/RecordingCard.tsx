@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock, Move } from 'lucide-react';
+import { Calendar, Clock, Swords } from 'lucide-react';
 import type { Recording } from '../../../shared/schemas/recording.schema';
 import { formatDate, formatDurationMinutes, stripMarkdown, cn } from '../../lib/utils';
 
@@ -67,7 +67,7 @@ export function RecordingCard({ recording, onClick }: RecordingCardProps) {
             </div>
           )}
           <div className="flex items-center gap-[4px]">
-            <Move className="h-4 w-4 text-text-body opacity-20" />
+            <Swords className="h-4 w-4 text-text-body opacity-20" />
             <span className="text-sm text-text-body tracking-[0.005em]">— Moves</span>
           </div>
         </div>

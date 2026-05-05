@@ -1,4 +1,6 @@
 import React from 'react';
+import { ChessLensIconBlack } from '../../components/ui/ChessLensIcon';
+import { ChessLensWordmark } from '../../components/ui/ChessLensWordmark';
 
 function CollapseIcon() {
   return (
@@ -31,13 +33,10 @@ export function WidgetHeader() {
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}
     >
-      {/* Left: Logo + wordmark image */}
-      <div className="flex items-center gap-[3.36px] flex-1" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ borderRadius: 3, flexShrink: 0 }}>
-            <rect width="20" height="20" rx="3" fill="#000000"/>
-            <circle cx="10" cy="10" r="4.5" fill="none" stroke="white" strokeWidth="1.2"/>
-            <circle cx="10" cy="10" r="2" fill="#FF4000"/>
-          </svg>
+      {/* Left: Logo + wordmark */}
+      <div className="flex items-center gap-[3.36px] flex-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <ChessLensIconBlack size={20} />
+        <ChessLensWordmark size={13} variant="default" />
       </div>
 
       {/* Right: Collapse icon */}

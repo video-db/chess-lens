@@ -115,6 +115,9 @@ export function App() {
   const copilotCallActive = useCopilotStore((state) => state.isCallActive);
   const awaitingCallSummary = sessionStatus === 'idle' && copilotCallActive;
 
+  // Track previous recording state to detect widget-stop transitions
+  const wasActivelyRecordingRef = React.useRef(false);
+
   React.useEffect(() => {
     if (isActivelyRecording && showMeetingSetup) {
       setShowMeetingSetup(false);
@@ -129,7 +132,7 @@ export function App() {
   };
 
   // Handle returning from recording/setup mode - navigate to history (detail page if we have a recording ID)
-  const handleExitRecordingMode = () => {
+  const handleExitRecordingMode = React.useCallback(() => {
     setShowMeetingSetup(false);
 
     // Capture recording ID before clearing state (may be null if something went wrong)
@@ -142,7 +145,19 @@ export function App() {
     setActiveTab('history');
 
     prepareNewSession();
-  };
+  }, [sessionStore, prepareNewSession]);
+
+  // When recording stops via the widget (not via RecordingView's own back handler),
+  // isActivelyRecording transitions true→false while awaitingCallSummary is also false.
+  // Detect this transition and navigate to the detail page automatically.
+  React.useEffect(() => {
+    const wasRecording = wasActivelyRecordingRef.current;
+    wasActivelyRecordingRef.current = isActivelyRecording;
+
+    if (wasRecording && !isActivelyRecording && !awaitingCallSummary) {
+      handleExitRecordingMode();
+    }
+  }, [isActivelyRecording, awaitingCallSummary, handleExitRecordingMode]);
 
   const renderContent = () => {
     console.log('[App.renderContent] sessionStatus:', sessionStatus, 'isActivelyRecording:', isActivelyRecording, 'awaitingCallSummary:', awaitingCallSummary, 'activeTab:', activeTab);

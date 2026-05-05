@@ -22,7 +22,7 @@ import {
   Video,
   Send,
   X,
-  Move,
+  Swords,
 } from 'lucide-react';
 import { trpc } from '../../api/trpc';
 import { getElectronAPI } from '../../api/ipc';
@@ -88,6 +88,90 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
   const isVideoFailed = recording.status === 'failed' && !resolvedPlayerUrl;
   const isVideoProcessing = (recording.status === 'processing' || recording.status === 'recording') && !resolvedPlayerUrl;
   const players = extractPlayerNames(recording.meetingName);
+
+  // ── Figma post-recording state ──
+  // When the recording has just ended and summary data isn't ready yet, show
+  // the centered dialog matching the Figma "Recording Ended" screen.
+  const isJustEnded = (recording.status === 'processing' || recording.status === 'recording') && !recording.shortOverview;
+
+  if (isJustEnded) {
+    return (
+      <div className="bg-surface-muted h-full flex flex-col overflow-hidden" style={{ padding: '0 10px' }}>
+        {/* Header */}
+        <Header
+          title={title}
+          recordingId={recordingId}
+          createdAt={recording.createdAt}
+          duration={recording.duration}
+          playerUrl={resolvedPlayerUrl}
+          onBack={onBack}
+        />
+        {/* Main container — centered dialog */}
+        <div
+          className="flex-1 bg-white border border-border-default overflow-hidden flex items-center justify-center"
+          style={{ borderRadius: '20px 20px 0 0' }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              padding: 30,
+              gap: 20,
+              width: 550,
+              background: '#FFFFFF',
+              borderRadius: 16,
+            }}
+          >
+            {/* Icon circle */}
+            <div style={{ width: 68, height: 68, background: '#F7F7F7', border: '1.7px solid #EFEFEF', borderRadius: 85, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Clock className="w-8 h-8" style={{ color: '#464646' }} />
+            </div>
+
+            {/* Text */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, width: '100%' }}>
+              <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 500, color: '#000000', textAlign: 'center', margin: 0, lineHeight: '27px' }}>
+                Recording Ended
+              </h2>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 400, color: '#464646', textAlign: 'center', margin: 0, lineHeight: '150%', width: 370 }}>
+                  Your game is being processed. Analysis and insights will appear here shortly.
+                </p>
+              </div>
+            </div>
+
+            {/* CTA */}
+            <button
+              onClick={onBack}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '12px 20px',
+                background: '#FF4000',
+                border: 'none',
+                borderRadius: 12,
+                boxShadow: '0px 1.27px 15.27px rgba(0,0,0,0.05)',
+                cursor: 'pointer',
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 14,
+                fontWeight: 600,
+                color: '#FFFFFF',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              {/* Recording icon — outer ring + inner filled dot per Figma */}
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path fillRule="evenodd" clipRule="evenodd" d="M10 2.125C5.65076 2.125 2.125 5.65076 2.125 10C2.125 14.3492 5.65076 17.875 10 17.875C14.3492 17.875 17.875 14.3492 17.875 10C17.875 5.65076 14.3492 2.125 10 2.125ZM0.875 10C0.875 4.96043 4.96043 0.875 10 0.875C15.0396 0.875 19.125 4.96043 19.125 10C19.125 15.0396 15.0396 19.125 10 19.125C4.96043 19.125 0.875 15.0396 0.875 10Z" fill="white"/>
+                <circle cx="10" cy="10" r="3.5" fill="white"/>
+              </svg>
+              <span>Start New Recording</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-surface-muted h-full flex flex-col overflow-hidden" style={{ padding: '0 10px' }}>
@@ -241,7 +325,7 @@ function Header({ title, recordingId, createdAt, duration, playerUrl, onBack }: 
             )}
             {/* Moves */}
             <div className="flex items-center gap-[4px]">
-              <Move className="h-4 w-4 text-text-body opacity-20" />
+              <Swords className="h-4 w-4 text-text-body opacity-20" />
               <span className="text-[13px] text-text-body" style={{ letterSpacing: '0.005em' }}>— Moves</span>
             </div>
           </div>
