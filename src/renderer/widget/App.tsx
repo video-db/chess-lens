@@ -51,7 +51,6 @@ export function WidgetApp() {
 
     let cancelled = false;
     let retryTimer: number | null = null;
-    let retryCount = 0;
 
     // Set up listeners
     const unsubSession = api.onSessionState((state) => {
@@ -74,6 +73,9 @@ export function WidgetApp() {
         }
         return state;
       });
+      // Clear connecting state only when recording is actually live.
+      // Do NOT clear it just because we received isRecording=false — that is
+      // exactly the pre-recording window we want to keep showing.
       if (state.isRecording) {
         setIsConnecting(false);
       }
@@ -98,14 +100,11 @@ export function WidgetApp() {
       setCurrentTurn(data.turn);
     });
 
+    // Keep polling requestInitialState until the main process responds.
+    // No retry cap — we stay in the connecting state until isRecording fires.
+    // Each call is cheap (IPC ping); we stop as soon as cancelled.
     const requestStateUntilRecording = () => {
       void api.requestInitialState();
-
-      retryCount += 1;
-      if (cancelled || retryCount >= 10) {
-        setIsConnecting(false);
-        return;
-      }
 
       retryTimer = window.setTimeout(() => {
         if (!cancelled) {
@@ -118,7 +117,6 @@ export function WidgetApp() {
 
     return () => {
       cancelled = true;
-      setIsConnecting(false);
       if (retryTimer) {
         window.clearTimeout(retryTimer);
       }
@@ -206,7 +204,7 @@ export function WidgetApp() {
         onDismissCard={handleDismissCard}
         onDismissNudge={handleDismissNudge}
         stopDisabled={isStopping}
-        statusText={isConnecting ? 'Connecting...' : undefined}
+        statusText={isConnecting ? 'Connecting to VideoDB and starting screen capture...' : undefined}
       />
     </div>
   );

@@ -411,6 +411,202 @@ export function PairCompactOverlay({
   // Shown when recording is active but no coach content yet
   const isScanning = sessionState.isRecording && !sessionState.isPaused && !chessHasAnyContent;
 
+  // ── PRE-RECORDING state ──
+  // Shown from the moment the overlay appears until the capture pipeline is
+  // fully ready and isRecording flips to true.  statusText is set to the
+  // "Connecting…" string by App.tsx while isConnecting is true.
+  const isPreRecording = !sessionState.isRecording && !!statusText;
+
+  if (isPreRecording) {
+    return (
+      <div style={{ width: '100%', height: 'auto', display: 'flex', flexDirection: 'column', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
+        <div style={{
+          background: '#FFFFFF',
+          borderRadius: 16,
+          overflow: 'hidden',
+          boxShadow: '0px 4px 24px rgba(0,0,0,0.08)',
+        }}>
+
+          {/* ── Header ── */}
+          <div style={{
+            background: '#F7F7F7',
+            height: 40,
+            padding: '8px 12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxSizing: 'border-box',
+          }}>
+            {/* Logo + wordmark */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ borderRadius: 3, flexShrink: 0 }}>
+                <rect width="20" height="20" rx="3" fill="#000000"/>
+                <circle cx="10" cy="10" r="4.5" fill="none" stroke="white" strokeWidth="1.2"/>
+                <circle cx="10" cy="10" r="2" fill="#FF4000"/>
+              </svg>
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#464646', fontFamily: 'Inter, sans-serif' }}>
+                Chess Lens
+              </span>
+            </div>
+            {/* Collapse / down-chevron icon — no-op in pre-recording state */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M6 9l6 6 6-6" stroke="#1E1E1E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+
+          {/* ── Body ── */}
+          <div style={{
+            background: '#FFFFFF',
+            padding: '16.82px 16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 20.18,
+            borderTop: '1px solid rgba(0,0,0,0.05)',
+            borderBottom: '1px solid rgba(0,0,0,0.05)',
+            boxSizing: 'border-box',
+          }}>
+            {/* Row 1: spinner + "STARTING RECORDING..." */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{
+                width: 14,
+                height: 14,
+                borderRadius: '50%',
+                background: 'conic-gradient(from 180deg at 50% 50%, #FF4000 0deg, rgba(196,196,196,0) 360deg)',
+                animation: 'spin 1s linear infinite',
+                flexShrink: 0,
+              }} />
+              <span style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: '#464646',
+                lineHeight: '13px',
+                fontFamily: 'Inter, sans-serif',
+              }}>
+                STARTING RECORDING...
+              </span>
+            </div>
+
+            {/* Row 2: status pill */}
+            <div style={{
+              background: '#EFEFEF',
+              borderRadius: 12.84,
+              padding: '6.73px 10.09px',
+              boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
+            }}>
+              <span style={{
+                fontSize: 13,
+                fontWeight: 400,
+                color: '#464646',
+                lineHeight: '18px',
+                fontFamily: 'Inter, sans-serif',
+                display: 'block',
+              }}>
+                {statusText}
+              </span>
+            </div>
+          </div>
+
+          {/* ── Footer ── */}
+          <div style={{
+            background: '#F7F7F7',
+            height: 50.82,
+            padding: 8,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxSizing: 'border-box',
+            gap: 6.73,
+          }}>
+            {/* Timer: red dot + 00:00 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6.73, flexShrink: 0 }}>
+              <div style={{
+                width: 8.41,
+                height: 8.41,
+                borderRadius: '50%',
+                background: '#FB4425',
+                animation: 'pulse 1s infinite',
+                flexShrink: 0,
+              }} />
+              <span style={{
+                fontSize: 15.136,
+                fontWeight: 500,
+                color: '#FB4425',
+                letterSpacing: '-0.02em',
+                fontFamily: 'Inter, sans-serif',
+              }}>
+                00:00
+              </span>
+            </div>
+
+            {/* CTAs: Chat + Stop */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6.73, flex: 1 }}>
+              {/* Chat button — white bg, #EFEFEF border */}
+              <button
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3.36,
+                  padding: 8,
+                  height: 34.82,
+                  background: '#FFFFFF',
+                  border: '1px solid #EFEFEF',
+                  borderRadius: 10.09,
+                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
+                  cursor: 'default',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#1E1E1E',
+                  letterSpacing: '-0.02em',
+                  fontFamily: 'Inter, sans-serif',
+                }}
+              >
+                {/* Chat bubble icon */}
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6A1.5 1.5 0 0 1 12.5 11H9l-3 3v-3H3.5A1.5 1.5 0 0 1 2 9.5v-6Z" stroke="#1E1E1E" strokeWidth="1.2" strokeLinejoin="round"/>
+                </svg>
+                Chat
+              </button>
+
+              {/* Stop button — enabled, dark bg */}
+              <button
+                onClick={onStop}
+                disabled={stopDisabled}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3.36,
+                  padding: 8,
+                  height: 34.82,
+                  background: '#1C1C1C',
+                  border: 'none',
+                  borderRadius: 10.09,
+                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
+                  cursor: stopDisabled ? 'not-allowed' : 'pointer',
+                  opacity: stopDisabled ? 0.5 : 1,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#FFFFFF',
+                  letterSpacing: '-0.02em',
+                  fontFamily: 'Inter, sans-serif',
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                  <rect x="2.5" y="2.5" width="10" height="10" rx="1.5" fill="white"/>
+                </svg>
+                Stop
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <style>{`
+          @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <div style={{ width: '100%', height: 'auto', display: 'flex', flexDirection: 'column', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
 
@@ -905,6 +1101,7 @@ export function PairCompactOverlay({
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );

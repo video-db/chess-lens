@@ -9,7 +9,7 @@ const logger = createChildLogger('widget-window');
 let widgetWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV !== 'production' && !require('electron').app.isPackaged;
 
-const WIDGET_WIDTH = 378;
+const WIDGET_WIDTH = 400;
 const WIDGET_DEFAULT_HEIGHT = 800;
 const WIDGET_MIN_HEIGHT = 300;
 const WIDGET_MARGIN = 20;
