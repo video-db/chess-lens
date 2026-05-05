@@ -60,6 +60,13 @@ function toGameplayTip(text: string): string {
   if (!compact) return 'Review this moment for piece positioning, tactical threats, and decision-making.';
 
   const cleaned = compact
+    // Strip XML/tagged sections from the coaching pipeline (FEN, board, source tags)
+    .replace(/<source>[\s\S]*?<\/source>/gi, '')
+    .replace(/<perspective>[\s\S]*?<\/perspective>/gi, '')
+    .replace(/<raw_board>[\s\S]*?<\/raw_board>/gi, '')
+    .replace(/<board_mapping>[\s\S]*?<\/board_mapping>/gi, '')
+    .replace(/<turn>[\s\S]*?<\/turn>/gi, '')
+    .replace(/<[^>]+>/g, '')          // strip any remaining XML tags
     .replace(/\*\*/g, '')
     .replace(/__+/g, '')
     .replace(/`+/g, '')
@@ -69,6 +76,7 @@ function toGameplayTip(text: string): string {
     .replace(/^the screen\s+(shows|displays)\s*/i, '')
     .replace(/^this frame\s+(shows|displays)\s*/i, '')
     .replace(/^visible content\s*[:\-]?\s*/i, '')
+    .replace(/\s+/g, ' ')
     .trim();
 
   if (/no actionable gameplay context is available|no actionable gameplay moment/i.test(cleaned)) {
@@ -280,15 +288,18 @@ export const recordingsRouter = router({
 
       if (coachingTips.length > 0) {
         // Use tip timestamps relative to the first tip for readable display times.
+        // Apply toGameplayTip() to strip any raw XML/FEN tags that may have leaked
+        // into the sayThis field from the coaching pipeline.
         const sessionStart = coachingTips[0].timestamp;
         return coachingTips
           .map((tip, idx) => {
             const startTime = Math.round((tip.timestamp - sessionStart) / 1000);
+            const cleanedTip = toGameplayTip(tip.sayThis || '');
             return {
               id: `coaching-tip-${idx}`,
               startTime,
               endTime: startTime + 5,
-              tip: tip.sayThis,
+              tip: cleanedTip,
             };
           })
           .filter((item) => !!item.tip);

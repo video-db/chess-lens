@@ -9,7 +9,6 @@
  */
 
 import { connect } from 'videodb';
-import type { CaptureSessionFull } from 'videodb';
 import { createChildLogger } from '../lib/logger';
 import { updateRecordingBySessionId } from '../db';
 
@@ -30,7 +29,16 @@ export interface ExportRecoveryResult {
 }
 
 /**
- * Check if a capture session has exported
+ * Poll export status for a capture session.
+ *
+ * Strategy (derived from observing actual API behaviour):
+ *   1. refresh() is the source of truth — it returns the real exportStatus and
+ *      exportedVideoId once the export pipeline completes.
+ *   2. session.export() is the trigger — call it once after status === "stopped"
+ *      to kick off the export pipeline. Subsequent calls are no-ops.
+ *   3. Completion is detected via refresh() returning exportStatus === "exported"
+ *      with a non-null exportedVideoId, NOT from the export() response.
+ *   4. If refresh() returns exportStatus === "failed", stop polling immediately.
  */
 export async function checkSessionExport(
   sessionId: string,
@@ -40,43 +48,50 @@ export async function checkSessionExport(
 ): Promise<ExportCheckResult> {
   try {
     const conn = connect(apiUrl ? { apiKey, baseUrl: apiUrl } : { apiKey });
-    const session: CaptureSessionFull = await conn.getCaptureSession(sessionId, collectionId);
+    const session = await conn.getCaptureSession(sessionId, collectionId);
+
+    // refresh() gives us the authoritative server-side state.
     await session.refresh();
 
-    // Primary result with provided collection context.
-    let exported = !!session.exportedVideoId;
-    let videoId = session.exportedVideoId;
-    let status = session.status;
+    const sessionStatus = session.status;
+    const exportStatus = session.exportStatus;
+    const exportedVideoId = session.exportedVideoId;
 
-    // Fallback: retry without collectionId if we got "stopped" with no exported video.
-    // This handles collection mismatch cases where exportedVideoId is only visible on global lookup.
-    if (!exported && collectionId && status === 'stopped') {
-      try {
-        const fallbackSession: CaptureSessionFull = await conn.getCaptureSession(sessionId);
-        await fallbackSession.refresh();
-        if (fallbackSession.exportedVideoId) {
-          exported = true;
-          videoId = fallbackSession.exportedVideoId;
-          status = fallbackSession.status;
-          logger.info({ sessionId, collectionId, videoId }, 'Recovered exportedVideoId via collection-less session lookup');
-        }
-      } catch (fallbackError) {
-        logger.debug({ sessionId, collectionId, fallbackError }, 'Fallback export check without collectionId failed');
-      }
+    logger.debug(
+      { sessionId, sessionStatus, exportStatus, exportedVideoId },
+      'Session status after refresh'
+    );
+
+    // Already done — export completed on a previous poll cycle.
+    if (exportStatus === 'exported' && exportedVideoId) {
+      return { exported: true, videoId: exportedVideoId, status: exportStatus };
     }
 
-    return {
-      exported,
-      videoId,
-      status,
-    };
+    // Export pipeline failed on the server side — stop polling.
+    if (exportStatus === 'failed') {
+      logger.warn({ sessionId }, 'Export failed on server (exportStatus=failed)');
+      return { exported: false, status: 'failed' };
+    }
+
+    // Upload still in progress — session not yet stopped on server, skip this cycle.
+    if (sessionStatus !== 'stopped') {
+      logger.debug({ sessionId, sessionStatus }, 'Session not yet stopped on server, waiting');
+      return { exported: false, status: sessionStatus };
+    }
+
+    // Session stopped but export not yet started — trigger it.
+    // If export is already "exporting" this is effectively a no-op on the server.
+    if (!exportStatus || exportStatus === 'pending') {
+      logger.info({ sessionId }, 'Triggering export for stopped session');
+      await session.export();
+    }
+
+    // Return current (non-exported) status; next poll cycle will check progress.
+    return { exported: false, status: exportStatus || sessionStatus };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.debug({ sessionId, error: errorMsg }, 'Failed to check session export status');
-    return {
-      exported: false,
-      error: errorMsg,
-    };
+    logger.debug({ sessionId, error: errorMsg }, 'Failed to check session export');
+    return { exported: false, error: errorMsg };
   }
 }
 

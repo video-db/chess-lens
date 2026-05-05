@@ -13,7 +13,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useConfigStore } from '../../stores/config.store';
 import { useNotificationPermission } from '../../hooks/useNotificationPermission';
 import { StepIndicators } from '../auth/AuthView';
-import logoIcon from '../../../../resources/chess-lens-icon-orange.svg';
+import logoIcon from '../../../../resources/icon-mono-orange-bg.png';
 import permissionsVideo from '../../../../resources/permissions.mp4';
 
 // ─── Icons ────────────────────────────────────────────────────────────────────

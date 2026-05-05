@@ -130,10 +130,13 @@ declare module 'videodb' {
     callbackUrl?: string;
     metadata?: Record<string, unknown>;
     exportedVideoId?: string;
+    exportStatus?: string;
     rtstreams: RTStream[];
     createdAt?: number;
     refresh(): Promise<void>;
     getRTStream(category: RTStreamCategory): RTStream[];
+    /** Trigger or poll export. Returns exportStatus ("exporting"|"exported") and videoId when done. */
+    export(videoChannelId?: string, wsConnectionId?: string): Promise<Record<string, unknown>>;
   }
 
   export class Connection {

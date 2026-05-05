@@ -4,7 +4,7 @@ import {
   type SupportedGameId,
   CHESS_PERSONALITIES,
 } from '../../../shared/config/game-coaching';
-import logoOrangeIcon from '../../../../resources/chess-lens-icon-orange.svg';
+import logoOrangeIcon from '../../../../resources/icon-mono-orange-bg.png';
 
 function LogoIcon() {
   return <img src={logoOrangeIcon} width={50} height={50} alt="Chess Lens" className="rounded-[8px]" />;

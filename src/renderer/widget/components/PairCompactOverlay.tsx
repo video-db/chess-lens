@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useWidgetChatStore } from '../chatStore';
-import logoIcon from '../../../../../resources/chess-lens-icon-black.svg';
 import type {
   InsightCard,
   WidgetSessionState as SessionState,
@@ -442,7 +441,12 @@ export function PairCompactOverlay({
           >
             {/* Logo + wordmark */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <img src={logoIcon} width={20} height={20} alt="Chess Lens" style={{ borderRadius: 3 }} />
+              {/* Chess Lens logo mark — inline to avoid Vite out-of-root import */}
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ borderRadius: 3, flexShrink: 0 }}>
+                <rect width="20" height="20" rx="3" fill="#000000"/>
+                <circle cx="10" cy="10" r="4.5" fill="none" stroke="white" strokeWidth="1.2"/>
+                <circle cx="10" cy="10" r="2" fill="#FF4000"/>
+              </svg>
               <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-label)', fontFamily: 'Inter, sans-serif' }}>
                 Chess Lens
               </span>

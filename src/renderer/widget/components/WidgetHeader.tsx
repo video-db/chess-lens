@@ -1,5 +1,4 @@
 import React from 'react';
-import logoIcon from '../../../../../resources/chess-lens-icon-black.svg';
 
 function CollapseIcon() {
   return (
@@ -34,7 +33,11 @@ export function WidgetHeader() {
     >
       {/* Left: Logo + wordmark image */}
       <div className="flex items-center gap-[3.36px] flex-1" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
-        <img src={logoIcon} width={20} height={20} alt="Chess Lens" className="rounded-[3px]" />
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ borderRadius: 3, flexShrink: 0 }}>
+            <rect width="20" height="20" rx="3" fill="#000000"/>
+            <circle cx="10" cy="10" r="4.5" fill="none" stroke="white" strokeWidth="1.2"/>
+            <circle cx="10" cy="10" r="2" fill="#FF4000"/>
+          </svg>
       </div>
 
       {/* Right: Collapse icon */}

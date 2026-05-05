@@ -5,11 +5,10 @@ const log = logger.child({ module: 'chess-engine-service' });
 const DEFAULT_CHESS_ENGINE_API_URL = 'https://chess-api.com/v1';
 /**
  * Hard timeout for the chess engine HTTP call.
- * Without this, a stalled chess-api.com request would block the entire
- * coaching pipeline indefinitely (isProcessing stays true).
- * 2s is generous — typical call latency is 200–800ms.
+ * chess-api.com typically responds in 500ms–3s depending on position complexity.
+ * 8s gives ample headroom without blocking the pipeline indefinitely.
  */
-const CHESS_ENGINE_TIMEOUT_MS = 2000;
+const CHESS_ENGINE_TIMEOUT_MS = 8000;
 
 export interface ChessEngineAnalyzeOptions {
   variants?: number;
