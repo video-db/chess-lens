@@ -36,18 +36,18 @@ const PROCESS_TRANSCRIPT_TIMEOUT_MS = 10000;
 
 const CHESS_SYSTEM_PROMPT = `You are a chess coach giving real-time guidance during a live game.
 Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation before or after.
-Format: {"say_this":"<2-3 sentences>","ask_this":"<one short calculation drill>"}
+Format: {"say_this":"<1 sentence>","ask_this":"<one short calculation drill>"}
 Output rules (apply regardless of personality):
 - The context specifies the player's color and whose turn it is. Follow those instructions exactly.
-- When it is the PLAYER's turn: explain the engine's best move for the player with concrete board-specific reasons.
+- When it is the PLAYER's turn: explain the engine's best move for the player with one concrete board-specific reason.
 - When it is the OPPONENT's turn: explain what the opponent's best move threatens or achieves, so the player knows what to defend against.
 - Use the required move exactly as given. Do NOT invent a different move.
 - The context may include a "Moving piece:" line that tells you which piece is on the from-square. Use it exactly — do NOT contradict it.
 - Only mention a piece being on a specific square if that square is confirmed by the FEN or the "Moving piece:" line. Never hallucinate piece locations.
 - Mention at least one concrete chess detail: piece, square, file, diagonal, pawn break, threat, capture, king-safety issue, or development gain.
-- Write complete sentences — never cut a sentence short.
+- Write one complete sentence — never cut a sentence short.
 - Do NOT use "..." chess move notation (e.g. "...e5"). Write "Black plays e5" or "Black's e5" instead.
-- Keep say_this under 150 words.
+- Keep say_this under 25 words — one tight, concrete sentence only.
 - ask_this: one short follow-up calculation question about the next 1-2 moves, under 20 words.`;
 
 export interface MeetingContext {
@@ -1558,7 +1558,7 @@ class LiveAssistService extends EventEmitter {
         if (trackedCycleId !== undefined) pipelineLatency.startStep(trackedCycleId, 'engineTip');
         const evalLine = this.formatEngineAsTip(chessContext);
         this.emit('insights', {
-          insights: { say_this: [`${opponentColorLabel} to move — ${evalLine}`], ask_this: [] },
+          insights: { say_this: [`engine: ${opponentColorLabel} to move — ${evalLine}`], ask_this: [] },
           processedAt: Date.now(),
           clearExisting: true,
         });
@@ -1632,7 +1632,7 @@ class LiveAssistService extends EventEmitter {
       if (trackedCycleId !== undefined) pipelineLatency.startStep(trackedCycleId, 'engineTip');
       const engineFallback = this.formatEngineAsTip(chessContext);
       this.emit('insights', {
-        insights: { say_this: [engineFallback], ask_this: [] },
+        insights: { say_this: [`engine: ${engineFallback}`], ask_this: [] },
         processedAt: Date.now(),
         clearExisting: true,
       });
@@ -1671,13 +1671,8 @@ class LiveAssistService extends EventEmitter {
       : '## TASK\nUse the best move from the engine summary above.';
 
     const userPrompt = `${gameContextSection}${chessSection}${bestMoveInstruction}
-Explain why ${bestMoveSan ?? 'the engine move'} is best in this exact position.
-For say_this, include:
-1. what changes immediately on the board,
-2. the concrete tactical or positional point,
-3. the piece, square, file, diagonal, pawn break, or threat that matters.
-Only mention piece positions that are confirmed by the FEN. Do not invent piece locations.
-Avoid generic advice.
+In one sentence (under 25 words), explain the single most important reason ${bestMoveSan ?? 'the engine move'} is best — name the concrete threat, square, or idea it creates or solves.
+Only mention piece positions confirmed by the FEN. No generic advice.
 For ask_this, write one short calculation question about the next move or likely response.
 Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
     log.info({ visualCount: promptVisuals.length, hasVisual: !!chessSection }, 'Processing gameplay feed for live assist');
