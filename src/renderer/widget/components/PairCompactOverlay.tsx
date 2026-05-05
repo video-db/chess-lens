@@ -390,7 +390,7 @@ export function PairCompactOverlay({
     [isChess, recentAskThis]
   );
 
-  const chessParagraphText = chessParagraphCard ? compact(chessParagraphCard.text, 80) : '';
+  const chessParagraphText = chessParagraphCard ? compact(chessParagraphCard.text, 300) : '';
   const chessDrillText = chessDrillCard ? compact(chessDrillCard.text, 220) : '';
 
   // Format the eval badge label directly from the engine prop values — no regex needed.
@@ -806,8 +806,8 @@ export function PairCompactOverlay({
                 {/* #F5F5F8 card — shows spinner+"COACHING TIP INCOMING..." when tip pending, tip text when arrived */}
                 <div style={{ background: '#F5F5F8', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 38, boxSizing: 'border-box', justifyContent: 'center' }}>
                   {chessParagraphText ? (
-                    /* Tip has arrived — single line with ellipsis */
-                    <p style={{ fontSize: 13, lineHeight: '18px', color: '#464646', fontFamily: 'Inter, sans-serif', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    /* Tip has arrived — wrap naturally */
+                    <p style={{ fontSize: 13, lineHeight: '18px', color: '#464646', fontFamily: 'Inter, sans-serif', margin: 0 }}>
                       {chessParagraphText}
                     </p>
                   ) : (
@@ -821,15 +821,8 @@ export function PairCompactOverlay({
                   )}
                 </div>
 
-                {/* Drill card */}
-                {chessDrillText && (
-                  <div style={{ background: '#F5F5F8', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: 12 }}>
-                    <p style={{ fontSize: 13, lineHeight: '18px', color: '#464646', fontFamily: 'Inter, sans-serif', margin: 0 }}>{chessDrillText}</p>
-                  </div>
-                )}
-
                 {/* Waiting for next move */}
-                {chessWaitingText && !chessParagraphText && !chessDrillText && (
+                {chessWaitingText && !chessParagraphText && (
                   <div style={{ background: '#F5F5F8', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: 12 }}>
                     <p style={{ fontSize: 13, lineHeight: '18px', color: '#464646', fontFamily: 'Inter, sans-serif', margin: 0 }}>{chessWaitingText}</p>
                   </div>
@@ -839,22 +832,6 @@ export function PairCompactOverlay({
                 {!isChess && (compactTopTip || visualHeading || visualBody) && (
                   <div style={{ background: '#F5F5F8', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: 12 }}>
                     <p style={{ fontSize: 13, lineHeight: '18px', color: '#464646', fontFamily: 'Inter, sans-serif', margin: 0 }}>{compactTopTip || visualHeading || visualBody}</p>
-                  </div>
-                )}
-
-                {/* Ask buttons */}
-                {(chessParagraphText || chessDrillText) && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {chessParagraphText && (
-                      <button onClick={() => handleChatAskTip(chessParagraphText, 'Explain this tip')} style={{ background: 'none', border: '1px solid var(--color-border-input)', borderRadius: 8, color: 'var(--color-chess-insight)', fontSize: 12, fontWeight: 500, padding: '4px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                        Ask about this tip
-                      </button>
-                    )}
-                    {chessDrillText && (
-                      <button onClick={() => handleChatAskTip(chessDrillText, 'Explain this drill')} style={{ background: 'none', border: '1px solid var(--color-border-input)', borderRadius: 8, color: 'var(--color-chess-insight)', fontSize: 12, fontWeight: 500, padding: '4px 10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                        Ask about drill
-                      </button>
-                    )}
                   </div>
                 )}
 
