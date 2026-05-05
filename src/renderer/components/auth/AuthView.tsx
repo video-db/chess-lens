@@ -10,10 +10,10 @@ import { Loader2, ChevronRight } from 'lucide-react';
 import { useConfigStore } from '../../stores/config.store';
 import { trpc } from '../../api/trpc';
 import { getElectronAPI } from '../../api/ipc';
-import logoIcon from '../../../../resources/icon-color-black-bg.png';
+import logoOrangeIcon from '../../../../resources/chess-lens-icon-orange.svg';
 
 function LogoIcon() {
-  return <img src={logoIcon} width={50} height={50} alt="Chess Lens" />;
+  return <img src={logoOrangeIcon} width={50} height={50} alt="Chess Lens" className="rounded-[8px]" />;
 }
 
 // Step indicators component - exported for use in other setup views
@@ -23,14 +23,14 @@ export function StepIndicators({ currentStep, totalSteps = 3 }: { currentStep: n
       {Array.from({ length: totalSteps }).map((_, step) => {
         let className = 'rounded-[3px] ';
         if (step === currentStep) {
-          // Current step - active (wide orange bar)
-          className += 'w-[24px] h-[6px] bg-[#ec5b16]';
+          // Current step - active (wide brand bar)
+          className += 'w-[24px] h-[6px] bg-brand';
         } else if (step < currentStep) {
-          // Completed step - dimmed orange dot
-          className += 'w-[6px] h-[6px] bg-[#ec5b16]/40';
+          // Completed step - dimmed brand dot
+          className += 'w-[6px] h-[6px] bg-brand/40';
         } else {
           // Future step - gray dot
-          className += 'w-[6px] h-[6px] bg-[#e0e0e8]';
+          className += 'w-[6px] h-[6px] bg-[var(--color-step-indicator-future)]';
         }
         return <div key={step} className={className} />;
       })}
@@ -41,8 +41,6 @@ export function StepIndicators({ currentStep, totalSteps = 3 }: { currentStep: n
 export function AuthView() {
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [litellmKey, setLitellmKey] = useState('');
-  const [showLitellm, setShowLitellm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const configStore = useConfigStore();
@@ -61,14 +59,12 @@ export function AuthView() {
       const result = await registerMutation.mutateAsync({
         name: name.trim(),
         apiKey: apiKey.trim(),
-        litellmKey: litellmKey.trim() || undefined,
       });
 
       if (result.success && result.accessToken) {
-        configStore.setAuth(result.accessToken, result.name || name, apiKey.trim(), litellmKey.trim() || null);
+        configStore.setAuth(result.accessToken, result.name || name, apiKey.trim(), null);
         setName('');
         setApiKey('');
-        setLitellmKey('');
       } else {
         setError(result.error || 'Registration failed');
       }
@@ -88,20 +84,11 @@ export function AuthView() {
   const canSubmit = name.trim().length > 0 && apiKey.trim().length > 0 && !isSubmitting;
 
   return (
-    <div className="h-full w-full bg-[#f8f8fa] flex flex-col items-center justify-center relative overflow-hidden">
-      {/* Orange gradient glow */}
+    <div className="h-full w-full bg-surface-page flex flex-col items-center justify-center relative overflow-hidden">
+      {/* Brand gradient glow */}
       <div
-        className="absolute top-[-30%] left-1/2 -translate-x-1/2 w-[600px] h-[567px] rounded-[300px] pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(circle at center, rgba(236,91,22,0.08) 0%, rgba(236,91,22,0) 70%)',
-        }}
+        className="absolute top-[-30%] left-1/2 -translate-x-1/2 w-[600px] h-[567px] rounded-[300px] pointer-events-none brand-glow-bg"
       />
-
-      {/* Step indicators */}
-      <div className="absolute top-[32px]">
-        <StepIndicators currentStep={0} totalSteps={4} />
-      </div>
 
       {/* Main content */}
       <div className="flex flex-col items-center w-full max-w-[380px] px-6 relative z-10">
@@ -109,11 +96,11 @@ export function AuthView() {
         <div className="flex flex-col items-center gap-[16px] mb-[32px]">
           <LogoIcon />
           <div className="flex flex-col items-center gap-[8px]">
-            <h1 className="text-[22px] font-semibold text-black text-center tracking-[-0.44px] leading-[33px]">
+            <h1 className="text-xl font-semibold text-black text-center tracking-[-0.44px]">
               Welcome to Chess Lens
             </h1>
-            <p className="text-[14px] font-normal text-[#464646] text-center leading-[21px]">
-              Capture live chess games and get real-time move coaching and analysis.
+            <p className="text-base font-normal text-text-body text-center">
+              Record, Analyse, and get AI insights from every chess match.
             </p>
           </div>
         </div>
@@ -121,8 +108,8 @@ export function AuthView() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="w-full flex flex-col gap-[16px]">
           {/* Name field */}
-          <div className="flex flex-col gap-[6px]">
-            <label className="text-[13px] font-medium text-[#464646] tracking-[0.26px] leading-[19.5px]">
+          <div className="flex flex-col gap-[8px]">
+            <label className="text-base font-medium text-text-label tracking-[0.005em]">
               Your name
             </label>
             <input
@@ -130,14 +117,14 @@ export function AuthView() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter your name"
-              className="w-full bg-[#efefef] border border-[#e0e0e8] rounded-[10px] px-[15px] py-[14px] text-[14px] text-black placeholder:text-[#969696] tracking-[0.14px] outline-none focus:border-[#c0c0c0] transition-colors"
+              className="w-full h-[50px] bg-input-bg border border-border-input rounded-[12px] px-[16px] py-[14px] text-base font-medium text-text-label placeholder:text-text-muted-brand outline-none focus:border-[#c0c0c0] transition-colors"
               autoFocus
             />
           </div>
 
           {/* API Key field */}
-          <div className="flex flex-col gap-[6px]">
-            <label className="text-[13px] font-medium text-[#464646] tracking-[0.26px] leading-[19.5px]">
+          <div className="flex flex-col gap-[8px]">
+            <label className="text-base font-medium text-text-label tracking-[0.005em]">
               VideoDB API Key
             </label>
             <input
@@ -145,37 +132,9 @@ export function AuthView() {
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder="sk-xxxxxxxxxxxxxxxx"
-              className="w-full bg-[#efefef] border border-[#e0e0e8] rounded-[10px] px-[15px] py-[14px] text-[14px] text-black placeholder:text-[#969696] tracking-[0.14px] outline-none focus:border-[#c0c0c0] transition-colors font-mono"
+              className="w-full h-[50px] bg-input-bg border border-border-input rounded-[12px] px-[16px] py-[14px] text-base font-medium text-text-label placeholder:text-text-muted-brand outline-none focus:border-[#c0c0c0] transition-colors font-mono"
             />
           </div>
-
-          {/* LiteLLM key toggle */}
-          <button
-            type="button"
-            onClick={() => setShowLitellm((v) => !v)}
-            className="text-[12px] text-[#ec5b16] text-left hover:underline"
-          >
-            {showLitellm ? '− Hide LiteLLM fallback key' : '+ Add LiteLLM fallback API key (optional)'}
-          </button>
-
-          {/* LiteLLM API Key field */}
-          {showLitellm && (
-            <div className="flex flex-col gap-[6px]">
-              <label className="text-[13px] font-medium text-[#464646] tracking-[0.26px] leading-[19.5px]">
-                LiteLLM API Key <span className="font-normal text-[#969696]">(optional fallback)</span>
-              </label>
-              <input
-                type="password"
-                value={litellmKey}
-                onChange={(e) => setLitellmKey(e.target.value)}
-                placeholder="sk-xxxxxxxxxxxxxxxx"
-                className="w-full bg-[#efefef] border border-[#e0e0e8] rounded-[10px] px-[15px] py-[14px] text-[14px] text-black placeholder:text-[#969696] tracking-[0.14px] outline-none focus:border-[#c0c0c0] transition-colors font-mono"
-              />
-              <p className="text-[11px] text-[#969696] leading-[16px]">
-                Used as a fallback when the primary VideoDB model is unavailable. Connects to the LiteLLM proxy with <span className="font-mono">gpt-5.4</span>.
-              </p>
-            </div>
-          )}
 
           {/* Error message */}
           {error && (
@@ -190,7 +149,7 @@ export function AuthView() {
             <button
               type="submit"
               disabled={!canSubmit}
-              className="w-full bg-[#ff4000] hover:bg-[#e63900] disabled:bg-[#ffb399] disabled:cursor-not-allowed rounded-[12px] px-[24px] py-[12px] text-[14px] font-medium text-white text-center tracking-[0.14px] leading-[21px] transition-colors flex items-center justify-center"
+              className="w-full h-[45px] bg-brand-cta hover:bg-brand-cta-hover disabled:bg-brand-disabled disabled:cursor-not-allowed rounded-[12px] px-[24px] py-[12px] text-base font-medium text-white text-center transition-colors flex items-center justify-center"
             >
               {isSubmitting ? (
                 <>
@@ -208,13 +167,13 @@ export function AuthView() {
               onClick={handleGetApiKey}
               className="w-full flex items-center justify-center gap-[4px] px-[16px] py-[12px] rounded-[10px] hover:bg-black/5 transition-colors"
             >
-              <span className="text-[13px] font-medium text-[#464646] tracking-[0.13px] leading-[19.5px]">
+              <span className="text-sm font-medium text-text-body">
                 Don't have an API key?
               </span>
-              <span className="text-[13px] font-medium text-[#ec5b16] tracking-[0.13px] leading-[19.5px]">
+              <span className="text-sm font-medium text-brand">
                 Get one
               </span>
-              <ChevronRight className="w-[14px] h-[14px] text-[#ec5b16]" />
+              <ChevronRight className="w-[14px] h-[14px] text-brand" />
             </button>
           </div>
         </form>
@@ -223,4 +182,3 @@ export function AuthView() {
   );
 }
 
-export default AuthView;

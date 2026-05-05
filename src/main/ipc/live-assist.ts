@@ -139,6 +139,19 @@ export function setupLiveAssistHandlers(): void {
 
     return { success: true };
   });
+
+  // Chat: answer a player's question about a tip or the current position
+  ipcMain.handle('live-assist:chat', async (_event, question: string, tipContext?: string) => {
+    try {
+      const liveAssistService = getLiveAssistService();
+      const reply = await liveAssistService.chat(question, tipContext);
+      return { success: true, reply };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      logger.warn({ error }, '[live-assist:chat] Failed');
+      return { success: false, error };
+    }
+  });
 }
 
 export function cleanupLiveAssist(): void {

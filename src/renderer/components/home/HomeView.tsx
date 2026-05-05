@@ -53,7 +53,10 @@ const scrollbarBaseStyles = `
   [&::-webkit-scrollbar-thumb]:transition-colors
   [&::-webkit-scrollbar-thumb]:duration-300
 `;
-const scrollbarVisibleStyles = '[&::-webkit-scrollbar-thumb]:bg-[#c1c1c1]';
+const scrollbarVisibleStyles = '[&::-webkit-scrollbar-thumb]:bg-scrollbar-thumb';
+
+// scrollbar-thumb color is defined in tailwind config via --color-scrollbar-thumb
+// We keep the hardcoded fallback for the hidden state
 const scrollbarHiddenStyles = '[&::-webkit-scrollbar-thumb]:bg-transparent';
 
 // Icons
@@ -62,15 +65,15 @@ function SpeakerIcon({ enabled }: { enabled: boolean }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M10 3.333L5.833 6.667H2.5v6.666h3.333L10 16.667V3.333z"
-        stroke={enabled ? '#ec5b16' : '#464646'}
+        stroke={enabled ? 'var(--color-brand)' : 'var(--color-text-body)'}
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        fill={enabled ? 'rgba(236,91,22,0.2)' : 'none'}
+        fill={enabled ? 'var(--color-brand-tint-bg-2xl)' : 'none'}
       />
       <path
         d="M14.167 7.5a4.167 4.167 0 010 5M16.667 5a7.5 7.5 0 010 10"
-        stroke={enabled ? '#ec5b16' : '#464646'}
+        stroke={enabled ? 'var(--color-brand)' : 'var(--color-text-body)'}
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -88,13 +91,13 @@ function MicIcon({ enabled }: { enabled: boolean }) {
         width="5"
         height="10"
         rx="2.5"
-        stroke={enabled ? '#ec5b16' : '#464646'}
+        stroke={enabled ? 'var(--color-brand)' : 'var(--color-text-body)'}
         strokeWidth="1.5"
-        fill={enabled ? 'rgba(236,91,22,0.2)' : 'none'}
+        fill={enabled ? 'var(--color-brand-tint-bg-2xl)' : 'none'}
       />
       <path
         d="M15 8.333v1.667a5 5 0 01-10 0V8.333M10 15v2.5M7.5 17.5h5"
-        stroke={enabled ? '#ec5b16' : '#464646'}
+        stroke={enabled ? 'var(--color-brand)' : 'var(--color-text-body)'}
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -112,19 +115,19 @@ function ScreenIcon({ enabled }: { enabled: boolean }) {
         width="15"
         height="10"
         rx="1.5"
-        stroke={enabled ? '#ec5b16' : '#464646'}
+        stroke={enabled ? 'var(--color-brand)' : 'var(--color-text-body)'}
         strokeWidth="1.5"
-        fill={enabled ? 'rgba(236,91,22,0.2)' : 'none'}
+        fill={enabled ? 'var(--color-brand-tint-bg-2xl)' : 'none'}
       />
       <path
         d="M6.667 16.667h6.666"
-        stroke={enabled ? '#ec5b16' : '#464646'}
+        stroke={enabled ? 'var(--color-brand)' : 'var(--color-text-body)'}
         strokeWidth="1.5"
         strokeLinecap="round"
       />
       <path
         d="M10 13.333v3.334"
-        stroke={enabled ? '#ec5b16' : '#464646'}
+        stroke={enabled ? 'var(--color-brand)' : 'var(--color-text-body)'}
         strokeWidth="1.5"
         strokeLinecap="round"
       />
@@ -137,15 +140,15 @@ function NotificationIcon({ enabled }: { enabled: boolean }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M10 2.5C7.5 2.5 5.5 4.5 5.5 7v3.5l-1.25 1.25c-.417.417-.125 1.125.458 1.125h10.584c.583 0 .875-.708.458-1.125L14.5 10.5V7c0-2.5-2-4.5-4.5-4.5z"
-        stroke={enabled ? '#ec5b16' : '#464646'}
+        stroke={enabled ? 'var(--color-brand)' : 'var(--color-text-body)'}
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        fill={enabled ? 'rgba(236,91,22,0.2)' : 'none'}
+        fill={enabled ? 'var(--color-brand-tint-bg-2xl)' : 'none'}
       />
       <path
         d="M8.5 15.833a1.667 1.667 0 003.333 0"
-        stroke={enabled ? '#ec5b16' : '#464646'}
+        stroke={enabled ? 'var(--color-brand)' : 'var(--color-text-body)'}
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -157,9 +160,9 @@ function NotificationIcon({ enabled }: { enabled: boolean }) {
 function CalendarIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="2.5" y="4.167" width="15" height="13.333" rx="2" stroke="black" strokeWidth="1.5" />
-      <path d="M2.5 8.333h15" stroke="black" strokeWidth="1.5" />
-      <path d="M6.667 2.5v3.333M13.333 2.5v3.333" stroke="black" strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="2.5" y="4.167" width="15" height="13.333" rx="2" stroke="var(--color-text-heading)" strokeWidth="1.5" />
+      <path d="M2.5 8.333h15" stroke="var(--color-text-heading)" strokeWidth="1.5" />
+      <path d="M6.667 2.5v3.333M13.333 2.5v3.333" stroke="var(--color-text-heading)" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -286,22 +289,22 @@ function ConfirmationDialog({
       {/* Dialog */}
       <div className="relative bg-white rounded-[16px] p-[24px] w-[400px] shadow-[0px_4px_24px_0px_rgba(0,0,0,0.15)] flex flex-col gap-[20px]">
         <div className="flex flex-col gap-[8px]">
-          <h3 className="text-[18px] font-semibold text-[#141420]">{title}</h3>
-          <p className="text-[14px] text-[#464646] leading-[20px]">{message}</p>
+          <h3 className="text-lg font-semibold text-text-heading">{title}</h3>
+          <p className="text-base text-text-body leading-[20px]">{message}</p>
         </div>
         <div className="flex gap-[12px] justify-end">
           <button
             onClick={onCancel}
-            className="px-[16px] py-[10px] rounded-[10px] border border-[#e4e4ec] text-[14px] font-medium text-[#464646] hover:bg-[#f7f7f7] transition-colors"
+            className="px-[16px] py-[10px] rounded-[10px] border border-border-card text-base font-medium text-text-body hover:bg-surface-muted transition-colors"
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
-            className={`px-[16px] py-[10px] rounded-[10px] text-[14px] font-medium text-white transition-colors ${
+            className={`px-[16px] py-[10px] rounded-[10px] text-base font-medium text-white transition-colors ${
               variant === 'danger'
-                ? 'bg-[#dc2626] hover:bg-[#b91c1c]'
-                : 'bg-[#ec5b16] hover:bg-[#d4510f]'
+                ? 'bg-status-error hover:bg-danger-hover'
+                : 'bg-brand hover:bg-brand-hover'
             }`}
           >
             {confirmText}
@@ -331,7 +334,7 @@ function Toggle({
     <button
       onClick={() => onChange(!enabled)}
       className={`${width} ${height} rounded-full relative transition-colors ${
-        enabled ? 'bg-[#ec5b16]' : 'bg-[#e4e4ec]'
+        enabled ? 'bg-brand' : 'bg-border-card'
       }`}
     >
       <div
@@ -371,15 +374,15 @@ function PermissionItem({
       <div
         className={`w-[36px] h-[36px] rounded-[10px] flex items-center justify-center ${
           enabled
-            ? 'bg-[rgba(236,91,22,0.1)] border border-[rgba(236,91,22,0.13)]'
-            : 'bg-white border border-[#ededf3]'
+            ? 'bg-[var(--color-brand-tint-bg-lg)] border border-[var(--color-brand-tint-border)]'
+            : 'bg-white border border-border-subtle'
         }`}
       >
         {icon}
       </div>
       <div className="flex-1">
-        <p className="text-[14px] font-medium text-[#141420] leading-[20px]">{title}</p>
-        <p className="text-[13px] text-[rgba(70,70,70,0.6)] leading-[18px]">{description}</p>
+        <p className="text-base font-medium text-text-heading">{title}</p>
+        <p className="text-sm text-[rgba(70,70,70,0.6)]">{description}</p>
       </div>
       <Toggle enabled={enabled} onChange={onChange} />
     </div>
@@ -402,16 +405,16 @@ function CalendarEventItem({
   };
 
   return (
-    <div className="bg-white border border-[#ededf3] rounded-[10px] px-[15px] py-[13px]">
+    <div className="bg-white border border-border-subtle rounded-[10px] px-[15px] py-[13px]">
       <div className="flex items-start">
         <div className="flex-1 flex flex-col gap-[10px]">
-          <p className="text-[14px] font-medium text-black tracking-[0.07px] line-clamp-1">
+          <p className="text-base font-medium text-black tracking-[0.07px] line-clamp-1">
             {event.summary}
           </p>
           <div className="flex items-center gap-[12px]">
             <div className="flex items-center gap-[4px] flex-1">
               <ClockIcon />
-              <span className="text-[14px] text-[#464646] tracking-[0.07px]">
+              <span className="text-base text-text-body tracking-[0.07px]">
                 {formatTime(event.startTime)} - {formatTime(event.endTime)}
               </span>
             </div>
@@ -432,23 +435,23 @@ function MCPServerItem({
   onRemove: () => void;
 }) {
   return (
-    <div className="bg-white border border-[#ededf3] rounded-[10px] px-[15px] py-[13px]">
+    <div className="bg-white border border-border-subtle rounded-[10px] px-[15px] py-[13px]">
       <div className="flex items-center gap-[12px]">
         <div className="w-[20px] h-[20px] flex items-center justify-center">
           <MCPIcon />
         </div>
         <div className="flex-1 flex flex-col gap-[6px]">
-          <p className="text-[14px] font-medium text-black tracking-[0.07px]">{server.name}</p>
-          <p className="text-[13px] text-[#464646] tracking-[0.065px]">
+          <p className="text-base font-medium text-black tracking-[0.07px]">{server.name}</p>
+          <p className="text-sm text-text-body tracking-[0.065px]">
             {server.description || 'Sync game notes & summaries'}
           </p>
         </div>
         <button
           onClick={onRemove}
-          className="w-[24px] h-[24px] flex items-center justify-center hover:bg-[#f7f7f7] rounded-[6px] transition-colors"
+          className="w-[24px] h-[24px] flex items-center justify-center hover:bg-surface-muted rounded-[6px] transition-colors"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 4l8 8M12 4l-8 8" stroke="#969696" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M4 4l8 8M12 4l-8 8" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         </button>
       </div>
@@ -465,15 +468,15 @@ function WorkflowItem({
   onEdit: () => void;
 }) {
   return (
-    <div className="bg-white border border-[#ededf3] rounded-[10px] px-[15px] py-[13px]">
+    <div className="bg-white border border-border-subtle rounded-[10px] px-[15px] py-[13px]">
       <div className="flex items-center gap-[6px]">
-        <p className="flex-1 text-[14px] font-medium text-black tracking-[0.07px]">{workflow.name}</p>
+        <p className="flex-1 text-base font-medium text-black tracking-[0.07px]">{workflow.name}</p>
         <button
           onClick={onEdit}
           className="w-[20px] h-[20px] flex items-center justify-center hover:opacity-70 transition-opacity"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M14.167 2.5L17.5 5.833M2.5 17.5L3.333 14.167L14.167 3.333L16.667 5.833L5.833 16.667L2.5 17.5Z" stroke="#969696" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M14.167 2.5L17.5 5.833M2.5 17.5L3.333 14.167L14.167 3.333L16.667 5.833L5.833 16.667L2.5 17.5Z" stroke="var(--color-text-muted)" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
       </div>
@@ -541,29 +544,29 @@ export function HomeView({ onStartRecording, onNavigateToHistory }: HomeViewProp
         <div className="flex flex-col gap-[30px] w-full">
           {/* Dashboard Header with Start Recording button */}
           <div className="flex items-center justify-between">
-            <h1 className="text-[28px] font-semibold text-black tracking-tight">
+            <h1 className="text-3xl font-semibold text-black tracking-tight">
               Dashboard
             </h1>
             <button
               onClick={onStartRecording}
               disabled={!streams.systemAudio && !streams.microphone}
-              className="flex items-center gap-[4px] bg-[#ff4000] hover:bg-[#e63900] disabled:opacity-50 disabled:cursor-not-allowed px-[20px] py-[12px] rounded-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] transition-colors"
+              className="flex items-center gap-[4px] bg-brand-cta hover:bg-brand-cta-hover disabled:opacity-50 disabled:cursor-not-allowed px-[20px] py-[12px] rounded-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] transition-colors"
             >
               <RecordingIcon />
-              <span className="text-[14px] font-semibold text-white tracking-[-0.28px]">
+              <span className="text-base font-semibold text-white tracking-[-0.28px]">
                 Start Recording
               </span>
             </button>
           </div>
 
           {/* App Permissions Section */}
-          <div className="bg-[#f7f7f7] border border-[#efefef] rounded-[12px] p-[16px] flex flex-col gap-[20px]">
-            <h2 className="text-[18px] font-semibold text-[#141420] tracking-[-0.17px] leading-[25.5px]">
+          <div className="bg-surface-muted border border-border-default rounded-[12px] p-[16px] flex flex-col gap-[20px]">
+            <h2 className="text-lg font-semibold text-text-heading">
               App permissions
             </h2>
 
             {/* Permission Toggles */}
-            <div className="flex flex-col rounded-[12px] overflow-hidden border border-[#efefef]">
+            <div className="flex flex-col rounded-[12px] overflow-hidden border border-border-default">
               <PermissionItem
                 icon={<SpeakerIcon enabled={streams.systemAudio} />}
                 title="System audio"
@@ -572,7 +575,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory }: HomeViewProp
                 onChange={(enabled) => setStreams({ systemAudio: enabled })}
                 isFirst
               />
-              <div className="h-[1px] bg-[#ededf3]" />
+              <div className="h-[1px] bg-border-subtle" />
               <PermissionItem
                 icon={<MicIcon enabled={streams.microphone} />}
                 title="Microphone"
@@ -580,7 +583,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory }: HomeViewProp
                 enabled={streams.microphone}
                 onChange={(enabled) => setStreams({ microphone: enabled })}
               />
-              <div className="h-[1px] bg-[#ededf3]" />
+              <div className="h-[1px] bg-border-subtle" />
               <PermissionItem
                 icon={<ScreenIcon enabled={streams.screen} />}
                 title="Screen capture"
@@ -588,10 +591,10 @@ export function HomeView({ onStartRecording, onNavigateToHistory }: HomeViewProp
                 enabled={streams.screen}
                 onChange={(enabled) => setStreams({ screen: enabled })}
               />
-              <div className="h-[1px] bg-[#ededf3]" />
+              <div className="h-[1px] bg-border-subtle" />
               <PermissionItem
                 icon={<NotificationIcon enabled={notificationsEnabled} />}
-                title="App notification"
+                title="App notifications"
                 description="Allow Chess Lens to send notifications and reminders"
                 enabled={notificationsEnabled}
                 onChange={handleToggleNotifications}
@@ -605,22 +608,22 @@ export function HomeView({ onStartRecording, onNavigateToHistory }: HomeViewProp
         <div className="flex flex-col gap-[14px]">
           {/* Header */}
           <div className="flex items-center justify-between w-full">
-            <h2 className="text-[18px] font-semibold text-[#141420] tracking-[-0.17px] leading-[25.5px]">
+            <h2 className="text-lg font-semibold text-text-heading">
               Recent sessions
             </h2>
           </div>
 
           {/* Content */}
           {recordingsLoading ? (
-            <div className="flex items-center justify-center py-[40px] bg-[#f7f7f7] border border-[#efefef] rounded-[16px] w-full">
-              <Loader2 className="w-6 h-6 animate-spin text-[#969696]" />
+            <div className="flex items-center justify-center py-[40px] bg-surface-muted border border-border-default rounded-[16px] w-full">
+              <Loader2 className="w-6 h-6 animate-spin text-text-muted-brand" />
             </div>
           ) : recentRecordings.length === 0 ? (
-            <div className="flex items-center justify-center py-[40px] bg-[#f7f7f7] border border-[#efefef] rounded-[16px] w-full">
+            <div className="flex items-center justify-center py-[40px] bg-surface-muted border border-border-default rounded-[16px] w-full">
               <div className="flex flex-col items-center gap-[10px] px-[8px] py-[14px]">
                 <EmptyRecordingsIcon />
-                <p className="text-[14px] text-[#141420] leading-[19.5px]">No recordings yet</p>
-                <p className="text-[12px] text-[#969696] text-center max-w-[264px] leading-normal">
+                <p className="text-base text-text-heading">No games recorded yet</p>
+                <p className="text-sm-label text-text-muted-brand text-center max-w-[264px]">
                   Your recorded sessions will appear here with AI summaries, transcripts, and action items.
                 </p>
               </div>
@@ -638,7 +641,7 @@ export function HomeView({ onStartRecording, onNavigateToHistory }: HomeViewProp
               </div>
               <button
                 onClick={onNavigateToHistory}
-                className="flex items-center justify-center gap-[4px] bg-white border border-[rgba(150,150,150,0.3)] px-[20px] py-[12px] rounded-[12px] hover:bg-gray-50 transition-colors"
+                className="flex items-center justify-center gap-[4px] bg-white border border-border-default px-[20px] py-[12px] rounded-[12px] hover:bg-gray-50 transition-colors"
               >
                 <span className="text-[14px] font-semibold text-black tracking-[-0.28px]">
                   View all

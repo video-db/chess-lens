@@ -41,6 +41,8 @@ export const recordings = sqliteTable('recordings', {
   // Post-game analysis
   postMeetingChecklist: text('post_meeting_checklist'), // JSON: string[] (action items after game)
   postMeetingChecklistCompleted: text('post_meeting_checklist_completed'), // JSON: number[] (indices of completed items)
+  // Game result
+  result: text('result', { enum: ['win', 'loss', 'draw'] }),
 });
 
 // Meeting Co-Pilot Tables

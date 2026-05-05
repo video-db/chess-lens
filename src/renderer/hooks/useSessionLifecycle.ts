@@ -14,6 +14,7 @@ import { useTranscriptionStore } from '../stores/transcription.store';
 import { useLiveAssistStore } from '../stores/live-assist.store';
 import { useVisualIndexStore } from '../stores/visual-index.store';
 import { useMCPStore } from '../stores/mcp.store';
+import { useChatStore } from '../stores/chat.store';
 
 /**
  * Clears all session-related stores atomically.
@@ -37,6 +38,9 @@ export function resetAllSessionStores() {
 
   // Clear MCP results (but keep server configs)
   useMCPStore.getState().clearResults();
+
+  // Clear chat history
+  useChatStore.getState().clear();
 }
 
 /**

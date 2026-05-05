@@ -48,7 +48,7 @@ const SCREENSHOT_INTERVAL_MS = 1000;
  * to fill the vote window quickly and confirm the new position.
  */
 const BURST_COUNT = 2;
-const BURST_INTERVAL_MS = 500;
+const BURST_INTERVAL_MS = 200; // was 500 — capture while the move highlight is still visible
 
 /**
  * Majority-vote parameters.
@@ -56,10 +56,11 @@ const BURST_INTERVAL_MS = 500;
  * FEN_VOTE_WINDOW  — number of most-recent raw extractions to keep.
  * FEN_VOTE_THRESHOLD — minimum occurrences needed to promote a FEN.
  *
- * N=2, M=2: both of the last 2 readings must agree before the FEN is
- * promoted to live-assist.
+ * N=3, M=2: 2 of the last 3 readings must agree. This tolerates one bad
+ * frame (e.g. from an LLM math-error retry producing a different board)
+ * while still requiring consensus before the FEN is promoted to live-assist.
  */
-const FEN_VOTE_WINDOW = 2;
+const FEN_VOTE_WINDOW = 3;
 const FEN_VOTE_THRESHOLD = 2;
 
 // ─── Frame deduplication ──────────────────────────────────────────────────────
@@ -272,10 +273,11 @@ class ChessScreenshotService {
 
       // Prefer the entry that has a non-null reportedTurn — this means the LLM
       // successfully read the move highlight and the turn value is reliable.
-      // Falling back to the latest entry (which may have reportedTurn=null due
-      // to highlight fadeout on the second reading) caused systematic turn errors.
+      // Use the *earliest* matching entry with a turn: it was captured closest in
+      // time to when the move was made, so the highlight was most likely still
+      // visible. Later burst frames may have missed the highlight entirely.
       const withTurn = matchingEntries.filter((e) => e.reportedTurn !== null);
-      return withTurn[withTurn.length - 1] ?? matchingEntries[matchingEntries.length - 1] ?? null;
+      return withTurn[0] ?? matchingEntries[matchingEntries.length - 1] ?? null;
     }
     return null;
   }

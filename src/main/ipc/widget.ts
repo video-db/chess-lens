@@ -224,6 +224,16 @@ export function setupWidgetIpcHandlers(): void {
     }
   });
 
+  // Focus the widget window so the user can type in the chat input.
+  // The window is normally shown inactive (to avoid stealing focus from the
+  // game), so we need an explicit IPC call to grant it keyboard focus.
+  ipcMain.handle('widget:focus', async () => {
+    const window = getWidgetWindow();
+    if (window && !window.isDestroyed()) {
+      window.focus();
+    }
+  });
+
   // Renderer reports its content height so we can auto-resize the window.
   // Uses ipcMain.on (not handle) — no return value needed.
   ipcMain.on('widget:content-height', (_event, height: number) => {
@@ -244,6 +254,7 @@ export function removeWidgetIpcHandlers(): void {
   ipcMain.removeHandler('widget:request-initial-state');
   ipcMain.removeHandler('widget:show-main-window');
   ipcMain.removeHandler('widget:hide');
+  ipcMain.removeHandler('widget:focus');
   ipcMain.removeAllListeners('widget:content-height');
 }
 

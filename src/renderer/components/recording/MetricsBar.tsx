@@ -17,25 +17,25 @@ export function MetricsBar() {
   return (
     <div className="flex items-center h-[35px]">
       {/* Move Ratio Pill */}
-      <div className="bg-white border border-[#efefef] rounded-[40px] h-full px-[16px] py-[4px] flex items-center flex-1">
+      <div className="bg-white border border-border-default rounded-[40px] h-full px-[16px] py-[4px] flex items-center flex-1">
         <div className="flex items-center gap-[12px] w-full">
-          <span className="text-[14px] text-[#464646] tracking-[0.07px] whitespace-nowrap">
+          <span className="text-base text-text-body whitespace-nowrap">
             White: {whitePercent}%
           </span>
           {/* Progress bar */}
-          <div className="flex-1 h-[7px] bg-[#f0f0f5] rounded-[4px] overflow-hidden relative">
-            {/* White portion (orange) */}
+          <div className="flex-1 h-[7px] bg-progress-track rounded-[4px] overflow-hidden relative">
+            {/* White portion (brand) */}
             <div
-              className="absolute top-0 left-0 h-full bg-[#ec5b16] rounded-l-[4px]"
+              className="absolute top-0 left-0 h-full bg-brand rounded-l-[4px]"
               style={{ width: `${whitePercent}%` }}
             />
             {/* Black portion (blue) */}
             <div
-              className="absolute top-0 right-0 h-full bg-[#3b82f6] rounded-r-[4px]"
+              className="absolute top-0 right-0 h-full bg-progress-alt rounded-r-[4px]"
               style={{ width: `${blackPercent}%` }}
             />
           </div>
-          <span className="text-[14px] text-[#464646] tracking-[0.07px] whitespace-nowrap">
+          <span className="text-base text-text-body whitespace-nowrap">
             Black: {blackPercent}%
           </span>
         </div>

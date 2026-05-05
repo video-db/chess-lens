@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@100..900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,6 +6,7 @@
 
 @layer base {
   :root {
+    /* ─── shadcn/ui semantic tokens (keep for Radix-based ui/ primitives) ─── */
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -25,7 +26,124 @@
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    --radius: 12px;
+
+    /* ─── Brand / Product color tokens ──────────────────────────────────────
+     *
+     *  These are the single source of truth for every hardcoded color that
+     *  previously lived as a literal hex string (e.g. #ec5b16, #141420 …).
+     *
+     *  To retheme the app for a new Figma design, update the values here —
+     *  every component that uses the corresponding Tailwind utility class
+     *  (e.g. text-brand, bg-surface-muted) will update automatically.
+     *
+     * ─────────────────────────────────────────────────────────────────────── */
+
+    /* Brand / primary action color (orange-red CTA) */
+    --color-brand:           #ec5b16;   /* primary CTA fill, icons, active states  */
+    --color-brand-hover:     #d9520f;   /* hover on brand-colored elements          */
+    --color-brand-cta:       #ff4000;   /* submit / "Continue" button fill          */
+    --color-brand-cta-hover: #e63900;   /* hover on cta buttons                     */
+    --color-brand-disabled:  #969696;   /* disabled cta buttons (gray per Figma)    */
+
+    /* Brand tint surfaces (transparent overlays on white/light bg) */
+    --color-brand-tint-bg:     rgba(236, 91, 22, 0.05);   /* selected option bg       */
+    --color-brand-tint-bg-md:  rgba(236, 91, 22, 0.08);   /* gradient glow center     */
+    --color-brand-tint-bg-lg:  rgba(236, 91, 22, 0.10);   /* icon container active bg */
+    --color-brand-tint-bg-xl:  rgba(236, 91, 22, 0.15);   /* icon fill active         */
+    --color-brand-tint-bg-2xl: rgba(236, 91, 22, 0.20);   /* svg fill active (home)   */
+    --color-brand-tint-border: rgba(236, 91, 22, 0.30);   /* icon container border    */
+
+    /* Warm tint surfaces (permission item active states) */
+    --color-warm-tint-bg:     #fff5ec;  /* active permission row bg                 */
+    --color-warm-tint-border: #ffe9d3;  /* active permission row border / sidebar   */
+
+    /* Text colors */
+    --color-text-heading:  #000000;    /* page headings, card titles               */
+    --color-text-body:     #464646;    /* body text, labels, descriptions          */
+    --color-text-muted:    #969696;    /* subtitles, placeholders, metadata        */
+    --color-text-faint:    #2d2d2d;    /* slightly dark descriptive text           */
+    --color-text-heading-alt: #1a1a24; /* alternate heading shade (prefs view)     */
+    --color-text-label:    #1E1E1E;   /* input field labels                       */
+
+    /* Surface / background colors */
+    --color-surface-page:    #f8f8fa;  /* onboarding / auth page bg                */
+    --color-surface-muted:   #f7f7f7;  /* card backgrounds, section fills          */
+    --color-surface-overlay: #f0f0f5;  /* icon button bg, input bg                 */
+    --color-surface-hover:   #f5f5f5;  /* generic hover state on white surfaces    */
+    --color-input-bg:        #EFEFEF;  /* input field background                   */
+
+    /* Border colors */
+    --color-border-default:  #efefef;  /* card borders, dividers                   */
+    --color-border-subtle:   #ededf3;  /* inner dividers, row separators           */
+    --color-border-input:    #e0e0e8;  /* text input borders                       */
+    --color-border-card:     #e4e4ec;  /* settings card borders, toggle off        */
+
+    /* Status colors */
+    --color-status-danger:        #d1242f;  /* destructive action, logout           */
+    --color-status-danger-hover:  #b91c1c;  /* hover on destructive                 */
+    --color-status-danger-bg:     rgba(209, 36, 47, 0.06);
+    --color-status-danger-border: rgba(209, 36, 47, 0.19);
+    --color-status-danger-bg-hover: rgba(209, 36, 47, 0.10);
+    --color-status-error:         #dc2626;  /* stop recording button hover          */
+    --color-status-error-alt:     #ef4444;  /* stop recording button fill           */
+
+    /* Sidebar */
+    --color-sidebar-active-bg:    #ffe9d3;  /* active nav pill                       */
+    --color-sidebar-icon-active:  #C14103;  /* active sidebar icon fill              */
+
+    /* Chess / game specific colors */
+    --color-chess-best-move:      #009106;  /* best move notation (green)            */
+    --color-chess-best-move-bg:   rgba(0, 145, 6, 0.1); /* best move badge bg        */
+    --color-chess-win:            #559E58;  /* win result / win rate                 */
+    --color-chess-loss:           #EF4444;  /* loss result / opponent accuracy       */
+    --color-chess-draw:           #C49A20;  /* draw result                           */
+    --color-chess-insight:        #C14103;  /* insight pattern heading color         */
+
+    /* Result / outcome badges */
+    --color-badge-win-bg:         #DFFBE0;  /* win badge background                  */
+    --color-badge-loss-bg:        #FEE2E2;  /* loss badge background                 */
+    --color-badge-draw-bg:        #FEF9C3;  /* draw badge background                 */
+
+    /* Chat bubble colors */
+    --color-chat-coach-bg:        #F8F8ED;  /* coach message bubble (olive)          */
+    --color-chat-coach-border:    #779556;  /* coach message bubble border           */
+    --color-chat-user-bg:         #FFF5EC;  /* user message / coach note card        */
+    --color-chat-user-border:     #FFAD6D;  /* user message bubble border            */
+    --color-chat-note-border:     #FFCFA5;  /* coach notes card border               */
+
+    /* Input focus/active states */
+    --color-input-focus-border:   #EC5B16;  /* focused input border                  */
+    --color-input-focus-ring:     rgba(236, 91, 22, 0.25); /* focus ring shadow      */
+    --color-input-hover-border:   #969696;  /* hover input border                    */
+    --color-input-error-bg:       #FDF2F2;  /* error state input background          */
+    --color-input-error-border:   #E02424;  /* error state input border              */
+    --color-input-error-text:     #C81E1E;  /* error state input text                */
+
+    /* Widget overlay */
+    --color-widget-header-bg:     #F7F7F7;  /* widget header/footer strip            */
+    --color-widget-border:        rgba(0, 0, 0, 0.05); /* widget section divider     */
+    --color-widget-stop-bg:       #1C1C1C;  /* stop recording button background      */
+
+    /* Recording timer */
+    --color-recording-dot:        #FB4425;  /* live recording indicator dot          */
+
+    /* Settings */
+    --color-settings-card-border: #E4E4EC;  /* settings account card border          */
+    --color-settings-heading:     #141420;  /* settings page section titles          */
+
+    /* Dropdown */
+    --color-dropdown-selected-bg:   #FFE9D3; /* selected dropdown option bg          */
+    --color-dropdown-selected-text: #821F0C; /* selected dropdown option text        */
+
+    /* Scrollbar */
+    --color-scrollbar-thumb:    #c1c1c1;
+
+    /* Misc */
+    --color-step-indicator-future: #e0e0e8; /* step dot for future steps           */
+    --color-step-indicator-done:   rgba(236, 91, 22, 0.40); /* completed step dot  */
+    --color-progress-track: #f0f0f5;       /* metrics progress bar track           */
+    --color-progress-alt:   #3b82f6;       /* metrics progress bar alt (blue)      */
   }
 
   .dark {
@@ -102,4 +220,17 @@
 
 .recording-indicator {
   animation: recording-pulse 1.5s ease-in-out infinite;
+}
+
+/*
+ * Reusable brand glow backdrop — used on all onboarding/auth screens.
+ * Avoids repeating the inline style={{background: radial-gradient(...)}}
+ * pattern on every page while keeping the gradient token-aware.
+ */
+.brand-glow-bg {
+  background: radial-gradient(
+    circle at center,
+    var(--color-brand-tint-bg-md) 0%,
+    transparent 70%
+  );
 }

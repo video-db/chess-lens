@@ -164,12 +164,14 @@ export class LLMService {
     };
 
     // VideoDB proxy client — used for all LLM calls including vision.
-    // timeout: hard ceiling so a hung request never stalls the pipeline.
-    // 10s is enough for the pro model; gpt-5.4 avg ~10s per the benchmark.
+    // The client-level timeout must be higher than the longest per-request
+    // timeout we use (coaching LLM: 45 s, chat: 30 s). Per-request limits are
+    // enforced by withTimeout() / Promise.race so this is just a safety net for
+    // truly hung connections. Set to 90 s to cover all cases.
     this.client = new OpenAI({
       apiKey: this.config.apiKey,
       baseURL: this.config.apiBase,
-      timeout: 12000,  // 12s — slightly above benchmark avg to avoid cutting off valid responses
+      timeout: 90000,  // 90s — must exceed the longest per-request timeout (45s coaching)
     });
 
     log.info({

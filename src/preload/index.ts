@@ -339,6 +339,8 @@ const api: IpcApi = {
     addVisualIndex: (text: string) =>
       ipcRenderer.invoke('live-assist:add-visual-index', text),
     clear: () => ipcRenderer.invoke('live-assist:clear'),
+    chat: (question: string, tipContext?: string) =>
+      ipcRenderer.invoke('live-assist:chat', question, tipContext),
   },
 
   liveAssistOn: {

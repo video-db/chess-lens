@@ -184,6 +184,7 @@ export interface LiveAssistApi {
   addTranscript: (text: string, source: 'mic' | 'system_audio') => Promise<{ success: boolean }>;
   addVisualIndex: (text: string) => Promise<{ success: boolean }>;
   clear: () => Promise<{ success: boolean }>;
+  chat: (question: string, tipContext?: string) => Promise<{ success: boolean; reply?: string; error?: string }>;
 }
 
 export interface LiveAssistEvents {

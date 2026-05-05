@@ -34,6 +34,7 @@ export interface WidgetApi {
   dismissCard: (type: 'sayThis' | 'askThis', id: string) => Promise<void>;
   dismissNudge: (id: string) => Promise<void>;
   showMainWindow: () => Promise<void>;
+  chat: (question: string, tipContext?: string) => Promise<{ success: boolean; reply?: string; error?: string }>;
   onSessionState: (callback: (state: WidgetSessionState) => void) => () => void;
   onLiveAssist: (callback: (data: WidgetLiveAssistData) => void) => () => void;
   onVisualAnalysis: (callback: (data: { description: string }) => void) => () => void;

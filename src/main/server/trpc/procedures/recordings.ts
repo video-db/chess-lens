@@ -233,6 +233,8 @@ function toApiRecording(dbRecording: ReturnType<typeof getRecordingById>) {
     // Post-meeting analysis
     postMeetingChecklist: postMeetingChecklist || null,
     postMeetingChecklistCompleted: postMeetingChecklistCompleted || null,
+    // Game result
+    result: ((dbRecording as any).result as 'win' | 'loss' | 'draw' | null) || null,
   };
 }
 

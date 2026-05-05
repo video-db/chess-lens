@@ -7,7 +7,8 @@
  * - Right panel: Video player, chat button
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   ArrowLeft,
   Calendar,
@@ -20,13 +21,17 @@ import {
   Upload,
   Link2,
   ChevronDown,
+  ChevronUp,
   Check,
   Loader2,
   Video,
   Copy,
   Crosshair,
+  Send,
+  X,
 } from 'lucide-react';
 import { trpc } from '../../api/trpc';
+import { getElectronAPI } from '../../api/ipc';
 import type { Recording } from '../../../shared/schemas/recording.schema';
 import { formatDate, formatDurationMinutes, cn } from '../../lib/utils';
 
@@ -51,6 +56,12 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
     { enabled: !!recordingId }
   );
 
+  // Fetch gameplay tips so the post-game coach chat has session context.
+  const { data: gameplayTips = [] } = trpc.recordings.getGameplayTips.useQuery(
+    { recordingId },
+    { enabled: !!recordingId }
+  );
+
   // Populate collectionId if missing
   const populateCollectionIdMutation = trpc.recordings.populateCollectionId.useMutation();
 
@@ -68,19 +79,19 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
 
   if (isLoading) {
     return (
-      <div className="bg-[#f7f7f7] h-full flex items-center justify-center">
-        <div className="animate-spin h-8 w-8 border-2 border-[#ec5b16] border-t-transparent rounded-full" />
+      <div className="bg-surface-muted h-full flex items-center justify-center">
+        <div className="animate-spin h-8 w-8 border-2 border-brand border-t-transparent rounded-full" />
       </div>
     );
   }
 
   if (!recording) {
     return (
-      <div className="bg-[#f7f7f7] h-full flex flex-col items-center justify-center gap-4">
-        <p className="text-[#464646]">Recording not found</p>
+      <div className="bg-surface-muted h-full flex flex-col items-center justify-center gap-4">
+        <p className="text-text-body">Recording not found</p>
         <button
           onClick={onBack}
-          className="text-[#ec5b16] hover:underline"
+          className="text-brand hover:underline"
         >
           Go back
         </button>
@@ -94,7 +105,7 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
   const isVideoReady = recording.status === 'available' && !!resolvedPlayerUrl;
 
   return (
-    <div className="bg-[#f7f7f7] h-full flex flex-col pt-[10px] px-[10px]">
+    <div className="bg-surface-muted h-full flex flex-col pt-[10px] px-[10px]">
       {/* Header */}
       <Header
         title={title}
@@ -106,7 +117,7 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
       />
 
       {/* Main Content */}
-      <div className="flex-1 bg-white border border-[#efefef] rounded-[20px] p-[20px] pb-[40px] flex gap-[30px] overflow-hidden mb-[10px]">
+      <div className="flex-1 bg-white border border-border-default rounded-[20px] p-[20px] pb-[40px] flex gap-[30px] overflow-hidden mb-[10px]">
         {/* Left Panel - Session Insights (scrollable) */}
         <div className="flex-1 flex flex-col gap-[30px] min-w-0 overflow-y-auto pr-[10px]">
           {/* Section Header */}
@@ -133,6 +144,12 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
             <GameplayTipsCard
               recordingId={recordingId}
               playerUrl={resolvedPlayerUrl}
+            />
+
+            {/* Post-Game Coach Chat */}
+            <PostGameChatPanel
+              recordingId={recordingId}
+              tips={gameplayTips}
             />
 
             {/* Action Items Card (Post-Session Checklist) */}
@@ -258,7 +275,7 @@ function Header({ title, recordingId, createdAt, duration, playerUrl, onBack }: 
             className={cn(
               "flex items-center gap-[6px] border rounded-[12px] px-[16px] py-[12px] shadow-[0px_1.27px_15.27px_0px_rgba(0,0,0,0.05)] transition-colors",
               exportOpen
-                ? "bg-[#fff5ec] border-[#ffcfa5]"
+                ? "bg-chat-user border-chat-note-border"
                 : "bg-white border-[#efefef] hover:bg-[#efefef] hover:border-[#969696]"
             )}
           >
@@ -298,7 +315,7 @@ function Header({ title, recordingId, createdAt, duration, playerUrl, onBack }: 
             "flex items-center gap-[4px] rounded-[12px] px-[14px] py-[12px] shadow-[0px_1.27px_15.27px_0px_rgba(0,0,0,0.05)] transition-colors",
             copyState === 'copied' ? "bg-[#007657]" :
             copyState === 'copying' ? "bg-[#ff7e32]" :
-            "bg-[#ff4000] hover:bg-[#cc2b02]",
+            "bg-brand-cta hover:bg-brand-cta-hover",
             !playerUrl && "opacity-50 cursor-not-allowed"
           )}
         >
@@ -348,7 +365,7 @@ function SummaryCard({ summary }: SummaryCardProps) {
   };
 
   return (
-    <div className="bg-[#fff5ec] border border-[#ffe9d3] rounded-[16px] p-[20px] flex flex-col gap-[16px]">
+    <div className="bg-chat-user border border-[var(--color-warm-tint-border)] rounded-[16px] p-[20px] flex flex-col gap-[16px]">
       {/* Header */}
       <div className="flex items-center gap-[8px]">
         <FileText className="h-5 w-5 text-[#ec5b16]" />
@@ -394,7 +411,7 @@ function KeyPointsCard({ keyPoints, expanded, onToggle }: KeyPointsCardProps) {
 
   return (
     <div className={cn(
-      "bg-[#fff5ec] border border-[#ffe9d3] rounded-[16px] p-[20px] flex flex-col gap-[16px] relative overflow-hidden",
+      "bg-chat-user border border-[var(--color-warm-tint-border)] rounded-[16px] p-[20px] flex flex-col gap-[16px] relative overflow-hidden",
       !expanded && "max-h-[200px]"
     )}>
       {/* Header */}
@@ -433,7 +450,7 @@ function KeyPointsCard({ keyPoints, expanded, onToggle }: KeyPointsCardProps) {
       {/* Gradient Overlay & See More Button */}
       {!expanded && (
         <>
-          <div className="absolute bottom-0 left-0 right-0 h-[52px] bg-gradient-to-t from-[#fff5ec] to-transparent pointer-events-none" />
+          <div className="absolute bottom-0 left-0 right-0 h-[52px] bg-gradient-to-t from-[var(--color-chat-user)] to-transparent pointer-events-none" />
           <button
             onClick={onToggle}
             className="absolute bottom-[6px] left-1/2 -translate-x-1/2 flex items-center gap-px bg-white border border-[#ffcfa5] rounded-full px-[12px] py-[8px] hover:bg-gray-50 transition-colors"
@@ -484,7 +501,7 @@ function ActionItemsCard({ recordingId, checklist, completedIndices }: ActionIte
   const isEmpty = !checklist || checklist.length === 0;
 
   return (
-    <div className="bg-[#f7f7f7] border border-[#efefef] rounded-[16px] p-[20px] flex flex-col gap-[16px]">
+    <div className="bg-surface-muted border border-border-default rounded-[16px] p-[20px] flex flex-col gap-[16px]">
       {/* Header */}
       <div className="flex items-center gap-[8px]">
         <CheckSquare className="h-5 w-5 text-[#ec5b16]" />
@@ -511,7 +528,7 @@ function ActionItemsCard({ recordingId, checklist, completedIndices }: ActionIte
                 {/* Checkbox */}
                 <div className={cn(
                   "w-4 h-4 shrink-0 rounded border flex items-center justify-center mt-[2px]",
-                  isChecked ? "bg-[#ec5b16] border-[#ec5b16]" : "border-[#ec5b16]"
+                  isChecked ? "bg-brand border-brand" : "border-brand"
                 )}>
                   {isChecked && <Check className="h-3 w-3 text-white" />}
                 </div>
@@ -630,9 +647,9 @@ function GameplayTipsCard({ recordingId, playerUrl }: GameplayTipsCardProps) {
   };
 
   return (
-    <div className="bg-[#f8f9ff] border border-[#e5e7ff] rounded-[16px] p-[16px] flex flex-col gap-[12px] max-h-[280px] overflow-y-auto">
+    <div className="bg-surface-muted border border-border-default rounded-[16px] p-[16px] flex flex-col gap-[12px] max-h-[280px] overflow-y-auto">
       <div className="flex items-center gap-[8px]">
-        <Crosshair className="h-4 w-4 text-[#4f46e5]" />
+        <Crosshair className="h-4 w-4 text-chess-insight" />
         <h3 className="text-[15px] font-semibold text-[#1f2937]">In-match Suggestions</h3>
       </div>
 
@@ -643,7 +660,7 @@ function GameplayTipsCard({ recordingId, playerUrl }: GameplayTipsCardProps) {
               type="button"
               onClick={() => openAtTimestamp(tip.startTime)}
               disabled={!playerUrl}
-              className="shrink-0 text-[12px] font-semibold text-[#4f46e5] bg-[#eef2ff] px-[8px] py-[4px] rounded-[999px] hover:bg-[#dfe7ff] disabled:opacity-60 disabled:cursor-not-allowed"
+              className="shrink-0 text-[12px] font-semibold text-white bg-chess-insight px-[8px] py-[4px] rounded-[999px] hover:bg-[#dfe7ff] disabled:opacity-60 disabled:cursor-not-allowed"
               title={playerUrl ? 'Open video at this timestamp' : 'Video link not available yet'}
             >
               {formatTipTimestamp(tip.startTime)}
@@ -655,5 +672,208 @@ function GameplayTipsCard({ recordingId, playerUrl }: GameplayTipsCardProps) {
     </div>
   );
 }
+
+// ============================================================================
+// PostGameChatPanel
+// ============================================================================
+
+interface PostGameChatMsg {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  tipCtx?: string;
+}
+
+interface PostGameChatPanelProps {
+  recordingId: number;
+  /** Pre-fetched gameplay tips used as context when the user asks a question. */
+  tips: { id: string; startTime: number; tip: string }[];
+}
+
+function PostGameChatPanel({ recordingId, tips }: PostGameChatPanelProps) {
+  void recordingId; // available for future per-recording persistence
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [messages, setMessages] = useState<PostGameChatMsg[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [prefillCtx, setPrefillCtx] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  let idCounter = useRef(0);
+
+  // Auto-scroll to newest message
+  useEffect(() => {
+    if (isExpanded) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isExpanded]);
+
+  const handleSubmit = useCallback(async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const question = input.trim();
+    if (!question || isLoading) return;
+
+    const tipCtx = prefillCtx ?? undefined;
+    setPrefillCtx(null);
+    setInput('');
+    setIsExpanded(true);
+    setError(null);
+
+    // Build tip context block from recent session tips
+    const tipsContext = tips.length > 0
+      ? `Session coaching tips:\n${tips.slice(0, 5).map((t, i) => `${i + 1}. [${formatTipTimestamp(t.startTime)}] ${t.tip}`).join('\n')}`
+      : '';
+    const fullTipCtx = [tipsContext, tipCtx ? `Player is asking about: "${tipCtx}"` : '']
+      .filter(Boolean).join('\n\n') || undefined;
+
+    const userMsg: PostGameChatMsg = {
+      id: `pgcm-${++idCounter.current}`,
+      role: 'user',
+      text: question,
+      tipCtx,
+    };
+    setMessages((p) => [...p, userMsg]);
+    setIsLoading(true);
+
+    try {
+      const api = getElectronAPI();
+      if (!api) throw new Error('Electron API not available');
+      const result = await api.liveAssist.chat(question, fullTipCtx);
+      if (!result.success || !result.reply) {
+        throw new Error(result.error || 'No reply received');
+      }
+      const assistantMsg: PostGameChatMsg = {
+        id: `pgcm-${++idCounter.current}`,
+        role: 'assistant',
+        text: result.reply,
+      };
+      setMessages((p) => [...p, assistantMsg]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to get a response');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [input, isLoading, prefillCtx, tips]);
+
+  /** Called from a tip card's "Ask" button — pre-fills context and opens panel */
+  const askAboutTip = useCallback((tipText: string) => {
+    setPrefillCtx(tipText);
+    setIsExpanded(true);
+    setTimeout(() => inputRef.current?.focus(), 60);
+  }, []);
+
+  const hasMessages = messages.length > 0;
+
+  return (
+    <div className="border border-[#efefef] rounded-[16px] overflow-hidden flex flex-col">
+      {/* Header */}
+      <button
+        className="bg-surface-muted border-b border-[#efefef] px-[16px] py-[10px] flex items-center gap-[8px] w-full text-left hover:bg-[#f0f0f5] transition-colors"
+        onClick={() => setIsExpanded((v) => !v)}
+      >
+        <MessageCircle size={18} className="text-[#ec5b16] shrink-0" />
+        <span className="font-medium text-[15px] text-black flex-1">Ask the Coach</span>
+        <span className="text-[12px] text-[#969696] mr-2">Post-game analysis</span>
+        {hasMessages && !isExpanded && (
+          <span className="text-[11px] text-[#969696] bg-white border border-[#ededf3] rounded-full px-[6px] py-[1px]">
+            {messages.length} message{messages.length !== 1 ? 's' : ''}
+          </span>
+        )}
+        {isLoading && <Loader2 size={14} className="text-[#ec5b16] animate-spin" />}
+        {isExpanded
+          ? <ChevronUp size={16} className="text-[#969696]" />
+          : <ChevronDown size={16} className="text-[#969696]" />}
+      </button>
+
+      {isExpanded && (
+        <>
+          {/* Message thread */}
+          <div className="bg-white flex flex-col gap-[10px] p-[14px] max-h-[320px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            {messages.length === 0 && !isLoading ? (
+              <p className="text-[13px] text-[#969696] text-center py-[12px]">
+                Ask anything about this game — moves, tactics, key moments, or coaching tips.
+              </p>
+            ) : (
+              messages.map((msg) => (
+                <div key={msg.id} className={`flex flex-col gap-[4px] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  {msg.role === 'user' && msg.tipCtx && (
+                    <p className="text-[11px] text-[#969696] max-w-[85%] text-right line-clamp-1 italic">
+                      Re: "{msg.tipCtx.slice(0, 60)}{msg.tipCtx.length > 60 ? '…' : ''}"
+                    </p>
+                  )}
+                  <div className={`rounded-[10px] px-[12px] py-[8px] max-w-[85%] text-[13px] leading-[20px] ${
+                    msg.role === 'user'
+                      ? 'bg-chat-user border border-chat-user-border text-text-body'
+                      : 'bg-chat-coach border border-chat-coach-border text-black'
+                  }`}>
+                    {msg.role === 'assistant' ? (
+                      <div className="prose prose-sm max-w-none text-[13px] leading-[20px] text-black [&_p]:mb-1 [&_p:last-child]:mb-0">
+                        <ReactMarkdown>{msg.text}</ReactMarkdown>
+                      </div>
+                    ) : msg.text}
+                  </div>
+                </div>
+              ))
+            )}
+            {isLoading && (
+              <div className="flex items-start gap-[8px]">
+                <div className="bg-chat-coach border border-chat-coach-border rounded-[10px] px-[12px] py-[8px] flex items-center gap-[6px]">
+                  <Loader2 size={12} className="text-[#ec5b16] animate-spin" />
+                  <span className="text-[13px] text-[#969696]">Thinking...</span>
+                </div>
+              </div>
+            )}
+            {error && (
+              <div className="flex items-center gap-[6px] bg-[#fef2f2] border border-[#fecaca] rounded-[8px] px-[10px] py-[6px]">
+                <span className="text-[12px] text-[#dc2626]">{error}</span>
+                <button onClick={() => setError(null)} className="ml-auto text-[#dc2626] hover:opacity-70">
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Context badge (when a tip was selected) */}
+          {prefillCtx && (
+            <div className="bg-[#fff8f5] border-t border-[#fde0cc] px-[14px] py-[6px] flex items-center gap-[6px]">
+              <span className="text-[11px] text-[#ec5b16] italic flex-1 truncate">
+                Context: "{prefillCtx.slice(0, 70)}{prefillCtx.length > 70 ? '…' : ''}"
+              </span>
+              <button onClick={() => setPrefillCtx(null)} className="text-[#ec5b16] hover:opacity-70 shrink-0">
+                <X size={11} />
+              </button>
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="bg-white border-t border-[#efefef] p-[10px]">
+            <form onSubmit={handleSubmit} className="flex items-center gap-[8px]">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={prefillCtx ? 'Ask about this tip…' : 'Ask about this game, moves, or tactics…'}
+                disabled={isLoading}
+                className="flex-1 px-[12px] py-[8px] bg-surface-muted border border-[#ededf3] rounded-[8px] text-[13px] text-black placeholder:text-[#969696] focus:outline-none focus:border-[#ec5b16] focus:ring-1 focus:ring-[#ec5b16]/20 disabled:opacity-50 transition-colors"
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || isLoading}
+                className="flex items-center justify-center w-[34px] h-[34px] bg-[#ec5b16] hover:bg-[#d9520f] rounded-[8px] disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+              >
+                <Send size={14} className="text-white" />
+              </button>
+            </form>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export { PostGameChatPanel };
 
 export default RecordingDetailPage;

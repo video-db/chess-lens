@@ -4,54 +4,10 @@ import {
   type SupportedGameId,
   CHESS_PERSONALITIES,
 } from '../../../shared/config/game-coaching';
+import logoOrangeIcon from '../../../../resources/chess-lens-icon-orange.svg';
 
-// Icons
-function ChessSetupIcon() {
-  return (
-    <svg width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="50" height="50" rx="12" fill="#EC5B16" />
-      <path
-        d="M17 18h16v14H17V18z"
-        stroke="white"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <path
-        d="M21 14v4M29 14v4M17 24h16"
-        stroke="white"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ArrowLeftIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ArrowRightIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M6 12l4-4-4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function RecordingIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="8" cy="8" r="3" fill="currentColor" />
-      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.25" />
-    </svg>
-  );
+function LogoIcon() {
+  return <img src={logoOrangeIcon} width={50} height={50} alt="Chess Lens" className="rounded-[8px]" />;
 }
 
 interface InfoStepProps {
@@ -67,168 +23,102 @@ interface InfoStepProps {
 
 export function InfoStep({
   initialName,
-  initialDescription,
   initialCoachPersonalityId = 'default',
   isGenerating,
-  isSkipping,
-  onBack,
   onNext,
   onSkip,
 }: InfoStepProps) {
   const [name, setName] = useState(initialName);
-  const [description, setDescription] = useState(initialDescription);
   const [coachPersonalityId, setCoachPersonalityId] = useState(initialCoachPersonalityId);
   const gameId: SupportedGameId = 'chess';
 
-  const canContinue = name.trim().length > 0;
-  const isDisabled = isGenerating || isSkipping;
-
-  const selectedPersonality = CHESS_PERSONALITIES.find((p) => p.id === coachPersonalityId) ?? CHESS_PERSONALITIES[0];
+  const canSubmit = name.trim().length > 0 && !isGenerating;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (canContinue && !isDisabled) {
-      onNext(name.trim(), description.trim(), gameId, coachPersonalityId);
-    }
+    if (!canSubmit) return;
+    // Use onSkip for direct start (no description/questions flow needed)
+    onSkip(name.trim(), '', gameId, coachPersonalityId);
   };
 
   return (
-    <div className="flex flex-col items-center">
-      {/* Icon and heading */}
-      <div className="flex flex-col items-center gap-[16px] mb-[32px]">
-        <ChessSetupIcon />
+    <div className="flex flex-col items-center w-full max-w-[380px]">
+      {/* Logo + heading */}
+      <div className="flex flex-col items-center gap-[16px] mb-[30px]">
+        <LogoIcon />
         <div className="flex flex-col items-center gap-[8px]">
           <h1 className="text-[22px] font-semibold text-black text-center tracking-[-0.44px] leading-[33px]">
-            Game Details
+            Set up your game session
           </h1>
-          <p className="text-[14px] font-normal text-[#464646] text-center leading-[21px]">
-            Tell us about your game so we can prepare better
+          <p className="text-[13px] font-normal text-text-body text-center leading-[22px]">
+            Name your game and choose a coaching style. Chess Lens will do the rest.
           </p>
         </div>
       </div>
 
       {/* Form */}
       <form onSubmit={handleSubmit} className="w-full flex flex-col gap-[20px]">
-        {/* Game Name */}
+
+        {/* Match Name */}
         <div className="flex flex-col gap-[8px]">
-          <label htmlFor="game-name" className="text-[14px] font-medium text-[#141420]">
-            Game Name
+          <label htmlFor="game-name" className="text-[14px] font-medium text-text-label tracking-[0.005em]">
+            Match Name
           </label>
           <input
             id="game-name"
             type="text"
-            placeholder="e.g., Bullet Game vs Magnus"
+            placeholder="e.g. Casual blitz"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            disabled={isDisabled}
+            disabled={isGenerating}
             autoFocus
-            className="w-full px-[16px] py-[14px] bg-white border border-[#e0e0e8] rounded-[12px] text-[14px] text-black placeholder:text-[#969696] focus:outline-none focus:border-[#ec5b16] focus:ring-1 focus:ring-[#ec5b16] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full h-[50px] px-[16px] py-[14px] bg-input-bg border border-border-input rounded-[12px] text-base font-medium text-text-label placeholder:text-text-muted-brand focus:outline-none focus:border-input-focus focus:shadow-[0_0_0_3px_var(--color-input-focus-ring)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           />
-        </div>
-
-        {/* Description */}
-        <div className="flex flex-col gap-[8px]">
-          <label htmlFor="meeting-description" className="text-[14px] font-medium text-[#141420]">
-            Description <span className="text-[#969696] font-normal">(optional)</span>
-          </label>
-          <textarea
-            id="game-description"
-            placeholder="What opening are you playing? Any specific goals for this game?"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            disabled={isDisabled}
-            rows={4}
-            className="w-full px-[16px] py-[14px] bg-white border border-[#e0e0e8] rounded-[12px] text-[14px] text-black placeholder:text-[#969696] focus:outline-none focus:border-[#ec5b16] focus:ring-1 focus:ring-[#ec5b16] disabled:opacity-50 disabled:cursor-not-allowed transition-colors resize-none"
-          />
-          <p className="text-[12px] text-[#969696]">
-            Add details if you want better coaching questions, or leave it blank to start faster.
-          </p>
         </div>
 
         {/* Coach Personality */}
         <div className="flex flex-col gap-[8px]">
-          <label htmlFor="coach-personality" className="text-[14px] font-medium text-[#141420]">
-            Coach Personality
+          <label htmlFor="coach-personality" className="text-[14px] font-medium text-text-label tracking-[0.005em]">
+            Coach personality*
           </label>
           <div className="relative">
             <select
               id="coach-personality"
               value={coachPersonalityId}
               onChange={(e) => setCoachPersonalityId(e.target.value)}
-              disabled={isDisabled}
-              className="w-full appearance-none px-[16px] py-[14px] pr-[40px] bg-white border border-[#e0e0e8] rounded-[12px] text-[14px] text-black focus:outline-none focus:border-[#ec5b16] focus:ring-1 focus:ring-[#ec5b16] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              disabled={isGenerating}
+              className="w-full appearance-none h-[50px] px-[16px] py-[14px] pr-[40px] bg-input-bg border border-border-input rounded-[12px] text-base font-medium text-text-label focus:outline-none focus:border-input-focus focus:shadow-[0_0_0_3px_var(--color-input-focus-ring)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
             >
+              <option value="" disabled>Choose a style...</option>
               {CHESS_PERSONALITIES.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
               ))}
             </select>
-            <ChevronDown
-              className="absolute right-[14px] top-1/2 -translate-y-1/2 w-4 h-4 text-[#969696] pointer-events-none"
-            />
+            <ChevronDown className="absolute right-[14px] top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted-brand pointer-events-none" />
           </div>
-          {selectedPersonality && (
-            <p className="text-[12px] text-[#969696]">
-              {selectedPersonality.description}
-            </p>
-          )}
         </div>
 
         {/* Buttons */}
-        <div className="flex flex-col gap-[12px] pt-[8px]">
-          {/* Primary row: Back and Continue */}
-          <div className="flex gap-[12px]">
-            <button
-              type="button"
-              onClick={onBack}
-              disabled={isDisabled}
-              className="flex-1 flex items-center justify-center gap-[6px] px-[20px] py-[14px] bg-white border border-[#e0e0e8] rounded-[12px] text-[14px] font-semibold text-[#464646] hover:bg-[#f7f7f7] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <ArrowLeftIcon />
-              Back
-            </button>
-            <button
-              type="submit"
-              disabled={!canContinue || isDisabled}
-              className="flex-1 flex items-center justify-center gap-[6px] px-[20px] py-[14px] bg-[#ff4000] hover:bg-[#e63900] rounded-[12px] text-[14px] font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)]"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Preparing...
-                </>
-              ) : (
-                <>
-                  Continue
-                  <ArrowRightIcon />
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Skip and Record button */}
+        <div className="flex flex-col gap-[10px] pt-[4px]">
+          {/* Start now */}
           <button
-            type="button"
-            onClick={() => {
-              console.log('[InfoStep] Skip clicked, passing name:', name.trim(), 'description:', description.trim());
-              onSkip(name.trim(), description.trim(), gameId, coachPersonalityId);
-            }}
-            disabled={isDisabled}
-            className="w-full flex items-center justify-center gap-[6px] px-[20px] py-[12px] bg-transparent border border-dashed border-[#c0c0c8] rounded-[12px] text-[14px] font-medium text-[#464646] hover:border-[#ec5b16] hover:text-[#ec5b16] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            type="submit"
+            disabled={!canSubmit}
+            className="w-full h-[45px] flex items-center justify-center bg-brand-cta hover:bg-brand-cta-hover disabled:bg-brand-disabled disabled:cursor-not-allowed rounded-[12px] text-[14px] font-medium text-white text-center transition-colors"
           >
-            {isSkipping ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Starting...
-              </>
+            {isGenerating ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <>
-                <RecordingIcon />
-                Skip and Record
-              </>
+              'Start now'
             )}
           </button>
+
+          {/* Hint text */}
+          <p className="text-[13px] font-medium text-text-body text-center leading-[20px] tracking-[0.13px]">
+            A floating coaching overlay will appear over your game window.
+          </p>
         </div>
       </form>
     </div>

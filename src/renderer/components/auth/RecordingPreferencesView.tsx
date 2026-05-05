@@ -95,14 +95,10 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
   ];
 
   return (
-    <div className="h-full w-full bg-[#f8f8fa] flex flex-col items-center justify-center relative overflow-hidden">
-      {/* Orange gradient glow */}
+    <div className="h-full w-full bg-surface-page flex flex-col items-center justify-center relative overflow-hidden">
+      {/* Brand gradient glow */}
       <div
-        className="absolute top-[-30%] left-1/2 -translate-x-1/2 w-[600px] h-[567px] rounded-[300px] pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(circle at center, rgba(236,91,22,0.08) 0%, rgba(236,91,22,0) 70%)',
-        }}
+        className="absolute top-[-30%] left-1/2 -translate-x-1/2 w-[600px] h-[567px] rounded-[300px] pointer-events-none brand-glow-bg"
       />
 
       {/* Step indicators */}
@@ -114,10 +110,10 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
       <div className="flex flex-col items-center w-full max-w-[400px] px-6 relative z-10">
         {/* Heading */}
         <div className="flex flex-col items-center gap-[8px] mb-[28px] max-w-[405px]">
-          <h1 className="text-[22px] font-semibold text-black text-center tracking-[-0.44px] leading-[33px]">
+          <h1 className="text-xl font-semibold text-black text-center">
             Recording preferences
           </h1>
-          <p className="text-[14px] font-normal text-[#464646] text-center leading-[21px]">
+          <p className="text-base font-normal text-text-body text-center">
             Set how you'd like to be notified and when to record. You can change these later in Settings.
           </p>
         </div>
@@ -126,7 +122,7 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
         <div className="w-full flex flex-col gap-[10px] mb-[28px]">
           <div className="flex items-center gap-[8px]">
             <NotifyIcon />
-            <span className="text-[14px] font-medium text-black leading-[21px]">
+            <span className="text-base font-medium text-black">
               Notify me before games
             </span>
           </div>
@@ -135,10 +131,10 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
               <button
                 key={option.value}
                 onClick={() => setNotifyMinutes(option.value)}
-                className={`flex-1 py-[11px] rounded-[8px] text-[13px] font-medium leading-[19.5px] transition-colors ${
+                className={`flex-1 py-[11px] rounded-[8px] text-sm font-medium transition-colors ${
                   notifyMinutes === option.value
-                    ? 'bg-[rgba(236,91,22,0.05)] border border-[#ec5b16] text-[#ec5b16]'
-                    : 'border border-[rgba(150,150,150,0.3)] text-[#464646] hover:bg-gray-50'
+                    ? 'bg-[var(--color-brand-tint-bg)] border border-brand text-brand'
+                    : 'border border-[rgba(150,150,150,0.3)] text-text-body hover:bg-gray-50'
                 }`}
               >
                 {option.label}
@@ -151,7 +147,7 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
         <div className="w-full flex flex-col gap-[10px] mb-[28px]">
           <div className="flex items-center gap-[8px]">
             <RecordIcon />
-            <span className="text-[14px] font-medium text-[#1a1a24] leading-[21px]">
+            <span className="text-base font-medium text-text-heading-alt">
               Default recording behavior
             </span>
           </div>
@@ -162,15 +158,15 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
                 onClick={() => setRecordingBehavior(option.value)}
                 className={`w-full flex items-center gap-[12px] px-[17px] py-[15px] rounded-[10px] text-left transition-colors ${
                   recordingBehavior === option.value
-                    ? 'bg-[rgba(236,91,22,0.05)] border border-[#ec5b16]'
-                    : 'border border-[#e0e0e8] hover:bg-gray-50'
+                    ? 'bg-[var(--color-brand-tint-bg)] border border-brand'
+                    : 'border border-border-input hover:bg-gray-50'
                 }`}
               >
                 <div className="flex-1 flex flex-col gap-[2px]">
-                  <span className="text-[14px] font-medium text-black leading-[21px]">
+                  <span className="text-base font-medium text-black">
                     {option.title}
                   </span>
-                  <span className="text-[12px] font-normal text-[#464646] leading-[18px]">
+                  <span className="text-sm-label font-normal text-text-body">
                     {option.description}
                   </span>
                 </div>
@@ -178,12 +174,12 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
                 <div
                   className={`w-[18px] h-[18px] rounded-[9px] border-2 flex items-center justify-center ${
                     recordingBehavior === option.value
-                      ? 'border-[#ec5b16]'
-                      : 'border-[#e0e0e8]'
+                      ? 'border-brand'
+                      : 'border-border-input'
                   }`}
                 >
                   {recordingBehavior === option.value && (
-                    <div className="w-[8px] h-[8px] rounded-[4px] bg-[#ec5b16]" />
+                    <div className="w-[8px] h-[8px] rounded-[4px] bg-brand" />
                   )}
                 </div>
               </button>
@@ -195,12 +191,12 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
         <button
           onClick={handleContinue}
           disabled={isSaving}
-          className="w-full bg-[#ff4000] hover:bg-[#e63900] disabled:opacity-60 disabled:cursor-not-allowed rounded-[12px] px-[24px] py-[12px] flex items-center justify-center transition-colors"
+          className="w-full bg-brand-cta hover:bg-brand-cta-hover disabled:opacity-60 disabled:cursor-not-allowed rounded-[12px] px-[24px] py-[12px] flex items-center justify-center transition-colors"
         >
           {isSaving ? (
             <Loader2 className="w-[20px] h-[20px] text-white animate-spin" />
           ) : (
-            <span className="text-[14px] font-medium text-white tracking-[0.14px] leading-[21px]">
+            <span className="text-base font-medium text-white">
               Continue
             </span>
           )}

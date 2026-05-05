@@ -63,8 +63,8 @@ export function NudgeAlert({ message, onDismiss }: NudgeAlertProps) {
       style={{
         height: '61px',
         padding: '8px 12px',
-        background: '#FFF8EF',
-        border: '1px solid #F5D7AB',
+        background: 'var(--color-chat-user-bg)',
+        border: '1px solid var(--color-chat-note-border)',
         borderRadius: '12px',
         boxShadow: '0px 1.272px 15.267px 0px rgba(0,0,0,0.05)',
         gap: '10px',

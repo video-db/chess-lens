@@ -29,7 +29,9 @@
 		"tools:check-export": "ts-node ./tools/checkSessionExport.ts",
 		"tools:recover-session": "ts-node ./tools/recoverSession.ts",
 		"tools:check-model": "tsx ./tools/checkModelAvailability.ts",
-		"tools:simulate-pipeline-latency": "tsx ./tools/simulatePipelineLatency.ts"
+		"tools:simulate-pipeline-latency": "tsx ./tools/simulatePipelineLatency.ts",
+		"storybook": "storybook dev -p 6006",
+		"build-storybook": "storybook build"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.14.1",
@@ -82,7 +84,18 @@
 		"tailwindcss-animate": "^1.0.7",
 		"tsx": "^4.19.4",
 		"typescript": "^5.8.3",
-		"vite": "^6.3.5"
+		"vite": "^6.3.5",
+		"storybook": "^10.3.6",
+		"@storybook/react-vite": "^10.3.6",
+		"@chromatic-com/storybook": "^5.1.2",
+		"@storybook/addon-vitest": "^10.3.6",
+		"@storybook/addon-a11y": "^10.3.6",
+		"@storybook/addon-docs": "^10.3.6",
+		"@storybook/addon-onboarding": "^10.3.6",
+		"vitest": "^4.1.5",
+		"playwright": "^1.59.1",
+		"@vitest/browser-playwright": "^4.1.5",
+		"@vitest/coverage-v8": "^4.1.5"
 	},
 	"build": {
 		"extends": "./electron-builder.config.js"

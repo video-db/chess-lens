@@ -32,18 +32,20 @@ export interface WidgetApi {
   resume: () => Promise<void>;
   stop: () => Promise<void>;
   hide: () => Promise<void>;
+  focus: () => Promise<void>;
   muteMic: () => Promise<void>;
   unmuteMic: () => Promise<void>;
   dismissCard: (type: 'sayThis' | 'askThis', id: string) => Promise<void>;
   dismissNudge: (id: string) => Promise<void>;
   showMainWindow: () => Promise<void>;
+  chat: (question: string, tipContext?: string) => Promise<{ success: boolean; reply?: string; error?: string }>;
 
   // Events
   onSessionState: (callback: (state: WidgetSessionState) => void) => () => void;
   onLiveAssist: (callback: (data: WidgetLiveAssistData) => void) => () => void;
   onVisualAnalysis: (callback: (data: { description: string }) => void) => () => void;
   onNudge: (callback: (nudge: WidgetNudge | null) => void) => () => void;
-  onFen: (callback: (data: { fen: string; board: string | null; turn: 'w' | 'b' | null }) => void) => () => void;
+  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null }) => void) => () => void;
 
   // Initial state request
   requestInitialState: () => Promise<void>;
@@ -58,12 +60,15 @@ const widgetApi: WidgetApi = {
   resume: () => ipcRenderer.invoke('widget:resume'),
   stop: () => ipcRenderer.invoke('widget:stop'),
   hide: () => ipcRenderer.invoke('widget:hide'),
+  focus: () => ipcRenderer.invoke('widget:focus'),
   muteMic: () => ipcRenderer.invoke('widget:mute-mic'),
   unmuteMic: () => ipcRenderer.invoke('widget:unmute-mic'),
   dismissCard: (type: 'sayThis' | 'askThis', id: string) =>
     ipcRenderer.invoke('widget:dismiss-card', type, id),
   dismissNudge: (id: string) => ipcRenderer.invoke('widget:dismiss-nudge', id),
   showMainWindow: () => ipcRenderer.invoke('widget:show-main-window'),
+  chat: (question: string, tipContext?: string) =>
+    ipcRenderer.invoke('live-assist:chat', question, tipContext),
 
   // Events
   onSessionState: (callback: (state: WidgetSessionState) => void) => {

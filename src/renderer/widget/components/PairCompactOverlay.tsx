@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { useWidgetChatStore } from '../chatStore';
+import logoIcon from '../../../../../resources/chess-lens-icon-black.svg';
 import type {
   InsightCard,
   WidgetSessionState as SessionState,
@@ -33,7 +35,7 @@ function parseFenBoard(fenBoard: string): string[][] {
 function ChessBoard({ fen }: { fen: string }) {
   const boardPart = fen.split(' ')[0];
   const board = useMemo(() => parseFenBoard(boardPart), [boardPart]);
-  const size = 200; // total SVG size px
+  const size = 368; // match Figma board width
   const sq = size / 8;
 
   return (
@@ -41,7 +43,7 @@ function ChessBoard({ fen }: { fen: string }) {
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
-      style={{ display: 'block', borderRadius: 4, border: '1px solid rgba(255,255,255,0.2)' }}
+      style={{ display: 'block', borderRadius: 14, border: '0.5px solid rgba(255,255,255,0.2)' }}
     >
       {board.map((rank, ri) =>
         rank.map((piece, ci) => {
@@ -81,7 +83,7 @@ function ChessBoard({ fen }: { fen: string }) {
           x={i * sq + sq / 2}
           y={size - 1}
           textAnchor="middle"
-          fontSize={7}
+          fontSize={9}
           fill="rgba(0,0,0,0.45)"
           style={{ userSelect: 'none' }}
         >{f}</text>
@@ -90,10 +92,10 @@ function ChessBoard({ fen }: { fen: string }) {
       {[8,7,6,5,4,3,2,1].map((r, i) => (
         <text
           key={r}
-          x={2}
+          x={3}
           y={i * sq + sq / 2}
           dominantBaseline="middle"
-          fontSize={7}
+          fontSize={9}
           fill="rgba(0,0,0,0.45)"
           style={{ userSelect: 'none' }}
         >{r}</text>
@@ -133,6 +135,17 @@ function fmtElapsed(startTime?: number | null, endTime: number = Date.now()): st
   return `${mm}:${ss}`;
 }
 
+// ---------------------------------------------------------------------------
+// Send arrow icon for chat submit
+// ---------------------------------------------------------------------------
+function SendIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 8H14M14 8L9 3M14 8L9 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
 export function PairCompactOverlay({
   sessionState,
   sayThis,
@@ -152,6 +165,65 @@ export function PairCompactOverlay({
 }: PairCompactOverlayProps) {
   const [now, setNow] = useState(Date.now());
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // ── Chat state ──
+  const {
+    messages: chatMessages,
+    isOpen: chatOpen,
+    isLoading: chatLoading,
+    error: chatError,
+    open: openChat,
+    toggle: toggleChat,
+    addMessage: chatAddMessage,
+    setLoading: setChatLoading,
+    setError: setChatError,
+  } = useWidgetChatStore();
+
+  const [chatInput, setChatInput] = useState('');
+  const [chatPrefillCtx, setChatPrefillCtx] = useState<string | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const submitChatQuestion = useCallback(async (question: string, tipCtx?: string) => {
+    if (!question.trim() || chatLoading) return;
+    openChat();
+    chatAddMessage({ role: 'user', text: question.trim(), tipCtx });
+    setChatLoading(true);
+    setChatError(null);
+    try {
+      const result = await window.widgetAPI?.chat(question.trim(), tipCtx);
+      if (!result?.success || !result.reply) throw new Error(result?.error || 'No reply');
+      chatAddMessage({ role: 'assistant', text: result.reply });
+    } catch (err) {
+      setChatError(err instanceof Error ? err.message : 'Failed to get a response');
+    } finally {
+      setChatLoading(false);
+    }
+  }, [chatLoading, openChat, chatAddMessage, setChatLoading, setChatError]);
+
+  const handleChatAskTip = useCallback((tipText: string, autoQuestion?: string) => {
+    openChat();
+    setChatPrefillCtx(autoQuestion ? null : tipText);
+    if (autoQuestion) {
+      void submitChatQuestion(autoQuestion, tipText);
+    } else {
+      setTimeout(() => chatInputRef.current?.focus(), 60);
+    }
+  }, [openChat, submitChatQuestion]);
+
+  const handleChatSubmit = useCallback(async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const question = chatInput.trim();
+    if (!question || chatLoading) return;
+    const tipCtx = chatPrefillCtx ?? undefined;
+    setChatPrefillCtx(null);
+    setChatInput('');
+    await submitChatQuestion(question, tipCtx);
+  }, [chatInput, chatLoading, chatPrefillCtx, submitChatQuestion]);
 
   const NON_ACTIONABLE = 'No actionable gameplay moment in this frame.';
   const NON_ACTIONABLE_REGEX = /no actionable gameplay moment(?: in this frame)?\.?/i;
@@ -193,7 +265,6 @@ export function PairCompactOverlay({
       .replace(/`+/g, '')
       .replace(/^\s*(say|ask)\s*:\s*/i, '')
       .replace(/\s*\|\|\|\s*/g, ' ||| ')
-      // Convert chess "...Move" notation (Black's move) to plain English
       .replace(/\.{3}([NBRQK]?[a-h]?[1-8]?x?[a-h][1-8](?:=[NBRQ])?[+#]?)/g, "Black's $1")
       .replace(/\s+/g, ' ')
       .replace(/(No actionable gameplay moment in this frame\.\s*){2,}/gi, NON_ACTIONABLE)
@@ -203,20 +274,21 @@ export function PairCompactOverlay({
     return `${normalized.slice(0, max - 1)}…`;
   };
 
-  
+  const isChess = sessionState.gameId === 'chess';
 
   const recentSayThis = useMemo(
-    () => sayThis.filter((card) => now - card.timestamp <= CARD_TTL_MS),
-    [sayThis, now]
+    () => isChess ? sayThis : sayThis.filter((card) => now - card.timestamp <= CARD_TTL_MS),
+    [sayThis, now, isChess]
   );
   const recentAskThis = useMemo(
-    () => askThis.filter((card) => now - card.timestamp <= CARD_TTL_MS),
-    [askThis, now]
+    () => isChess ? askThis : askThis.filter((card) => now - card.timestamp <= CARD_TTL_MS),
+    [askThis, now, isChess]
   );
 
   const elapsedMs = sessionState.isRecording && sessionState.startTime
     ? Math.max(0, now - sessionState.startTime)
     : 0;
+  void elapsedMs;
 
   const topTip = useMemo(() => {
     const all = [
@@ -234,10 +306,7 @@ export function PairCompactOverlay({
 
   const latestSay = recentSayThis[0] || null;
   const latestAsk = recentAskThis[0] || null;
-  const isChess = sessionState.gameId === 'chess';
 
-  // Widget IPC prepends newest cards first. Pick directly from that order so the
-  // overlay always shows the latest coaching paragraph, engine line, and drill.
   const chessParagraphCard = useMemo(
     () => (isChess
       ? recentSayThis.find((card) => {
@@ -282,17 +351,18 @@ export function PairCompactOverlay({
     ? (chessParagraphText || chessEngineText || '')
     : (compactTopTip || visualHeading || visualBody || '');
   const combinedText = [primaryText, compactLatestTip, compactLatestAnalysis, nudge?.message || '']
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  void combinedText; // retained for potential future use
+    .filter(Boolean).join(' ').toLowerCase();
+  void combinedText;
   const isCritical = false;
   const inBuyPhase = false;
+  void inBuyPhase;
   const mapLocation: string | undefined = undefined;
+  void mapLocation;
   const hasActionableContent = isChess
     ? !!(chessHasAnyContent || nudge)
     : !!(primaryText || compactLatestTip || compactLatestAnalysis || nudge);
   const urgencyTone: 'danger' | 'info' | 'neutral' = 'neutral';
+  void urgencyTone;
 
   const splitActionAndWhy = (text: string): { action: string; why: string } => {
     if (!text) return { action: '', why: '' };
@@ -301,387 +371,537 @@ export function PairCompactOverlay({
     if (byPipes.length > 1) {
       return { action: byPipes[0], why: byPipes.slice(1).join(' • ') };
     }
-
     const bySentence = normalized.split(/\.\s+/).map((s) => s.trim()).filter(Boolean);
     if (bySentence.length > 1) {
       return { action: bySentence[0], why: bySentence.slice(1).join('. ') };
     }
-
     return { action: normalized, why: '' };
   };
 
-  const { action: actionHeaderRaw, why: rationaleRaw } = splitActionAndWhy(primaryText || compactLatestTip || compactLatestAnalysis);
+  const { action: actionHeaderRaw } = splitActionAndWhy(primaryText || compactLatestTip || compactLatestAnalysis);
   const actionHeader = actionHeaderRaw ? actionHeaderRaw.toUpperCase() : '';
-  const rationale = rationaleRaw || (compactLatestAnalysis && compactLatestAnalysis !== actionHeaderRaw ? compactLatestAnalysis : '') || visualBody;
+  void actionHeader;
 
   const inAreaCooldown = false;
   const showContent = isChess
-    ? hasActionableContent   // only show when board or tip is actually available
+    ? hasActionableContent
     : (hasActionableContent && !inAreaCooldown);
 
+  const showExpanded = isChess || isExpanded || isCritical;
+
   useEffect(() => {
-    if (isCritical) {
-      setIsExpanded(true);
-    }
+    if (isCritical) setIsExpanded(true);
   }, [isCritical]);
 
   useEffect(() => {
-    // Chess should stay expanded so the player can read full move reasoning.
-    if (isChess) {
-      setIsExpanded(true);
-    }
+    if (isChess) setIsExpanded(true);
   }, [isChess]);
 
   useEffect(() => {
-    if (!sessionState.isRecording || sessionState.isPaused) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-
+    if (!sessionState.isRecording || sessionState.isPaused) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
     setNow(Date.now());
-
     return () => window.clearInterval(timer);
-  }, [sessionState.isRecording, sessionState.isPaused, sessionState.startTime]);
-
-  const status = sessionState.isRecording
-    ? sessionState.isPaused
-      ? 'Paused'
-      : fmtElapsed(sessionState.startTime, now)
-    : 'Idle';
+  }, [sessionState.isRecording, sessionState.isPaused, sessionState.startTime, isChess]);
 
   const elapsed = sessionState.isRecording
     ? fmtElapsed(sessionState.startTime, now)
     : '00:00';
 
-  const stateClass = sessionState.isRecording ? 'state-recording' : 'state-idle';
-  const coachLabel = isChess ? 'Chess Coach' : `${(sessionState.gameId || 'Game').toUpperCase()} Coach`;
-  const showExpanded = isChess || isExpanded || isCritical;
+  // ── SCANNING / LOADING state ──
+  // Shown when recording is active but no coach content yet
+  const isScanning = sessionState.isRecording && !sessionState.isPaused && !chessHasAnyContent;
 
   return (
-    <div style={{ width: '100%', height: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', padding: 10, boxSizing: 'border-box' }}>
-      <style>{`
-        .pp-wrap {
-          width: 100%;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 8px;
-        }
+    <div style={{ width: '100%', height: 'auto', display: 'flex', flexDirection: 'column', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
 
-        .pp-tip {
-          max-width: min(560px, calc(100vw - 24px));
-          background: rgba(10, 10, 10, 0.82);
-          border: 1px solid rgba(255,255,255,0.2);
-          border-radius: 10px;
-          color:#fff;
-          padding:10px 12px;
-          font-size:13px;
-          line-height:1.35;
-          box-sizing: border-box;
-          overflow: visible;
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-        }
+      {/* ── Main coaching panel ── */}
+      {showContent && showExpanded && (
+        <div
+          style={{
+            background: '#FFFFFF',
+            borderRadius: 16,
+            border: '1px solid rgba(0,0,0,0.05)',
+            marginBottom: 8,
+            overflow: 'hidden',
+            boxShadow: '0px 4px 24px rgba(0,0,0,0.08)',
+          }}
+        >
+          {/* Header strip */}
+          <div
+            style={{
+              background: 'var(--color-widget-header-bg)',
+              padding: '8px 12px',
+              height: 40,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid var(--color-widget-border)',
+              boxSizing: 'border-box',
+            }}
+          >
+            {/* Logo + wordmark */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <img src={logoIcon} width={20} height={20} alt="Chess Lens" style={{ borderRadius: 3 }} />
+              <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-label)', fontFamily: 'Inter, sans-serif' }}>
+                Chess Lens
+              </span>
+            </div>
+            <button
+              onClick={() => { if (!isChess) setIsExpanded(false); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-muted)', fontSize: 12 }}
+            >
+              ▲
+            </button>
+          </div>
 
-        .pp-tip--danger {
-          border-color: rgba(255, 82, 82, 0.85);
-          box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
-          animation: dangerPulse 1.1s infinite;
-        }
+          {/* Content area */}
+          <div style={{ padding: '16.82px 16px', display: 'flex', flexDirection: 'column', gap: 20, borderTop: '1px solid rgba(0,0,0,0.05)', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
 
-        .pp-tip--info {
-          border-color: rgba(96, 165, 250, 0.85);
-          background: rgba(12, 20, 35, 0.86);
-        }
+            {/* Chess board */}
+            {(displayFen ?? currentFen) && (
+              <div>
+                <ChessBoard fen={displayFen ?? currentFen ?? ''} />
+                {currentTurnLabel && (
+                  <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-body)', marginTop: 6, fontFamily: 'Inter, sans-serif' }}>
+                    {currentTurnLabel}
+                  </p>
+                )}
+              </div>
+            )}
 
-        .pp-tip--neutral {
-          border-color: rgba(129, 140, 248, 0.5);
-        }
+            {/* Suggestions */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-        @keyframes dangerPulse {
-          0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
-          70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-        }
-
-        .pp-tip-collapsed {
-          max-width: 420px;
-          background: rgba(10, 10, 10, 0.78);
-          border: 1px solid rgba(255,255,255,0.18);
-          border-radius: 999px;
-          color:#fff;
-          padding: 8px 12px;
-          font-size: 12px;
-          line-height: 1.25;
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          cursor: pointer;
-        }
-
-        .pp-location-ping {
-          padding: 2px 8px;
-          border-radius: 999px;
-          border: 1px solid rgba(255, 200, 0, 0.7);
-          color: #ffd76b;
-          font-size: 11px;
-          animation: pulse 1s infinite;
-        }
-
-        
-
-        .pp-widget {
-          position: relative;
-          display: inline-flex;
-          align-items: center;
-          padding: 8px 10px;
-          gap: 8px;
-          height: 52px;
-          background: rgba(22, 22, 24, 0.95);
-          backdrop-filter: blur(24px);
-          -webkit-backdrop-filter: blur(24px);
-          border-radius: 14px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-          color: white;
-          -webkit-app-region: drag;
-          app-region: drag;
-        }
-
-        .pp-divider {
-          width: 1px;
-          height: 28px;
-          background: rgba(255,255,255,0.1);
-        }
-
-        .pp-widget button, .pp-widget [role='button'] { -webkit-app-region: no-drag; app-region: no-drag; }
-
-        .pp-pill {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 32px;
-          height: 32px;
-          border-radius: 8px;
-          border: none;
-          background: transparent;
-          color: rgba(255,255,255,0.65);
-        }
-
-        .pp-pill.active {
-          background: rgba(255,255,255,0.08);
-          color: rgba(255,255,255,0.95);
-        }
-
-        .pp-pill svg {
-          width: 16px;
-          height: 16px;
-          fill: none;
-          stroke: currentColor;
-          stroke-width: 1.8;
-          stroke-linecap: round;
-          stroke-linejoin: round;
-        }
-
-        .pp-power {
-          width:34px;
-          height:34px;
-          border-radius:8px;
-          border:none;
-          background: #ff4000;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          cursor:pointer;
-          transition: background 0.15s;
-        }
-        .pp-power:hover { background: #cc2b02; }
-        .pp-power:disabled {
-          background: rgba(255, 64, 0, 0.55);
-          cursor: not-allowed;
-        }
-        .pp-power .stop-box {
-          width: 12px;
-          height: 12px;
-          border-radius: 2px;
-          background: #fff;
-        }
-
-        .pp-status {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 10px;
-          border-radius: 20px;
-          color: #fd5337;
-          font-size: 13px;
-          font-weight: 600;
-          letter-spacing: -0.02em;
-          font-variant-numeric: tabular-nums;
-          white-space: nowrap;
-          background: rgba(239, 68, 68, 0.15);
-        }
-        .pp-status-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-          background: currentColor;
-          animation: pulse 1s infinite;
-        }
-        @keyframes pulse {
-          0%,100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-
-        .pp-actions { display:flex; gap:8px; margin-top:8px; flex-wrap: wrap; }
-        .pp-btn {
-          border:1px solid rgba(255,255,255,0.25);
-          border-radius:8px;
-          background: rgba(255,255,255,0.08);
-          color:#fff;
-          font-size:12px;
-          padding:6px 10px;
-          cursor:pointer;
-        }
-      `}</style>
-
-      <div className="pp-wrap">
-        {showContent && (
-        showExpanded ? (
-        <div className={`pp-tip pp-tip--${urgencyTone}`} onDoubleClick={() => { if (!isChess) setIsExpanded(false); }}>
-          <div style={{ fontSize: 11, opacity: 0.8, marginBottom: 4 }}>{coachLabel}</div>
-          {sessionState.gameId === 'chess' ? (
-            // Chess: board always visible above the tip, then engine line + drill
-            <>
-              {/* Board always shown above the tip when a FEN is available */}
-              {(displayFen ?? currentFen) && (
-                <div style={{ marginBottom: 8 }}>
-                  <ChessBoard fen={displayFen ?? currentFen ?? ''} />
-                  {currentTurnLabel && (
-                    <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.82, marginTop: 6 }}>
-                      {currentTurnLabel}
+              {/* Best move section */}
+              {chessEngineText && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)', fontFamily: 'Inter, sans-serif' }}>
+                    BEST MOVE
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 26, fontWeight: 600, color: 'var(--color-chess-best-move)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
+                      {chessEngineText.replace(/^engine:\s*/i, '').split(/[\s|]/)[0] || chessEngineText.replace(/^engine:\s*/i, '')}
+                    </span>
+                    <div style={{
+                      background: 'var(--color-chess-best-move-bg)',
+                      border: '0.84px solid var(--color-chess-best-move-bg)',
+                      borderRadius: 30,
+                      padding: '1px 6px',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: 'var(--color-chess-best-move)',
+                      fontFamily: 'Inter, sans-serif',
+                    }}>
+                      Best
                     </div>
-                  )}
-                  {/* Castling rights debug display */}
-                  {(() => {
-                    const fenParts = (currentFen ?? '').split(' ');
-                    const castling = fenParts[2] ?? '-';
-                    const wK = castling.includes('K');
-                    const wQ = castling.includes('Q');
-                    const bK = castling.includes('k');
-                    const bQ = castling.includes('q');
-                    return (
-                      <div style={{ fontSize: 10, marginTop: 4, fontFamily: 'monospace', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <span style={{ opacity: 0.6 }}>Castling:</span>
-                        <span style={{ color: wK ? '#7ec87e' : '#c87e7e', opacity: wK ? 1 : 0.55 }}>K</span>
-                        <span style={{ color: wQ ? '#7ec87e' : '#c87e7e', opacity: wQ ? 1 : 0.55 }}>Q</span>
-                        <span style={{ color: bK ? '#7ec87e' : '#c87e7e', opacity: bK ? 1 : 0.55 }}>k</span>
-                        <span style={{ color: bQ ? '#7ec87e' : '#c87e7e', opacity: bQ ? 1 : 0.55 }}>q</span>
-                        <span style={{ opacity: 0.45 }}>({castling})</span>
-                      </div>
-                    );
-                  })()}
-                  <div style={{ fontSize: 9, opacity: 0.45, marginTop: 3, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                    {(displayFen ?? currentFen ?? '').split(' ')[0]}
                   </div>
                 </div>
               )}
-              <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}>
-                {chessParagraphText || chessEngineText || chessDrillText || chessWaitingText || null}
-              </div>
-              {/* Only show engine line separately when there is also a coaching paragraph */}
+
+              {/* Coaching paragraph */}
+              {chessParagraphText && (
+                <div style={{
+                  background: 'var(--color-surface-muted)',
+                  border: '1px solid rgba(0,0,0,0.1)',
+                  borderRadius: 12,
+                  padding: 12,
+                }}>
+                  <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text-body)', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                    {chessParagraphText}
+                  </p>
+                </div>
+              )}
+
+              {/* Engine analysis card */}
               {chessParagraphText && chessEngineText && (
-                <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 4, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                  {chessEngineText}
+                <div style={{
+                  background: 'var(--color-surface-muted)',
+                  border: '1px solid rgba(0,0,0,0.1)',
+                  borderRadius: 12,
+                  padding: 12,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-label)', fontFamily: 'Inter, sans-serif' }}>Engine</span>
+                  </div>
+                  <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text-body)', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                    {chessEngineText.replace(/^engine:\s*/i, '')}
+                  </p>
                 </div>
               )}
-              {chessWaitingText && (
-                <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4, fontStyle: 'italic' }}>
-                  {chessWaitingText}
-                </div>
-              )}
+
+              {/* Drill card */}
               {chessDrillText && (
-                <div style={{ fontSize: 12, opacity: 0.92, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                  {chessDrillText}
+                <div style={{
+                  background: 'var(--color-surface-muted)',
+                  border: '1px solid rgba(0,0,0,0.1)',
+                  borderRadius: 12,
+                  padding: 12,
+                }}>
+                  <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text-body)', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                    {chessDrillText}
+                  </p>
                 </div>
               )}
-            </>
-          ) : (
-            // Generic fallback for non-chess sessions
-            <>
-              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6, letterSpacing: '0.02em' }}>
-                {compactTopTip || visualHeading || visualBody || 'WAITING FOR LIVE GAME INSIGHT...'}
-              </div>
-            </>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          </div>
-          {!isChess && (compactLatestTip || compactLatestAnalysis) && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
-              {compactLatestTip && compactLatestTip !== (compactTopTip || '') && (
-                <div style={{ fontSize: 12, opacity: 0.95 }}><span style={{ color: '#ff8b5f' }}>Tip:</span> {compactLatestTip}</div>
+
+              {/* Waiting / scanning */}
+              {(chessWaitingText || isScanning) && !chessParagraphText && !chessDrillText && (
+                <div style={{
+                  background: 'var(--color-input-bg)',
+                  borderRadius: 12,
+                  padding: '6px 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}>
+                  <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-body)', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                    {isScanning ? 'SCANNING...' : chessWaitingText}
+                  </p>
+                </div>
               )}
-              {compactLatestAnalysis && compactLatestAnalysis !== (compactTopTip || '') && (
-                <div style={{ fontSize: 12, opacity: 0.95 }}><span style={{ color: '#76a9ff' }}>Analysis:</span> {compactLatestAnalysis}</div>
+
+              {/* Non-chess fallback */}
+              {!isChess && (compactTopTip || visualHeading || visualBody) && (
+                <div style={{
+                  background: 'var(--color-surface-muted)',
+                  border: '1px solid rgba(0,0,0,0.1)',
+                  borderRadius: 12,
+                  padding: 12,
+                }}>
+                  <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text-body)', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                    {compactTopTip || visualHeading || visualBody}
+                  </p>
+                </div>
               )}
             </div>
+
+            {/* Ask buttons */}
+            {(chessParagraphText || chessDrillText) && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {chessParagraphText && (
+                  <button
+                    onClick={() => handleChatAskTip(chessParagraphText, 'Explain this tip')}
+                    style={{
+                      background: 'none',
+                      border: '1px solid var(--color-border-input)',
+                      borderRadius: 8,
+                      color: 'var(--color-chess-insight)',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      padding: '4px 10px',
+                      cursor: 'pointer',
+                      fontFamily: 'Inter, sans-serif',
+                    }}
+                  >
+                    Ask about this tip
+                  </button>
+                )}
+                {chessDrillText && (
+                  <button
+                    onClick={() => handleChatAskTip(chessDrillText, 'Explain this drill')}
+                    style={{
+                      background: 'none',
+                      border: '1px solid var(--color-border-input)',
+                      borderRadius: 8,
+                      color: 'var(--color-chess-insight)',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      padding: '4px 10px',
+                      cursor: 'pointer',
+                      fontFamily: 'Inter, sans-serif',
+                    }}
+                  >
+                    Ask about drill
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Nudge */}
+            {nudge && (
+              <div style={{
+                background: 'var(--color-chat-user-bg)',
+                border: '1px solid var(--color-chat-note-border)',
+                borderRadius: 10,
+                padding: '8px 12px',
+                fontSize: 13,
+                color: 'var(--color-text-body)',
+                fontFamily: 'Inter, sans-serif',
+              }}>
+                {nudge.message}
+              </div>
+            )}
+          </div>
+
+          {/* ── Chat section ── */}
+          {isChess && (
+            <>
+              {/* Divider */}
+              <div style={{ height: 2, background: 'rgba(0,0,0,0.05)', margin: '0 0' }} />
+
+              {/* Chat panel */}
+              <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Section label */}
+                <p
+                  style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)', cursor: 'pointer', fontFamily: 'Inter, sans-serif', margin: 0 }}
+                  onClick={() => { if (!chatLoading) toggleChat(); }}
+                >
+                  CHAT WITH COACH {chatMessages.length > 0 && `(${chatMessages.length})`}
+                  <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--color-text-muted)' }}>{chatOpen ? '▲' : '▼'}</span>
+                </p>
+
+                {/* Messages */}
+                {(chatMessages.length > 0 || chatLoading || chatError) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+                    {chatMessages.map((msg) => (
+                      <React.Fragment key={msg.id}>
+                        {msg.role === 'user' && msg.tipCtx && (
+                          <p style={{ fontSize: 10, color: 'var(--color-text-muted)', textAlign: 'right', fontStyle: 'italic', margin: 0, fontFamily: 'Inter, sans-serif' }}>
+                            Re: "{msg.tipCtx.slice(0, 55)}{msg.tipCtx.length > 55 ? '…' : ''}"
+                          </p>
+                        )}
+                        {msg.role === 'user' ? (
+                          /* User bubble — orange warm per Figma */
+                          <div style={{
+                            alignSelf: 'flex-end',
+                            background: 'var(--color-chat-user-bg)',
+                            border: '1px solid var(--color-chat-user-border)',
+                            borderRadius: '12px 12px 2px 12px',
+                            padding: '12px',
+                            fontSize: 13,
+                            lineHeight: 1.55,
+                            color: 'var(--color-text-body)',
+                            maxWidth: '90%',
+                            fontFamily: 'Inter, sans-serif',
+                          }}>
+                            {msg.text}
+                          </div>
+                        ) : (
+                          /* Coach bubble — olive per Figma */
+                          <div style={{
+                            alignSelf: 'flex-start',
+                            background: 'var(--color-chat-coach-bg)',
+                            border: '1px solid var(--color-chat-coach-border)',
+                            borderRadius: '12px 12px 12px 2px',
+                            padding: '12px',
+                            fontSize: 13,
+                            lineHeight: 1.55,
+                            color: 'var(--color-text-body)',
+                            maxWidth: '90%',
+                            fontFamily: 'Inter, sans-serif',
+                          }}>
+                            {msg.text}
+                          </div>
+                        )}
+                      </React.Fragment>
+                    ))}
+                    {chatLoading && (
+                      <p style={{ alignSelf: 'flex-start', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic', margin: 0, fontFamily: 'Inter, sans-serif' }}>
+                        Thinking…
+                      </p>
+                    )}
+                    {chatError && (
+                      <p style={{ fontSize: 11, color: 'var(--color-status-danger)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{chatError}</p>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                )}
+
+                {/* Input */}
+                {chatOpen && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {chatMessages.length === 0 && !chatLoading && (
+                      <p style={{ fontSize: 11, color: 'var(--color-text-muted)', textAlign: 'center', margin: 0, fontFamily: 'Inter, sans-serif' }}>
+                        Ask anything about the position or a tip.
+                      </p>
+                    )}
+                    {chatPrefillCtx && (
+                      <p style={{ fontSize: 10, color: 'var(--color-chess-insight)', fontStyle: 'italic', margin: 0, fontFamily: 'Inter, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        Context: "{chatPrefillCtx.slice(0, 60)}{chatPrefillCtx.length > 60 ? '…' : ''}"
+                      </p>
+                    )}
+                    <form
+                      onSubmit={handleChatSubmit}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 0 0 0' }}
+                    >
+                      <input
+                        ref={chatInputRef}
+                        type="text"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder={chatPrefillCtx ? 'Ask about this tip…' : 'Ask your coach...'}
+                        disabled={chatLoading}
+                        style={{
+                          flex: 1,
+                          background: 'var(--color-widget-header-bg)',
+                          border: '1px solid rgba(13,13,13,0.1)',
+                          borderRadius: 9999,
+                          color: 'var(--color-text-label)',
+                          fontSize: 13,
+                          fontWeight: 500,
+                          padding: '2px 6px 2px 12px',
+                          height: 44,
+                          outline: 'none',
+                          fontFamily: 'Inter, sans-serif',
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={!chatInput.trim() || chatLoading}
+                        style={{
+                          background: chatInput.trim() ? '#000000' : 'var(--color-text-muted)',
+                          border: '1px solid var(--color-border-default)',
+                          borderRadius: 40,
+                          color: '#fff',
+                          width: 32,
+                          height: 32,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: chatInput.trim() ? 'pointer' : 'not-allowed',
+                          transition: 'background 0.15s',
+                          flexShrink: 0,
+                        }}
+                        title="Send"
+                      >
+                        <SendIcon />
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </div>
+            </>
           )}
-          {nudge && <div style={{ marginTop: 8, fontSize: 12, opacity: 0.95 }}>Nudge: {nudge.message}</div>}
-          
-          <div className="pp-actions">
-            <button className="pp-btn" onClick={sessionState.isPaused ? onResume : onPause}>{sessionState.isPaused ? 'Resume' : 'Pause'}</button>
-            <button className="pp-btn" onClick={sessionState.isMicMuted ? onUnmuteMic : onMuteMic}>{sessionState.isMicMuted ? 'Unmute' : 'Mute'}</button>
-            {!isCritical && !isChess && <button className="pp-btn" onClick={() => setIsExpanded(false)}>Collapse</button>}
-          </div>
         </div>
-        ) : (
-          <div className="pp-tip-collapsed" onClick={() => setIsExpanded(true)}>
-            <span>{isCritical ? '⚠️' : '🎯'}</span>
-            <span style={{ fontWeight: 700 }}>{isCritical ? 'VULNERABLE' : (actionHeader || primaryText || 'Coach active')}</span>
-          </div>
-        ))}
+      )}
 
-        <div className={`pp-widget ${stateClass}`}>
+      {/* Collapsed pill — for non-chess or when explicitly collapsed */}
+      {showContent && !showExpanded && (
+        <div
+          onClick={() => setIsExpanded(true)}
+          style={{
+            background: 'var(--color-widget-header-bg)',
+            border: '1px solid var(--color-border-default)',
+            borderRadius: 9999,
+            padding: '8px 12px',
+            fontSize: 12,
+            fontWeight: 500,
+            color: 'var(--color-text-body)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            marginBottom: 8,
+            boxShadow: '0px 1px 12px rgba(0,0,0,0.05)',
+            fontFamily: 'Inter, sans-serif',
+          }}
+        >
+          <span>🎯</span>
+          <span>{primaryText || 'Coach active'}</span>
+        </div>
+      )}
+
+      {/* ── Control bar (footer) ── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'var(--color-widget-header-bg)',
+          borderRadius: 16,
+          padding: '8px',
+          gap: '6.73px',
+          boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
+          WebkitAppRegion: 'drag',
+        } as React.CSSProperties}
+      >
+        {/* Timer */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6.73px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div style={{
+            width: 8.41,
+            height: 8.41,
+            borderRadius: '50%',
+            background: 'var(--color-recording-dot)',
+            animation: 'pulse 1s infinite',
+          }} />
+          <span style={{
+            fontSize: 15,
+            fontWeight: 500,
+            color: 'var(--color-recording-dot)',
+            letterSpacing: '-0.02em',
+            fontFamily: 'Inter, sans-serif',
+          }}>
+            {sessionState.isRecording ? elapsed : (statusText || '00:00')}
+          </span>
+        </div>
+
+        {/* CTAs */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6.73px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          {/* Pause / Resume button */}
           <button
-            className={`pp-pill ${sessionState.isMicMuted ? '' : 'active'}`}
-            title={sessionState.isMicMuted ? 'Unmute mic' : 'Mute mic'}
-            onClick={sessionState.isMicMuted ? onUnmuteMic : onMuteMic}
-          >
-            <svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" /><path d="M19 10v2a7 7 0 01-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>
-          </button>
-          <button
-            className={`pp-pill ${sessionState.isPaused ? '' : 'active'}`}
-            title={sessionState.isPaused ? 'Resume capture' : 'Pause capture'}
             onClick={sessionState.isPaused ? onResume : onPause}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '3.36px',
+              padding: '8px',
+              height: '34.82px',
+              background: '#FFFFFF',
+              border: '1.07px solid var(--color-border-default)',
+              borderRadius: '10.09px',
+              boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--color-text-label)',
+              letterSpacing: '-0.02em',
+              fontFamily: 'Inter, sans-serif',
+              transition: 'opacity 0.15s',
+            }}
           >
-            <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+            {sessionState.isPaused ? (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M5 3.5V12.5L13 8L5 3.5Z" fill="currentColor" /></svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/><rect x="9.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/></svg>
+            )}
+            {sessionState.isPaused ? 'Resume' : 'Pause'}
           </button>
+
+          {/* Stop button */}
           <button
-            className={`pp-pill ${sessionState.isMicMuted ? '' : 'active'}`}
-            title={sessionState.isMicMuted ? 'Unmute mic' : 'Mute mic'}
-            onClick={sessionState.isMicMuted ? onUnmuteMic : onMuteMic}
+            onClick={onStop}
+            disabled={stopDisabled}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '3.36px',
+              padding: '8px',
+              height: '34.82px',
+              background: 'var(--color-widget-stop-bg)',
+              border: 'none',
+              borderRadius: '10.09px',
+              boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
+              cursor: stopDisabled ? 'not-allowed' : 'pointer',
+              opacity: stopDisabled ? 0.5 : 1,
+              fontSize: 13,
+              fontWeight: 600,
+              color: '#FFFFFF',
+              letterSpacing: '-0.02em',
+              fontFamily: 'Inter, sans-serif',
+            }}
           >
-            <svg viewBox="0 0 24 24"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19" /><path d="M19.07 4.93a10 10 0 010 14.14" /><path d="M15.54 8.46a5 5 0 010 7.08" /></svg>
-          </button>
-
-          <div className="pp-divider" />
-
-          <div className="pp-status">
-            <span className="pp-status-dot" />
-            <span>{sessionState.isRecording ? elapsed : (statusText || status)}</span>
-          </div>
-
-          <div className="pp-divider" />
-
-          <button className="pp-power" onClick={onStop} title="Stop" disabled={stopDisabled}>
-            <span className="stop-box" />
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2.5" y="2.5" width="10" height="10" rx="1.5" fill="white"/></svg>
+            Stop
           </button>
         </div>
       </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 }

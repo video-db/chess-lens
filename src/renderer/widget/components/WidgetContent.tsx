@@ -58,14 +58,7 @@ export function WidgetContent({
 
   return (
     <div
-      className="flex-1 min-h-0 flex flex-col overflow-y-auto"
-      style={{
-        padding: '20px 16px',
-        gap: '16px',
-        background: 'rgba(247, 247, 247, 0.9)',
-        border: '1px solid #EFEFEF',
-        borderTop: 'none',
-      }}
+      className="flex-1 min-h-0 flex flex-col overflow-y-auto bg-surface-muted border border-border-default border-t-0 px-4 py-5 gap-4"
     >
       {/* Nudge Alert - shown at top when present */}
       {nudge && onDismissNudge && (

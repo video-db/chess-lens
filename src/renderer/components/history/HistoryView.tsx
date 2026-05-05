@@ -1,18 +1,22 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Inbox, Search } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 import { RecordingCard } from './RecordingCard';
 import { RecordingDetailPage } from './RecordingDetailPage';
 import { trpc } from '../../api/trpc';
 import { useSessionStore } from '../../stores/session.store';
-import type { Recording } from '../../../shared/schemas/recording.schema';
 
 interface HistoryViewProps {
   initialSelectedRecordingId?: number | null;
   onClearInitialSelection?: () => void;
+  onStartRecording?: () => void;
 }
 
-export function HistoryView({ initialSelectedRecordingId, onClearInitialSelection }: HistoryViewProps = {}) {
+export function HistoryView({ initialSelectedRecordingId, onClearInitialSelection, onStartRecording }: HistoryViewProps = {}) {
   const [selectedRecordingId, setSelectedRecordingId] = useState<number | null>(initialSelectedRecordingId ?? null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hasCleanedUp, setHasCleanedUp] = useState(false);
+
+  const activeSessionId = useSessionStore((state) => state.sessionId);
 
   useEffect(() => {
     if (initialSelectedRecordingId != null) {
@@ -20,139 +24,195 @@ export function HistoryView({ initialSelectedRecordingId, onClearInitialSelectio
       onClearInitialSelection?.();
     }
   }, [initialSelectedRecordingId, onClearInitialSelection]);
-  const [hasCleanedUp, setHasCleanedUp] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const activeSessionId = useSessionStore((state) => state.sessionId);
 
   const { data: recordings, isLoading, refetch } = trpc.recordings.list.useQuery(
-    undefined,
-    {
-      refetchInterval: 10000,
-    }
+    undefined, { refetchInterval: 10000 }
   );
 
   const cleanupMutation = trpc.recordings.cleanupStale.useMutation({
-    onSuccess: (result) => {
-      if (result.cleaned > 0) {
-        refetch();
-      }
-    },
+    onSuccess: (result) => { if (result.cleaned > 0) refetch(); },
   });
 
   useEffect(() => {
     if (!hasCleanedUp && recordings) {
-      // Clean up any session stuck in 'recording' or 'processing' that isn't
-      // the currently active session — no age gate, since a 'recording' row
-      // with no active process is always stale regardless of how recent it is.
       const staleCount = recordings.filter(
-        r => (r.status === 'processing' || r.status === 'recording') &&
-        r.sessionId !== activeSessionId
+        r => (r.status === 'processing' || r.status === 'recording') && r.sessionId !== activeSessionId
       ).length;
-
-      if (staleCount > 0) {
-        cleanupMutation.mutate({
-          maxAgeMinutes: 0, // no age gate — clean all non-active stuck sessions
-          excludeSessionId: activeSessionId || undefined,
-        });
-      }
+      if (staleCount > 0) cleanupMutation.mutate({ maxAgeMinutes: 0, excludeSessionId: activeSessionId || undefined });
       setHasCleanedUp(true);
     }
   }, [recordings, hasCleanedUp, activeSessionId]);
 
-  // Sort recordings by date (newest first) and filter by search query
-  const filteredRecordings = useMemo(() => {
-    const sorted = [...(recordings || [])].sort(
+  const allRecordings = useMemo(() =>
+    [...(recordings || [])].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    ),
+    [recordings]
+  );
+
+  const filteredRecordings = useMemo(() => {
+    if (!searchQuery.trim()) return allRecordings;
+    const q = searchQuery.toLowerCase();
+    return allRecordings.filter((r) =>
+      r.meetingName?.toLowerCase().includes(q) ||
+      r.shortOverview?.toLowerCase().includes(q)
     );
+  }, [allRecordings, searchQuery]);
 
-    if (!searchQuery.trim()) {
-      return sorted;
-    }
-
-    const query = searchQuery.toLowerCase();
-    return sorted.filter((recording) => {
-      // Search in session name
-      if (recording.meetingName?.toLowerCase().includes(query)) {
-        return true;
-      }
-      // Search in short overview
-      if (recording.shortOverview?.toLowerCase().includes(query)) {
-        return true;
-      }
-      return false;
-    });
-  }, [recordings, searchQuery]);
-
-  // If a recording is selected, show the detail page
   if (selectedRecordingId !== null) {
-    return (
-      <RecordingDetailPage
-        recordingId={selectedRecordingId}
-        onBack={() => setSelectedRecordingId(null)}
-      />
-    );
+    return <RecordingDetailPage recordingId={selectedRecordingId} onBack={() => setSelectedRecordingId(null)} />;
   }
 
-  // Show the recordings grid
+  const hasRecordings = allRecordings.length > 0;
+
+  // ── Record icon SVG ──────────────────────────────────────────────────────────
+  const RecordIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="10" cy="10" r="7.5" stroke="white" strokeWidth="1.5"/>
+      <circle cx="10" cy="10" r="3.5" fill="white"/>
+    </svg>
+  );
+
   return (
-    <div className="h-full flex flex-col bg-white">
-      {/* Header */}
-      <div className="px-8 pt-8 pb-6">
-        <h1 className="text-[28px] font-semibold text-black tracking-tight">
-          Session Recordings
-        </h1>
-        <p className="text-[15px] text-[#6b6b6b] mt-1">
-          View and manage your past recording sessions
-        </p>
-      </div>
+    <div className="h-full flex flex-col bg-surface-muted">
+      <div className="flex-1 flex flex-col overflow-hidden px-[10px] pt-[10px] gap-[10px]">
 
-      {/* Search Bar */}
-      <div className="px-8 pb-6">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4.5 w-4.5 text-[#969696]" />
-          <input
-            type="text"
-            placeholder="Search recordings..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full h-11 pl-11 pr-4 rounded-xl border border-[#e0e0e0] bg-[#fafafa] text-[14px] text-black placeholder:text-[#969696] focus:outline-none focus:border-[#c0c0c0] focus:bg-white transition-colors"
-          />
-        </div>
-      </div>
+        {/* Header row */}
+        <div className="flex items-center gap-[12px] px-[20px] pt-[10px]">
+          <h1 className="text-[22px] font-semibold text-black tracking-[0.005em] flex-1">
+            Game Library
+          </h1>
 
-      {/* Recording Cards Grid */}
-      <div className="flex-1 overflow-y-auto px-8 pb-8">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-48">
-            <RefreshCw className="h-6 w-6 animate-spin text-[#969696]" />
-          </div>
-        ) : filteredRecordings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[#6b6b6b]">
-            <Inbox className="h-12 w-12 mb-3 text-[#c0c0c0]" />
-            {searchQuery ? (
-              <>
-                <p className="text-[15px] font-medium">No matching recordings</p>
-                <p className="text-[13px] text-[#969696] mt-1">Try a different search term</p>
-              </>
-            ) : (
-              <>
-                <p className="text-[15px] font-medium">No recordings yet</p>
-                <p className="text-[13px] text-[#969696] mt-1">Start a recording to see it here</p>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredRecordings.map((recording) => (
-              <RecordingCard
-                key={recording.id}
-                recording={recording}
-                onClick={() => setSelectedRecordingId(recording.id)}
+          {/* Search — only when there are recordings */}
+          {hasRecordings && (
+            <div className="relative w-[376px]">
+              <Search className="absolute left-[10px] top-1/2 -translate-y-1/2 h-[20px] w-[20px] text-text-muted-brand" />
+              <input
+                type="text"
+                placeholder="Search session name, opponent, opening"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-[43px] pl-[34px] pr-[10px] rounded-[12px] border border-[#E1E1E1] bg-white text-[14px] font-normal text-text-label placeholder:text-text-muted-brand focus:outline-none focus:border-border-default transition-colors"
               />
-            ))}
-          </div>
-        )}
+            </div>
+          )}
+
+          {/* Start New Game button — only when there are recordings */}
+          {hasRecordings && onStartRecording && (
+            <button
+              onClick={onStartRecording}
+              className="flex items-center gap-[4px] px-[20px] h-[44px] bg-brand-cta hover:bg-brand-cta-hover rounded-[12px] text-[14px] font-semibold text-white transition-colors shadow-[0px_1.27px_15.27px_rgba(0,0,0,0.05)] flex-shrink-0"
+            >
+              <RecordIcon />
+              <span>Start New Game</span>
+            </button>
+          )}
+        </div>
+
+        {/* Main container */}
+        <div className="flex-1 flex flex-col mx-0 mb-0 bg-white border border-border-default rounded-[20px_20px_0px_0px] overflow-hidden">
+
+          {isLoading ? (
+            <div className="flex items-center justify-center flex-1">
+              <RefreshCw className="h-6 w-6 animate-spin text-text-muted-brand" />
+            </div>
+
+          ) : !hasRecordings ? (
+            /* ── Empty state: centered Dialog card per Figma ── */
+            <div className="flex-1 flex items-center justify-center p-[20px]">
+              <div
+                className="flex flex-col items-center gap-[20px] bg-white rounded-[16px] p-[30px]"
+                style={{ width: 550 }}
+              >
+                {/* Icon circle */}
+                <div
+                  className="flex items-center justify-center flex-shrink-0"
+                  style={{
+                    width: 68, height: 68,
+                    background: '#F7F7F7',
+                    border: '1.7px solid #EFEFEF',
+                    borderRadius: '50%',
+                  }}
+                >
+                  {/* Inbox / history icon — #464646 with two-vector pattern */}
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M3 3v5h5"
+                      stroke="#464646"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.2}
+                    />
+                    <path
+                      d="M3.05 13A9 9 0 1 0 6 5.3L3 8"
+                      stroke="#464646"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M12 7v5l4 2"
+                      stroke="#464646"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+
+                {/* Text */}
+                <div className="flex flex-col items-center gap-[12px]" style={{ width: 490 }}>
+                  <p
+                    className="text-[22px] font-medium text-black text-center"
+                    style={{ lineHeight: '27px' }}
+                  >
+                    No games yet. Let's fix that.
+                  </p>
+                  <p
+                    className="text-[14px] font-normal text-text-body text-center"
+                    style={{ lineHeight: '150%', maxWidth: 370 }}
+                  >
+                    Start a session and Chess Lens will coach you through every move — your games will appear here.
+                  </p>
+                </div>
+
+                {/* Start New Game button */}
+                {onStartRecording && (
+                  <button
+                    onClick={onStartRecording}
+                    className="flex items-center gap-[4px] px-[20px] h-[44px] bg-brand-cta hover:bg-brand-cta-hover rounded-[12px] text-[14px] font-semibold text-white transition-colors"
+                    style={{ boxShadow: '0px 1.27px 15.27px rgba(0,0,0,0.05)' }}
+                  >
+                    <RecordIcon />
+                    <span>Start New Game</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+          ) : filteredRecordings.length === 0 ? (
+            /* ── No search results ── */
+            <div className="flex-1 flex flex-col items-center justify-center gap-[12px] p-[20px]">
+              <p className="text-[22px] font-medium text-black text-center">No matching recordings</p>
+              <p className="text-base text-text-body text-center max-w-[370px]">Try a different search term</p>
+            </div>
+
+          ) : (
+            /* ── Cards grid ── */
+            <div className="flex-1 overflow-y-auto px-[20px] pt-[20px] pb-[20px]">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[20px]">
+                {filteredRecordings.map((recording) => (
+                  <RecordingCard
+                    key={recording.id}
+                    recording={recording}
+                    onClick={() => setSelectedRecordingId(recording.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

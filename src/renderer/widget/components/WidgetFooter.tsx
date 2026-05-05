@@ -107,12 +107,13 @@ export function WidgetFooter({
 
   return (
     <div
-      className="flex items-center justify-center bg-white"
+      className="flex items-center justify-center"
       style={{
-        height: '72px',
-        padding: '12px 16px',
-        gap: '8px',
-        borderTop: '1px solid #EFEFEF',
+        height: '50.82px',
+        padding: '8px',
+        gap: '6.73px',
+        background: 'var(--color-widget-header-bg)',
+        borderTop: '1px solid var(--color-border-default)',
       }}
     >
       {/* Mic Button */}
@@ -136,41 +137,40 @@ export function WidgetFooter({
       {/* Pause/Resume Recording Button */}
       <button
         onClick={handlePauseResume}
-        className="flex-1 flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors"
+        className="flex-1 flex items-center justify-center gap-1.5 hover:opacity-80 transition-opacity"
         style={{
-          height: '40px',
-          borderRadius: '12px',
-          border: '1px solid rgba(150, 150, 150, 0.2)',
+          height: '34.82px',
+          borderRadius: '10.09px',
+          border: '1.07px solid var(--color-border-default)',
           background: 'white',
-          boxShadow: '0px 1px 15px 0px rgba(0,0,0,0.05)',
+          boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
           cursor: 'pointer',
-          paddingLeft: '12px',
-          paddingRight: '16px',
+          padding: '8px',
         }}
       >
         {isPaused ? <PlayIcon /> : <PauseIcon />}
         <span
           className="font-semibold whitespace-nowrap"
           style={{
-            fontSize: '14px',
+            fontSize: '13px',
             lineHeight: '1.4',
-            color: '#2D2D2D',
-            letterSpacing: '-0.28px',
+            color: 'var(--color-text-label)',
+            letterSpacing: '-0.02em',
           }}
         >
-          {isPaused ? 'Resume Recording' : 'Pause Recording'}
+          {isPaused ? 'Resume' : 'Pause'}
         </span>
       </button>
 
       {/* Stop Button */}
       <button
         onClick={onStop}
-        className="flex items-center justify-center gap-1 shrink-0 transition-all hover:bg-red-600"
+        className="flex items-center justify-center gap-1 shrink-0 transition-all hover:opacity-90"
         style={{
-          background: '#EF4444',
-          borderRadius: '12px',
-          padding: '10px 30px 10px 24px',
-          boxShadow: '0px 1px 15px 0px rgba(0,0,0,0.05)',
+          background: 'var(--color-widget-stop-bg)',
+          borderRadius: '10.09px',
+          padding: '8px',
+          boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
           border: 'none',
           cursor: 'pointer',
         }}
@@ -179,9 +179,9 @@ export function WidgetFooter({
         <span
           className="font-semibold text-white whitespace-nowrap"
           style={{
-            fontSize: '14px',
+            fontSize: '13px',
             lineHeight: '1.4',
-            letterSpacing: '-0.28px',
+            letterSpacing: '-0.02em',
           }}
         >
           Stop

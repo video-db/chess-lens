@@ -13,7 +13,7 @@ import { useConfigStore } from '../../stores/config.store';
 // Calendar icon component
 function CalendarIcon() {
   return (
-    <div className="w-[72px] h-[72px] rounded-[20px] bg-[rgba(255,64,0,0.1)] border border-[rgba(236,91,22,0.13)] flex items-center justify-center">
+    <div className="w-[72px] h-[72px] rounded-[20px] bg-[var(--color-brand-tint-bg-lg)] border border-[var(--color-brand-tint-border)] flex items-center justify-center">
       <svg
         width="36"
         height="36"
@@ -21,15 +21,15 @@ function CalendarIcon() {
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <rect x="4" y="8" width="28" height="24" rx="4" stroke="#EC5B16" strokeWidth="2" />
-        <path d="M4 14H32" stroke="#EC5B16" strokeWidth="2" />
-        <path d="M12 4V10" stroke="#EC5B16" strokeWidth="2" strokeLinecap="round" />
-        <path d="M24 4V10" stroke="#EC5B16" strokeWidth="2" strokeLinecap="round" />
-        <rect x="10" y="18" width="4" height="4" rx="1" fill="#EC5B16" />
-        <rect x="16" y="18" width="4" height="4" rx="1" fill="#EC5B16" />
-        <rect x="22" y="18" width="4" height="4" rx="1" fill="#EC5B16" />
-        <rect x="10" y="24" width="4" height="4" rx="1" fill="#EC5B16" />
-        <rect x="16" y="24" width="4" height="4" rx="1" fill="#EC5B16" />
+        <rect x="4" y="8" width="28" height="24" rx="4" stroke="var(--color-brand)" strokeWidth="2" />
+        <path d="M4 14H32" stroke="var(--color-brand)" strokeWidth="2" />
+        <path d="M12 4V10" stroke="var(--color-brand)" strokeWidth="2" strokeLinecap="round" />
+        <path d="M24 4V10" stroke="var(--color-brand)" strokeWidth="2" strokeLinecap="round" />
+        <rect x="10" y="18" width="4" height="4" rx="1" fill="var(--color-brand)" />
+        <rect x="16" y="18" width="4" height="4" rx="1" fill="var(--color-brand)" />
+        <rect x="22" y="18" width="4" height="4" rx="1" fill="var(--color-brand)" />
+        <rect x="10" y="24" width="4" height="4" rx="1" fill="var(--color-brand)" />
+        <rect x="16" y="24" width="4" height="4" rx="1" fill="var(--color-brand)" />
       </svg>
     </div>
   );
@@ -119,14 +119,10 @@ export function CalendarSetupView({ onConnected, onSkip }: CalendarSetupViewProp
   ];
 
   return (
-    <div className="h-full w-full bg-[#f8f8fa] flex flex-col items-center justify-center relative overflow-hidden">
-      {/* Orange gradient glow */}
+    <div className="h-full w-full bg-surface-page flex flex-col items-center justify-center relative overflow-hidden">
+      {/* Brand gradient glow */}
       <div
-        className="absolute top-[-30%] left-1/2 -translate-x-1/2 w-[600px] h-[567px] rounded-[300px] pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(circle at center, rgba(236,91,22,0.08) 0%, rgba(236,91,22,0) 70%)',
-        }}
+        className="absolute top-[-30%] left-1/2 -translate-x-1/2 w-[600px] h-[567px] rounded-[300px] pointer-events-none brand-glow-bg"
       />
 
       {/* Step indicators */}
@@ -140,30 +136,30 @@ export function CalendarSetupView({ onConnected, onSkip }: CalendarSetupViewProp
         <div className="flex flex-col items-center gap-[20px] mb-[32px]">
           <CalendarIcon />
           <div className="flex flex-col items-center gap-[9px] max-w-[320px]">
-            <h1 className="text-[22px] font-semibold text-black text-center tracking-[-0.44px] leading-[33px]">
+            <h1 className="text-xl font-semibold text-black text-center">
               Connect your calendar
             </h1>
-            <p className="text-[14px] font-normal text-[#464646] text-center leading-[22.4px]">
+            <p className="text-base font-normal text-text-body text-center">
               Chess Lens uses your calendar to keep track of training sessions and reminders.
             </p>
           </div>
         </div>
 
         {/* Features card */}
-        <div className="w-full bg-white border border-[#e0e0e8] rounded-[12px] shadow-[0px_1px_4px_0px_rgba(0,0,0,0.04)] px-[21px] py-[17px] mb-[16px]">
+        <div className="w-full bg-white border border-border-input rounded-[12px] shadow-[0px_1px_4px_0px_rgba(0,0,0,0.04)] px-[21px] py-[17px] mb-[16px]">
           <div className="flex flex-col gap-[12px]">
             {features.map((feature, index) => (
               <div key={index} className="flex items-center gap-[10px]">
                 <CheckIcon />
-                <span className="text-[13px] text-[#464646] leading-[19.5px]">{feature}</span>
+                <span className="text-sm text-text-body">{feature}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Notifications tip */}
-        <div className="w-full flex items-start gap-[10px] px-[14px] py-[12px] bg-[#f8f8fa] rounded-[12px] border border-[#efefef] mb-[32px]">
-          <p className="text-[13px] text-[#666666] leading-[18px]">
+        <div className="w-full flex items-start gap-[10px] px-[14px] py-[12px] bg-surface-page rounded-[12px] border border-border-default mb-[32px]">
+          <p className="text-sm text-[#666666]">
             <span className="font-medium">Tip:</span> Make sure notifications are enabled for Chess Lens in{' '}
             <span className="font-medium">System Settings → Notifications</span> to receive game reminders.
           </p>
@@ -186,22 +182,22 @@ export function CalendarSetupView({ onConnected, onSkip }: CalendarSetupViewProp
           >
             {isConnecting ? (
               <>
-                <Loader2 className="w-[18px] h-[18px] text-[#464646] animate-spin" />
-                <span className="text-[14px] font-medium text-black tracking-[0.14px] leading-[21px]">
+                <Loader2 className="w-[18px] h-[18px] text-text-body animate-spin" />
+                <span className="text-base font-medium text-black">
                   Connecting...
                 </span>
               </>
             ) : isConnected ? (
               <>
                 <Check className="w-[18px] h-[18px] text-green-500" />
-                <span className="text-[14px] font-medium text-green-600 tracking-[0.14px] leading-[21px]">
+                <span className="text-base font-medium text-green-600">
                   Connected!
                 </span>
               </>
             ) : (
               <>
                 <GoogleLogo />
-                <span className="text-[14px] font-medium text-black tracking-[0.14px] leading-[21px]">
+                <span className="text-base font-medium text-black">
                   Connect Google Calendar
                 </span>
               </>
@@ -214,7 +210,7 @@ export function CalendarSetupView({ onConnected, onSkip }: CalendarSetupViewProp
             disabled={isConnecting || isConnected}
             className="w-full flex items-center justify-center px-[16px] py-[12px] rounded-[10px] hover:bg-black/5 transition-colors disabled:opacity-50"
           >
-            <span className="text-[13px] font-medium text-[#464646] tracking-[0.13px] leading-[19.5px]">
+            <span className="text-sm font-medium text-text-body">
               I'll do it later
             </span>
           </button>

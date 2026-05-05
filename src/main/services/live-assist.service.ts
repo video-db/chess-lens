@@ -34,23 +34,21 @@ const VISUAL_DUPLICATE_WINDOW_MS = 900;
  */
 const PROCESS_TRANSCRIPT_TIMEOUT_MS = 10000;
 
-const CHESS_SYSTEM_PROMPT = `You are a strong chess coach giving real-time guidance during a live game.
-Respond with ONLY a raw JSON object - no markdown, no code fences, no explanation before or after.
+const CHESS_SYSTEM_PROMPT = `You are a chess coach giving real-time guidance during a live game.
+Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation before or after.
 Format: {"say_this":"<2-3 sentences>","ask_this":"<one short calculation drill>"}
-Rules for say_this:
-- The context will specify the player's color and whose turn it is. Follow the instructions in the context exactly.
+Output rules (apply regardless of personality):
+- The context specifies the player's color and whose turn it is. Follow those instructions exactly.
 - When it is the PLAYER's turn: explain the engine's best move for the player with concrete board-specific reasons.
 - When it is the OPPONENT's turn: explain what the opponent's best move threatens or achieves, so the player knows what to defend against.
-- Use the required move exactly if one is provided.
-- Mention at least one concrete chess detail such as a piece, square, file, diagonal, pawn break, threat, capture, king-safety issue, or development gain.
-- If you mention center control or development, tie it to the exact piece(s) or line(s) opened.
-- Do NOT invent a different move. Do NOT give broad advice unless anchored to this position.
-- Write complete sentences — never cut a sentence short or add "..." mid-explanation.
-- Do NOT use "..." chess move notation (e.g. "...e5"). Instead write "Black plays e5" or "Black's e5".
-- Keep it under 150 words.
-Rules for ask_this:
-- Ask one concrete follow-up question about the next 1-2 moves, threat, recapture, or plan.
-- Keep it under 20 words.`;
+- Use the required move exactly as given. Do NOT invent a different move.
+- The context may include a "Moving piece:" line that tells you which piece is on the from-square. Use it exactly — do NOT contradict it.
+- Only mention a piece being on a specific square if that square is confirmed by the FEN or the "Moving piece:" line. Never hallucinate piece locations.
+- Mention at least one concrete chess detail: piece, square, file, diagonal, pawn break, threat, capture, king-safety issue, or development gain.
+- Write complete sentences — never cut a sentence short.
+- Do NOT use "..." chess move notation (e.g. "...e5"). Write "Black plays e5" or "Black's e5" instead.
+- Keep say_this under 150 words.
+- ask_this: one short follow-up calculation question about the next 1-2 moves, under 20 words.`;
 
 export interface MeetingContext {
   name?: string;
@@ -877,6 +875,53 @@ class LiveAssistService extends EventEmitter {
     return this.sanitizeInsightText(summary).split('\n')[0].slice(0, 200);
   }
 
+  /**
+   * Given a FEN board string and a LAN move (e.g. "g1f3"), returns a human-readable
+   * description of the moving piece and its from-square, e.g. "Knight on g1".
+   * This is injected into the coaching prompt so the LLM cannot hallucinate piece positions.
+   */
+  private describeMovingPiece(fenBoard: string, lanMove: string): string | null {
+    if (!fenBoard || !lanMove || lanMove.length < 4) return null;
+
+    const fromFile = lanMove[0]; // 'a'–'h'
+    const fromRank = lanMove[1]; // '1'–'8'
+    if (!fromFile || !fromRank) return null;
+
+    const fileIdx = fromFile.charCodeAt(0) - 'a'.charCodeAt(0); // 0–7
+    const rankIdx = 8 - parseInt(fromRank, 10);                  // 0 = rank 8, 7 = rank 1
+
+    if (fileIdx < 0 || fileIdx > 7 || rankIdx < 0 || rankIdx > 7) return null;
+
+    const ranks = fenBoard.split('/');
+    const rankStr = ranks[rankIdx];
+    if (!rankStr) return null;
+
+    // Expand the rank string into an array of 8 piece chars ('' = empty)
+    const cells: string[] = [];
+    for (const ch of rankStr) {
+      if (/\d/.test(ch)) {
+        for (let i = 0; i < parseInt(ch, 10); i++) cells.push('');
+      } else {
+        cells.push(ch);
+      }
+    }
+
+    const piece = cells[fileIdx];
+    if (!piece) return null;
+
+    const pieceNames: Record<string, string> = {
+      P: 'White Pawn', N: 'White Knight', B: 'White Bishop',
+      R: 'White Rook',  Q: 'White Queen',  K: 'White King',
+      p: 'Black Pawn',  n: 'Black Knight', b: 'Black Bishop',
+      r: 'Black Rook',  q: 'Black Queen',  k: 'Black King',
+    };
+
+    const pieceName = pieceNames[piece];
+    if (!pieceName) return null;
+
+    return `${pieceName} on ${fromFile}${fromRank}`;
+  }
+
   private stripNonActionableVisualText(text: string): string {
     const parts = text
       .split(/\|\|\||\n+/)
@@ -997,6 +1042,67 @@ class LiveAssistService extends EventEmitter {
   }
 
   /**
+   * Answer a player's question about a coaching tip or the current position.
+   *
+   * @param question   The player's free-text question.
+   * @param tipContext Optional: the specific tip/analysis text the player is asking about.
+   * @returns The assistant's reply as a plain string.
+   */
+  async chat(question: string, tipContext?: string): Promise<string> {
+    const llm = getLLMService();
+
+    // Build full FEN so the coach knows side-to-move, castling, etc.
+    // applyNextTurnToFen returns { fen, board, turn } — extract the string.
+    const fullFen = this.lastChessBoard
+      ? this.applyNextTurnToFen(this.lastChessBoard).fen
+      : null;
+
+    const fenLine = fullFen
+      ? `Current position (FEN): ${fullFen}`
+      : '';
+    const perspLine = `Player is: ${this.lastChessPerspective === 'black' ? 'Black' : 'White'}`;
+    const gameGoals = this.meetingContext?.description?.trim()
+      ? `Player's game goals: ${this.meetingContext.description.trim()}`
+      : '';
+
+    // Include the most recent coaching tip shown to the player so the coach
+    // has context about what was just discussed (e.g. "these moves").
+    const recentTips = Array.from(this.previousSayThis).slice(-3);
+    const recentTipsLine = recentTips.length > 0
+      ? `Recent coaching tips shown to player:\n${recentTips.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+      : '';
+
+    const tipLine = tipContext?.trim()
+      ? `The player is asking about this specific tip/analysis:\n"${tipContext.trim()}"`
+      : '';
+
+    const contextBlock = [fenLine, perspLine, gameGoals, recentTipsLine, tipLine]
+      .filter(Boolean)
+      .join('\n');
+
+    const personality = getChessPersonality(this.activeCoachPersonalityId);
+    const formatRule = 'Be concise, concrete, and chess-specific. Reference the actual position and recent moves when relevant. Keep answers under 120 words. Respond in plain text (not JSON).';
+    const systemPrompt = personality.id !== 'default'
+      ? `${personality.promptStyle}\n\n${formatRule}`
+      : `You are a strong chess coach answering a player's question during a live game. ${formatRule}`;
+
+    const userPrompt = contextBlock
+      ? `${contextBlock}\n\nPlayer's question: ${question}`
+      : `Player's question: ${question}`;
+
+    log.info({ questionLength: question.length, hasTipContext: !!tipContext, hasFen: !!fullFen, recentTipCount: recentTips.length }, '[LiveAssist] Chat question received');
+
+    const response = await llm.complete(userPrompt, systemPrompt, 30000, GPT_54_MODEL);
+
+    if (!response.success || !response.content) {
+      log.warn({ error: response.error }, '[LiveAssist] Chat LLM failed');
+      throw new Error(response.error || 'Failed to get a response');
+    }
+
+    return response.content.trim();
+  }
+
+  /**
    * Add a raw screenshot frame to be processed for FEN extraction.
    *
    * When a LiteLLM key is configured this sends the image directly to gpt-5.4
@@ -1096,9 +1202,17 @@ class LiveAssistService extends EventEmitter {
     }
 
     // Prefer the turn reported directly by the indexing LLM from UI indicators
-    // (highlighted move, clocks, active-player styling). Fall back to the old
-    // perspective heuristic only when the model could not determine it.
-    const inferredTurn: 'w' | 'b' = reportedTurn ?? (perspective === 'black' ? 'b' : 'w');
+    // (highlighted move, clocks, active-player styling). When the highlight was
+    // missed (both vote frames captured after the highlight faded), fall back to
+    // the board-diff heuristic which compares piece counts between the previous
+    // confirmed board and the new one. Only use the perspective seed as a last
+    // resort when there is genuinely no board history to diff against.
+    const inferredTurn: 'w' | 'b' =
+      reportedTurn ??
+      (this.lastChessBoard && this.lastChessBoard !== fenBoard
+        ? this.inferTurnFromBoards(this.lastChessBoard, fenBoard, this.lastChessTurn)
+        : null) ??
+      (perspective === 'black' ? 'b' : 'w');
 
     // Update castling rights from this confirmed board before updating other state.
     // This ensures getCastlingRightsString() is accurate when we build the FEN below.
@@ -1326,8 +1440,12 @@ class LiveAssistService extends EventEmitter {
     // the FEN is injected). No additional stabilization wait is needed here —
     // on a new signature, proceed straight to the engine + coaching pipeline.
     if (this.activeGameId === 'chess' && chessSignature) {
-      this.pendingChessSignature = chessSignature;
-      this.pendingChessSignatureCount = Math.max(this.pendingChessSignatureCount, 1);
+      if (chessSignature === this.pendingChessSignature) {
+        this.pendingChessSignatureCount++;
+      } else {
+        this.pendingChessSignature = chessSignature;
+        this.pendingChessSignatureCount = 1;
+      }
     }
 
     if (this.activeGameId === 'chess' && chessSignature === this.lastChessSignature) {
@@ -1345,10 +1463,26 @@ class LiveAssistService extends EventEmitter {
     // Raw websocket visual-index frames can arrive earlier with the same board,
     // but they do not carry a cycleId, so using them would generate valid tips
     // that cannot be attributed to the real measured pipeline.
-    if (this.activeGameId === 'chess' && trackedCycleId === undefined) {
+    //
+    // Fallback: if the screenshot vote has been inconclusive for 3+ consecutive
+    // websocket frames with the same FEN, allow tip generation anyway so the
+    // player is never left without coaching when the screenshot path is flaky.
+    const WEBSOCKET_FALLBACK_THRESHOLD = 3;
+    const websocketFallbackAllowed =
+      this.activeGameId === 'chess' &&
+      trackedCycleId === undefined &&
+      this.pendingChessSignatureCount >= WEBSOCKET_FALLBACK_THRESHOLD;
+
+    if (this.activeGameId === 'chess' && trackedCycleId === undefined && !websocketFallbackAllowed) {
       this.lastProcessedTimestamp = now;
-      log.debug({ chessSignature }, '[LiveAssist] Waiting for screenshot-confirmed chess cycle before generating tip');
+      log.debug({ chessSignature, pendingCount: this.pendingChessSignatureCount }, '[LiveAssist] Waiting for screenshot-confirmed chess cycle before generating tip');
       return;
+    }
+
+    if (websocketFallbackAllowed) {
+      log.info({ chessSignature, pendingCount: this.pendingChessSignatureCount }, '[LiveAssist] Using websocket-only FEN fallback — screenshot vote inconclusive');
+      // Reset so we don't continuously re-trigger on each subsequent websocket frame
+      this.pendingChessSignatureCount = 0;
     }
 
     log.debug(
@@ -1430,7 +1564,18 @@ class LiveAssistService extends EventEmitter {
         const gameContextSection = this.meetingContext?.description?.trim()
           ? `## PLAYER'S GAME GOALS\n${this.meetingContext.description.trim()}\n\n`
           : '';
-        const threatPrompt = `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nYou are coaching ${playerColorLabel}. It is currently ${opponentColorLabel}'s turn.\n${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n## OPPONENT'S BEST MOVE: ${bestOppMoveSan}\nThe engine says ${opponentColorLabel}'s best move is ${bestOppMoveSan}.\nExplain to ${playerColorLabel} what this move threatens or achieves, and what ${playerColorLabel} must prepare or watch out for.\nFor say_this: describe the concrete threat or idea behind ${bestOppMoveSan} — what it attacks, pins, opens, or prepares — so ${playerColorLabel} knows what to defend against.\nFor ask_this: ask what ${playerColorLabel}'s best defensive or counter response would be.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
+        // Decode the LAN move to anchor which piece the opponent is moving
+        const bestOppMoveLan = (() => {
+          const m = (chessContext.engineSummary || '').match(/Best move LAN:\s*(\S+)/i);
+          return m?.[1] ?? null;
+        })();
+        const oppPieceDesc = (chessContext.board && bestOppMoveLan)
+          ? this.describeMovingPiece(chessContext.board, bestOppMoveLan)
+          : null;
+        const oppPieceAnchor = oppPieceDesc
+          ? `Moving piece: ${oppPieceDesc} (confirmed from FEN — do NOT contradict this).`
+          : '';
+        const threatPrompt = `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nYou are coaching ${playerColorLabel}. It is currently ${opponentColorLabel}'s turn.\n${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n## OPPONENT'S BEST MOVE: ${bestOppMoveSan}\n${oppPieceAnchor}\nThe engine says ${opponentColorLabel}'s best move is ${bestOppMoveSan}.\nExplain to ${playerColorLabel} what this move threatens or achieves, and what ${playerColorLabel} must prepare or watch out for.\nOnly mention piece positions that are confirmed by the FEN. Do not invent piece locations.\nFor say_this: describe the concrete threat or idea behind ${bestOppMoveSan} — what it attacks, pins, opens, or prepares — so ${playerColorLabel} knows what to defend against.\nFor ask_this: ask what ${playerColorLabel}'s best defensive or counter response would be.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
 
         this.coachingInFlight = true;
         void this.runCoachingLLM(chessContext, chessSignature, threatPrompt, bestOppMoveSan, trackedCycleId);
@@ -1463,20 +1608,34 @@ class LiveAssistService extends EventEmitter {
       log.debug({ chessSignature }, '[LiveAssist] Emitted immediate engine-only tip while coaching LLM runs');
     }
 
-    // Extract the engine's best move SAN so we can hard-anchor the coaching prompt.
-    // Parse it directly from the summary to guarantee the model explains THIS move.
+    // Extract the engine's best move SAN and LAN so we can hard-anchor the coaching prompt.
+    // Parse both from the summary to guarantee the model explains THIS move.
     const bestMoveSan = (() => {
       const summary = chessContext?.engineSummary || '';
       const m = summary.match(/Best move SAN:\s*(\S+)/i);
       return m?.[1] ?? null;
     })();
+    const bestMoveLan = (() => {
+      const summary = chessContext?.engineSummary || '';
+      const m = summary.match(/Best move LAN:\s*(\S+)/i);
+      return m?.[1] ?? null;
+    })();
+
+    // Decode which piece is on the from-square so the LLM cannot hallucinate it.
+    const movingPieceDesc = (chessContext?.board && bestMoveLan)
+      ? this.describeMovingPiece(chessContext.board, bestMoveLan)
+      : null;
+
+    const pieceAnchor = movingPieceDesc
+      ? `Moving piece: ${movingPieceDesc} (confirmed from FEN — do NOT contradict this).`
+      : '';
 
     // Full coaching prompt — flat single string for generateText (no role separation).
     // gamePrompt is intentionally excluded: it told the LLM to "use the chess engine API"
     // (self-analysis), which caused it to invent moves instead of explaining the engine's move.
     // The best move SAN is embedded directly so the model cannot substitute its own.
     const bestMoveInstruction = bestMoveSan
-      ? `## REQUIRED MOVE: ${bestMoveSan}\nYou MUST use "${bestMoveSan}" as the move in say_this. Do not suggest any other move.`
+      ? `## REQUIRED MOVE: ${bestMoveSan}\nYou MUST use "${bestMoveSan}" as the move in say_this. Do not suggest any other move.\n${pieceAnchor}`
       : '## TASK\nUse the best move from the engine summary above.';
 
     const userPrompt = `${gameContextSection}${chessSection}${bestMoveInstruction}
@@ -1485,6 +1644,7 @@ For say_this, include:
 1. what changes immediately on the board,
 2. the concrete tactical or positional point,
 3. the piece, square, file, diagonal, pawn break, or threat that matters.
+Only mention piece positions that are confirmed by the FEN. Do not invent piece locations.
 Avoid generic advice.
 For ask_this, write one short calculation question about the next move or likely response.
 Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
@@ -1549,14 +1709,12 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
     };
 
     try {
-      // The userPrompt is already a complete, self-contained prompt.
-      // Build the system prompt from CHESS_SYSTEM_PROMPT + the selected coach personality style.
+      // Build the system prompt: personality character sheet (identity) first,
+      // then the output format rules. For the default coach the format rules alone suffice.
       const personality = getChessPersonality(this.activeCoachPersonalityId);
-      const personalityLine =
-        personality.id !== 'default'
-          ? `\nCoaching personality: ${personality.promptStyle}`
-          : '';
-      const activeSystemPrompt = CHESS_SYSTEM_PROMPT + personalityLine;
+      const activeSystemPrompt = personality.id !== 'default'
+        ? `${personality.promptStyle}\n\n${CHESS_SYSTEM_PROMPT}`
+        : CHESS_SYSTEM_PROMPT;
       const fullPrompt = [activeSystemPrompt, userPrompt].join('\n\n');
 
       log.info(

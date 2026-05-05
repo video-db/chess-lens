@@ -16,10 +16,10 @@ import { useGameSetupStore } from '../../stores/meeting-setup.store';
 function ClockIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="8" cy="8" r="6" stroke="#464646" strokeWidth="1.25" />
+      <circle cx="8" cy="8" r="6" stroke="var(--color-text-body)" strokeWidth="1.25" />
       <path
         d="M8 4.5v4l2.5 1.5"
-        stroke="#464646"
+        stroke="var(--color-text-body)"
         strokeWidth="1.25"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -79,10 +79,10 @@ export function RecordingHeader() {
     <div className="flex items-center gap-[12px] p-[20px]">
       {/* Title section */}
       <div className="flex-1 flex flex-col gap-[10px]">
-        <h1 className="font-semibold text-[24px] text-black tracking-[0.12px]">{gameName}</h1>
+        <h1 className="font-semibold text-2xl text-black">{gameName}</h1>
         <div className="flex items-center gap-[4px]">
           <ClockIcon />
-          <span className="text-[14px] text-[#464646] tracking-[0.07px]">Started at: {formatStartTime(startTime)}</span>
+          <span className="text-base text-text-body">Started at: {formatStartTime(startTime)}</span>
         </div>
       </div>
 
@@ -94,14 +94,14 @@ export function RecordingHeader() {
           <div
             className={`w-[8px] h-[8px] rounded-[4px] ${
               isPaused
-                ? 'bg-[#eab308]'
+                ? 'bg-chess-draw'
                 : isRecording
-                  ? 'bg-[#d1242f] animate-pulse'
-                  : 'bg-[#969696]'
+                  ? 'bg-[var(--color-recording-dot)] animate-pulse'
+                  : 'bg-text-muted-brand'
             }`}
           />
           {/* Time display */}
-          <span className="font-mono font-medium text-[24px] text-black tracking-[0.12px]">
+          <span className="font-mono font-medium text-2xl text-black">
             {formatTime(elapsedTime)}
           </span>
         </div>
@@ -110,12 +110,12 @@ export function RecordingHeader() {
         {isRecording && !isStopping && (
           <button
             onClick={isPaused ? resumeRecording : pauseRecording}
-            className={`flex items-center gap-[6px] bg-white border rounded-[12px] pl-[16px] pr-[20px] py-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-[#f7f7f7] transition-colors ${
-              isPaused ? 'border-[#ec5b16]' : 'border-[#efefef]'
+            className={`flex items-center gap-[6px] bg-white border rounded-[12px] pl-[16px] pr-[20px] py-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-surface-muted transition-colors ${
+              isPaused ? 'border-brand' : 'border-border-default'
             }`}
           >
             {isPaused ? <PlayIcon /> : <PauseIcon />}
-            <span className={`font-semibold text-[14px] tracking-[-0.28px] ${isPaused ? 'text-[#ec5b16]' : 'text-black'}`}>
+            <span className={`font-semibold text-base tracking-[-0.28px] ${isPaused ? 'text-brand' : 'text-black'}`}>
               {isPaused ? 'Resume Recording' : 'Pause Recording'}
             </span>
           </button>
@@ -125,10 +125,10 @@ export function RecordingHeader() {
         {isRecording && !isStopping && (
           <button
             onClick={stopRecording}
-            className="flex items-center gap-[4px] bg-[#ef4444] rounded-[12px] px-[20px] py-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-[#dc2626] transition-colors"
+            className="flex items-center gap-[4px] bg-status-error-alt rounded-[12px] px-[20px] py-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-status-error transition-colors"
           >
             <StopIcon />
-            <span className="font-semibold text-[14px] text-white tracking-[-0.28px]">Stop</span>
+            <span className="font-semibold text-base text-white tracking-[-0.28px]">Stop</span>
           </button>
         )}
 
@@ -136,10 +136,10 @@ export function RecordingHeader() {
         {isStopping && (
           <button
             disabled
-            className="flex items-center gap-[4px] bg-[#f7f7f7] border border-[#efefef] rounded-[12px] px-[20px] py-[12px] cursor-not-allowed"
+            className="flex items-center gap-[4px] bg-surface-muted border border-border-default rounded-[12px] px-[20px] py-[12px] cursor-not-allowed"
           >
-            <Loader2 className="w-[20px] h-[20px] animate-spin text-[#969696]" />
-            <span className="font-semibold text-[14px] text-[#969696] tracking-[-0.28px]">
+            <Loader2 className="w-[20px] h-[20px] animate-spin text-text-muted-brand" />
+            <span className="font-semibold text-base text-text-muted-brand tracking-[-0.28px]">
               Stopping...
             </span>
           </button>
@@ -149,10 +149,10 @@ export function RecordingHeader() {
         {status === 'starting' && (
           <button
             disabled
-            className="flex items-center gap-[4px] bg-[#f7f7f7] border border-[#efefef] rounded-[12px] px-[20px] py-[12px] cursor-not-allowed"
+            className="flex items-center gap-[4px] bg-surface-muted border border-border-default rounded-[12px] px-[20px] py-[12px] cursor-not-allowed"
           >
-            <Loader2 className="w-[20px] h-[20px] animate-spin text-[#969696]" />
-            <span className="font-semibold text-[14px] text-[#969696] tracking-[-0.28px]">
+            <Loader2 className="w-[20px] h-[20px] animate-spin text-text-muted-brand" />
+            <span className="font-semibold text-base text-text-muted-brand tracking-[-0.28px]">
               Starting...
             </span>
           </button>

@@ -68,7 +68,9 @@ export function removeIpcHandlers(): void {
   ipcMain.removeHandler('live-assist:start');
   ipcMain.removeHandler('live-assist:stop');
   ipcMain.removeHandler('live-assist:add-transcript');
+  ipcMain.removeHandler('live-assist:add-visual-index');
   ipcMain.removeHandler('live-assist:clear');
+  ipcMain.removeHandler('live-assist:chat');
   cleanupLiveAssist();
 
   // Workflow handlers
