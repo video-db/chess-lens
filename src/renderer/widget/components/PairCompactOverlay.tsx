@@ -5,7 +5,6 @@ import type {
   WidgetSessionState as SessionState,
   WidgetNudge as Nudge,
 } from '../../../types/widget';
-import { ChessLensIconBlack } from '../../components/ui/ChessLensIcon';
 import { ChessLensWordmark } from '../../components/ui/ChessLensWordmark';
 
 // ---------------------------------------------------------------------------
@@ -148,11 +147,11 @@ function SendIcon() {
 }
 
 // ---------------------------------------------------------------------------
-// Overlay header — exact Figma spec
-// Left: logo mark (20.18×20.18) + wordmark (89.78×24) with gap 3.36px
-// Right: collapse_content icon (20.18×20.18, #1E1E1E)
+// Overlay header — exact Figma SVG spec
+// Left: 6-dot drag-grid + wordmark (left-aligned, draggable)
+// Right: collapse arrow icon — collapses overlay to footer-only
 // ---------------------------------------------------------------------------
-function OverlayHeader() {
+function OverlayHeader({ onCollapse }: { onCollapse: () => void }) {
   return (
     <div style={{
       background: '#F7F7F7',
@@ -161,23 +160,47 @@ function OverlayHeader() {
       display: 'flex',
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10.09,
+      justifyContent: 'space-between',
       boxSizing: 'border-box',
       WebkitAppRegion: 'drag',
     } as React.CSSProperties}>
-      {/* Frame 2147223109 — logo mark + wordmark, flex-grow:1 */}
-      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 3.36, flex: 1, height: 24, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        {/* Logo mark — Chess Lens icon, 20×20 */}
-        <ChessLensIconBlack size={20} />
-        {/* Wordmark */}
-        <ChessLensWordmark size={13} variant="default" />
-      </div>
-      {/* Collapse icon — no-drag so it doesn't block click if needed */}
-      <div style={{ display: 'flex', alignItems: 'center', width: 20.18, height: 20.18, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M5.5 9L9 5.5M9 5.5H6M9 5.5V8.5M14.5 9L11 5.5M11 5.5H14M11 5.5V8.5M5.5 15L9 18.5M9 18.5H6M9 18.5V15.5M14.5 15L11 18.5M11 18.5H14M11 18.5V15.5" stroke="#1E1E1E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+
+      {/* Left: drag-grid icon + wordmark — left-aligned, whole left side is drag handle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+        {/* 6-dot drag grid — 2 columns × 3 rows */}
+        <svg width="12" height="20" viewBox="0 0 12 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+          <circle cx="3" cy="3"   r="1.5" fill="#242424"/>
+          <circle cx="9" cy="3"   r="1.5" fill="#242424"/>
+          <circle cx="3" cy="10"  r="1.5" fill="#242424"/>
+          <circle cx="9" cy="10"  r="1.5" fill="#242424"/>
+          <circle cx="3" cy="17"  r="1.5" fill="#242424"/>
+          <circle cx="9" cy="17"  r="1.5" fill="#242424"/>
         </svg>
+        {/* Wordmark — left-aligned */}
+        <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <ChessLensWordmark size={13} variant="default" />
+        </div>
       </div>
+
+      {/* Right: collapse button — collapses to footer bar */}
+      <button
+        onClick={onCollapse}
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+          WebkitAppRegion: 'no-drag',
+        } as React.CSSProperties}
+        title="Collapse"
+      >
+        <svg width="12" height="12" viewBox="370 12 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M375.807 22.1022H373.074C372.895 22.1022 372.746 22.0417 372.625 21.9208C372.504 21.7998 372.443 21.65 372.443 21.4713C372.443 21.2925 372.504 21.1427 372.625 21.0221C372.746 20.9013 372.895 20.8409 373.074 20.8409H376.308C376.524 20.8409 376.704 20.9137 376.85 21.0593C376.996 21.205 377.068 21.3855 377.068 21.6008V24.8351C377.068 25.0138 377.008 25.1635 376.887 25.2843C376.766 25.4053 376.616 25.4658 376.438 25.4658C376.259 25.4658 376.109 25.4053 375.988 25.2843C375.867 25.1635 375.807 25.0138 375.807 24.8351V22.1022ZM380.011 17.8977H382.744C382.923 17.8977 383.073 17.9582 383.194 18.0792C383.315 18.2001 383.375 18.3499 383.375 18.5286C383.375 18.7075 383.315 18.8572 383.194 18.9779C383.073 19.0987 382.923 19.1591 382.744 19.1591H379.51C379.295 19.1591 379.114 19.0863 378.969 18.9407C378.823 18.7949 378.75 18.6144 378.75 18.3991V15.1648C378.75 14.9862 378.811 14.8364 378.932 14.7156C379.053 14.5947 379.202 14.5342 379.381 14.5342C379.56 14.5342 379.71 14.5947 379.83 14.7156C379.951 14.8364 380.011 14.9862 380.011 15.1648V17.8977Z" fill="#1E1E1E"/>
+        </svg>
+      </button>
     </div>
   );
 }
@@ -201,6 +224,7 @@ export function PairCompactOverlay({
 }: PairCompactOverlayProps) {
   const [now, setNow] = useState(Date.now());
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   // ── Chat state ──
   const {
@@ -465,7 +489,7 @@ export function PairCompactOverlay({
         }}>
 
           {/* Header */}
-          <OverlayHeader />
+          <OverlayHeader onCollapse={() => setIsCollapsed(true)} />
 
           {/* ── Body ── */}
           <div style={{
@@ -620,6 +644,79 @@ export function PairCompactOverlay({
     );
   }
 
+  // ── COLLAPSED state ──
+  // Just the footer bar — logo mark + timer + Chat + Stop + expand icon
+  if (isCollapsed) {
+    return (
+      <div style={{ width: '100%', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
+        <div style={{
+          background: '#F7F7F7',
+          borderRadius: 16,
+          height: 50.82,
+          padding: 8,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6.73,
+          boxSizing: 'border-box',
+          boxShadow: '0px 4px 24px rgba(0,0,0,0.08)',
+          WebkitAppRegion: 'drag',
+        } as React.CSSProperties}>
+
+          {/* Wordmark + timer */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6.73, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            {/* Wordmark — matches Figma collapsed bar icon (26×29 wordmark image) */}
+            <ChessLensWordmark size={13} variant="default" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6.73 }}>
+              <div style={{ width: 8.41, height: 8.41, borderRadius: '50%', background: '#FB4425', animation: 'pulse 1s infinite', flexShrink: 0 }} />
+              <span style={{ fontSize: 15.136, fontWeight: 500, color: '#FB4425', letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif' }}>
+                {elapsed}
+              </span>
+            </div>
+          </div>
+
+          {/* CTAs + expand — right side */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6.73, flex: 1, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            {/* Chat button */}
+            <button
+              onClick={() => { setIsCollapsed(false); openChat(); toggleChat(); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 3.36, padding: 8, height: 34.82, background: '#FFFFFF', border: '1px solid #EFEFEF', borderRadius: 10.09, boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#1E1E1E', letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif' }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6A1.5 1.5 0 0 1 12.5 11H9l-3 3v-3H3.5A1.5 1.5 0 0 1 2 9.5v-6Z" stroke="#1E1E1E" strokeWidth="1.2" strokeLinejoin="round"/>
+              </svg>
+              Chat
+            </button>
+            {/* Stop button */}
+            <button
+              onClick={onStop}
+              disabled={stopDisabled}
+              style={{ display: 'flex', alignItems: 'center', gap: 3.36, padding: 8, height: 34.82, background: '#1C1C1C', border: 'none', borderRadius: 10.09, boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)', cursor: stopDisabled ? 'not-allowed' : 'pointer', opacity: stopDisabled ? 0.5 : 1, fontSize: 13, fontWeight: 600, color: '#FFFFFF', letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif' }}
+            >
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2.5" y="2.5" width="10" height="10" rx="1.5" fill="white"/></svg>
+              Stop
+            </button>
+            {/* Expand icon — expand_content_24dp, Vector at 22.92% inset in 20×20 = #1F1F1F */}
+            <button
+              onClick={() => setIsCollapsed(false)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              title="Expand"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                {/* 22.92% of 20 = 4.58px inset each side → path occupies 4.58→15.42 */}
+                <path d="M4.58 7.5V4.58H7.5M4.58 12.5V15.42H7.5M15.42 7.5V4.58H12.5M15.42 12.5V15.42H12.5" stroke="#1F1F1F" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <style>{`
+          @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <div style={{ width: '100%', height: 'auto', display: 'flex', flexDirection: 'column', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
 
@@ -632,7 +729,7 @@ export function PairCompactOverlay({
       }}>
 
         {/* Header */}
-        <OverlayHeader />
+        <OverlayHeader onCollapse={() => setIsCollapsed(true)} />
 
         {/* Body */}
         <div style={{
@@ -761,57 +858,7 @@ export function PairCompactOverlay({
             )}
           </div>
 
-          {/* Chat section */}
-          {isChess && (
-            <>
-              <div style={{ height: 1, background: 'rgba(0,0,0,0.05)' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)', cursor: 'pointer', fontFamily: 'Inter, sans-serif', margin: 0 }} onClick={() => { if (!chatLoading) toggleChat(); }}>
-                  CHAT WITH COACH {chatMessages.length > 0 && `(${chatMessages.length})`}
-                  <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--color-text-muted)' }}>{chatOpen ? '?' : '?'}</span>
-                </p>
-                {(chatMessages.length > 0 || chatLoading || chatError) && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
-                    {chatMessages.map((msg) => (
-                      <React.Fragment key={msg.id}>
-                        {msg.role === 'user' && msg.tipCtx && (
-                          <p style={{ fontSize: 10, color: 'var(--color-text-muted)', textAlign: 'right', fontStyle: 'italic', margin: 0, fontFamily: 'Inter, sans-serif' }}>
-                            Re: &ldquo;{msg.tipCtx.slice(0, 55)}{msg.tipCtx.length > 55 ? '...' : ''}&rdquo;
-                          </p>
-                        )}
-                        {msg.role === 'user' ? (
-                          <div style={{ alignSelf: 'flex-end', background: 'var(--color-chat-user-bg)', border: '1px solid var(--color-chat-user-border)', borderRadius: '12px 12px 2px 12px', padding: 12, fontSize: 13, lineHeight: 1.55, color: 'var(--color-text-body)', maxWidth: '90%', fontFamily: 'Inter, sans-serif' }}>{msg.text}</div>
-                        ) : (
-                          <div style={{ alignSelf: 'flex-start', background: 'var(--color-chat-coach-bg)', border: '1px solid var(--color-chat-coach-border)', borderRadius: '12px 12px 12px 2px', padding: 12, fontSize: 13, lineHeight: 1.55, color: 'var(--color-text-body)', maxWidth: '90%', fontFamily: 'Inter, sans-serif' }}>{msg.text}</div>
-                        )}
-                      </React.Fragment>
-                    ))}
-                    {chatLoading && <p style={{ alignSelf: 'flex-start', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic', margin: 0, fontFamily: 'Inter, sans-serif' }}>Thinking...</p>}
-                    {chatError && <p style={{ fontSize: 11, color: 'var(--color-status-danger)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{chatError}</p>}
-                    <div ref={chatEndRef} />
-                  </div>
-                )}
-                {chatOpen && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {chatMessages.length === 0 && !chatLoading && (
-                      <p style={{ fontSize: 11, color: 'var(--color-text-muted)', textAlign: 'center', margin: 0, fontFamily: 'Inter, sans-serif' }}>Ask anything about the position or a tip.</p>
-                    )}
-                    {chatPrefillCtx && (
-                      <p style={{ fontSize: 10, color: 'var(--color-chess-insight)', fontStyle: 'italic', margin: 0, fontFamily: 'Inter, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        Context: &ldquo;{chatPrefillCtx.slice(0, 60)}{chatPrefillCtx.length > 60 ? '...' : ''}&rdquo;
-                      </p>
-                    )}
-                    <form onSubmit={handleChatSubmit} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <input ref={chatInputRef} type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder={chatPrefillCtx ? 'Ask about this tip...' : 'Ask your coach...'} disabled={chatLoading} style={{ flex: 1, background: 'var(--color-widget-header-bg)', border: '1px solid rgba(13,13,13,0.1)', borderRadius: 9999, color: 'var(--color-text-label)', fontSize: 13, fontWeight: 500, padding: '2px 6px 2px 12px', height: 44, outline: 'none', fontFamily: 'Inter, sans-serif' }} />
-                      <button type="submit" disabled={!chatInput.trim() || chatLoading} style={{ background: chatInput.trim() ? '#000000' : 'var(--color-text-muted)', border: '1px solid var(--color-border-default)', borderRadius: 40, color: '#fff', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: chatInput.trim() ? 'pointer' : 'not-allowed', transition: 'background 0.15s', flexShrink: 0 }} title="Send">
-                        <SendIcon />
-                      </button>
-                    </form>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+
         </div>
 
         {/* Footer */}
