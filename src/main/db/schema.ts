@@ -43,6 +43,9 @@ export const recordings = sqliteTable('recordings', {
   postMeetingChecklistCompleted: text('post_meeting_checklist_completed'), // JSON: number[] (indices of completed items)
   // Game result
   result: text('result', { enum: ['win', 'loss', 'draw'] }),
+  // Per-player accuracy (0–100 float) computed via chess.com formula (avg centipawn loss).
+  accuracyWhite: real('accuracy_white'),
+  accuracyBlack: real('accuracy_black'),
 });
 
 // Meeting Co-Pilot Tables

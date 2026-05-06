@@ -307,6 +307,9 @@ function ensureRecordingColumns(): void {
   // coaching_tips: JSON array of { sayThis: string; askThis: string } objects captured during the session.
   // Used by the summary generator for chess sessions that have no mic transcript.
   addColumnIfMissing('coaching_tips', "ALTER TABLE recordings ADD COLUMN coaching_tips TEXT");
+  // Per-player accuracy scores (0–100 float) computed via the chess.com formula at session end.
+  addColumnIfMissing('accuracy_white', "ALTER TABLE recordings ADD COLUMN accuracy_white REAL");
+  addColumnIfMissing('accuracy_black', "ALTER TABLE recordings ADD COLUMN accuracy_black REAL");
 }
 
 function ensureNudgesHistorySchema(): void {
@@ -489,6 +492,12 @@ export interface CoachingTip {
   sayThis: string;
   askThis: string;
   timestamp: number;
+  /** Win chance for White (0–100) from chess-api.com at the time this tip was generated. */
+  winChance?: number;
+  /** Centipawn loss for the move that triggered this tip (always ≥ 0). */
+  centipawnLoss?: number;
+  /** Which side made the move that triggered this tip ('w' = White, 'b' = Black). */
+  turn?: 'w' | 'b';
 }
 
 /**

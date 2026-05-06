@@ -98,6 +98,9 @@ export const RecordingSchema = z.object({
   postMeetingChecklistCompleted: z.array(z.number()).nullable().optional(),
   // Game result
   result: z.enum(['win', 'loss', 'draw']).nullable().optional(),
+  // Per-player accuracy (0–100) computed via chess.com formula at session end.
+  accuracyWhite: z.number().nullable().optional(),
+  accuracyBlack: z.number().nullable().optional(),
 });
 
 export const CreateRecordingInputSchema = z.object({

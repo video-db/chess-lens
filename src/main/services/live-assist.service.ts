@@ -76,6 +76,10 @@ interface ChessContextData {
   engineSan?: string;        // best move SAN directly from the engine response
   engineEval?: number;       // centipawn eval (as float, e.g. -11.62) from the engine response
   engineMate?: number | null; // mate-in-N (null if no forced mate)
+  /** Win chance for White (0–100) from chess-api.com. */
+  winChance?: number;
+  /** Centipawn loss of the move that was played (|evalBefore − evalAfter| × 100). */
+  centipawnLoss?: number;
   playedMoveSan?: string;
   playedMoveUci?: string;
   board?: string;
@@ -127,6 +131,10 @@ class LiveAssistService extends EventEmitter {
   private lastEngineSan: string | undefined = undefined;
   private lastEngineEval: number | undefined = undefined;
   private lastEngineMate: number | null | undefined = undefined;
+  /** Engine eval of the PREVIOUS position — used to compute centipawn loss per move. */
+  private lastPositionEval: number | undefined = undefined;
+  /** winChance from the PREVIOUS engine call — stored for next-move centipawn-loss calc. */
+  private lastPositionWinChance: number | undefined = undefined;
   private castlingRights: CastlingRightsState = {
     whiteKingside: false,
     whiteQueenside: false,
@@ -618,6 +626,8 @@ class LiveAssistService extends EventEmitter {
     this.lastEngineSan = undefined;
     this.lastEngineEval = undefined;
     this.lastEngineMate = undefined;
+    this.lastPositionEval = undefined;
+    this.lastPositionWinChance = undefined;
     this.pendingChessSignature = null;
     this.pendingChessSignatureCount = 0;
     this.castlingRights = {
@@ -839,12 +849,29 @@ class LiveAssistService extends EventEmitter {
     }
     if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'engineCall');
 
+    const currentEval = typeof result.eval === 'number' ? result.eval : undefined;
+    const currentWinChance = typeof result.winChance === 'number' ? result.winChance : undefined;
+
+    // Centipawn loss = |evalBefore − evalAfter| × 100.
+    // The eval from the engine is always from White's perspective (positive = White better).
+    // After the player makes a move the position eval changes; the loss is the magnitude of that change.
+    const centipawnLoss =
+      this.lastPositionEval !== undefined && currentEval !== undefined
+        ? Math.round(Math.abs(this.lastPositionEval - currentEval) * 100)
+        : undefined;
+
+    // Persist the current eval so the next call can compute centipawn loss for that move.
+    this.lastPositionEval = currentEval;
+    this.lastPositionWinChance = currentWinChance;
+
     return {
       fen: resolvedFen.fen,
       engineSummary: engine.summarize(result, topLines),
       engineSan: result.san,
-      engineEval: typeof result.eval === 'number' ? result.eval : undefined,
+      engineEval: currentEval,
       engineMate: result.mate ?? null,
+      winChance: currentWinChance,
+      centipawnLoss,
       playedMoveSan: latestMove.san,
       playedMoveUci: latestMove.uci,
       board: resolvedFen.board,
@@ -1950,6 +1977,9 @@ Rewrite it so say_this is more position-specific. Name the required move, explai
         insights: { say_this: finalSayThis, ask_this: finalAskThis },
         processedAt: Date.now(),
         clearExisting: true,
+        winChance: chessContext?.winChance,
+        centipawnLoss: chessContext?.centipawnLoss,
+        turn: chessContext?.turn ?? undefined,
       });
       endStep('coachingTip');
       endCycle('coachingTip');

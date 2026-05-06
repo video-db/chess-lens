@@ -243,6 +243,9 @@ function toApiRecording(dbRecording: ReturnType<typeof getRecordingById>) {
     postMeetingChecklistCompleted: postMeetingChecklistCompleted || null,
     // Game result
     result: ((dbRecording as any).result as 'win' | 'loss' | 'draw' | null) || null,
+    // Per-player accuracy
+    accuracyWhite: typeof (dbRecording as any).accuracyWhite === 'number' ? (dbRecording as any).accuracyWhite : null,
+    accuracyBlack: typeof (dbRecording as any).accuracyBlack === 'number' ? (dbRecording as any).accuracyBlack : null,
   };
 }
 
@@ -280,6 +283,7 @@ export const recordingsRouter = router({
       startTime: z.number(),
       endTime: z.number(),
       tip: z.string(),
+      winChance: z.number().optional(),
     })))
     .query(async ({ input }) => {
       // Primary source: coaching tips persisted from the live assist pipeline.
@@ -300,6 +304,7 @@ export const recordingsRouter = router({
               startTime,
               endTime: startTime + 5,
               tip: cleanedTip,
+              winChance: tip.winChance,
             };
           })
           .filter((item) => !!item.tip);
@@ -314,6 +319,7 @@ export const recordingsRouter = router({
           startTime: item.startTime,
           endTime: item.endTime,
           tip: toGameplayTip(item.text),
+          winChance: undefined,
         }))
         .filter((item) => !!item.tip);
     }),

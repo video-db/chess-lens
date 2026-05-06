@@ -141,9 +141,15 @@ export class MeetingCopilotService extends EventEmitter {
    * Called from the live-assist IPC handler on every 'insights' event
    * that carries a non-empty coaching tip (not the engine-only stage-1 tip).
    */
-  addCoachingTip(sayThis: string, askThis: string): void {
+  addCoachingTip(
+    sayThis: string,
+    askThis: string,
+    winChance?: number,
+    centipawnLoss?: number,
+    turn?: 'w' | 'b',
+  ): void {
     if (!this.callState?.isActive) return;
-    this.coachingTips.push({ sayThis, askThis, timestamp: Date.now() });
+    this.coachingTips.push({ sayThis, askThis, timestamp: Date.now(), winChance, centipawnLoss, turn });
     log.debug({ total: this.coachingTips.length }, 'Coaching tip accumulated');
   }
 
@@ -431,12 +437,37 @@ export class MeetingCopilotService extends EventEmitter {
     // Save to database
     try {
       log.info({ recordingId, hasOverview: summary.shortOverview.length > 0 }, 'Saving call data to database');
+
+      // ── Chess.com accuracy formula ────────────────────────────────────────
+      // Accuracy% = 103.1668 × exp(−0.04354 × avgCpLoss) − 3.1669
+      // Clamped to [0, 100]. Only computed when we have per-move centipawn data.
+      const calcAccuracy = (cpLosses: number[]): number | null => {
+        if (cpLosses.length === 0) return null;
+        const avg = cpLosses.reduce((sum, v) => sum + v, 0) / cpLosses.length;
+        const raw = 103.1668 * Math.exp(-0.04354 * avg) - 3.1669;
+        return Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
+      };
+
+      const whiteLosses = this.coachingTips
+        .filter((t) => t.turn === 'w' && t.centipawnLoss !== undefined)
+        .map((t) => t.centipawnLoss as number);
+      const blackLosses = this.coachingTips
+        .filter((t) => t.turn === 'b' && t.centipawnLoss !== undefined)
+        .map((t) => t.centipawnLoss as number);
+
+      const accuracyWhite = calcAccuracy(whiteLosses);
+      const accuracyBlack = calcAccuracy(blackLosses);
+
+      log.info({ recordingId, accuracyWhite, accuracyBlack, whiteMoves: whiteLosses.length, blackMoves: blackLosses.length }, 'Accuracy computed');
+
       updateRecording(recordingId, {
         shortOverview: summary.shortOverview,
         keyPoints: JSON.stringify(summary.keyPoints),
         postMeetingChecklist: JSON.stringify(summary.postMeetingChecklist),
         metricsSnapshot: JSON.stringify(metrics),
         duration: Math.round(duration),
+        ...(accuracyWhite !== null && { accuracyWhite }),
+        ...(accuracyBlack !== null && { accuracyBlack }),
       });
       log.info({ recordingId }, 'Call data saved to database');
     } catch (error) {
