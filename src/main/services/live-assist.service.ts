@@ -822,12 +822,15 @@ class LiveAssistService extends EventEmitter {
       '[LiveAssist] Sending chess engine request'
     );
     // Pass the turn-corrected FEN so the engine analyses the right side to move.
+    // Fetch 3 top lines in parallel (best move + 2 alternatives) so the engine
+    // card can display "Top lines: 1. e4 (eval 0.36) | 2. d4 (eval 0.34) | ...".
     if (cycleId !== undefined) pipelineLatency.startStep(cycleId, 'engineCall');
-    const result = await engine.analyzeByFen(resolvedFen.fen, {
-      variants: 5,
+    const topLines = await engine.getTopLines(resolvedFen.fen, 3, {
       depth: 12,
       maxThinkingTime: 50,
     });
+
+    const result = topLines[0] ?? null;
 
     if (!result) {
       if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'engineCall', 'no analysis');
@@ -838,7 +841,7 @@ class LiveAssistService extends EventEmitter {
 
     return {
       fen: resolvedFen.fen,
-      engineSummary: engine.summarize(result),
+      engineSummary: engine.summarize(result, topLines),
       engineSan: result.san,
       engineEval: typeof result.eval === 'number' ? result.eval : undefined,
       engineMate: result.mate ?? null,
@@ -1556,9 +1559,9 @@ class LiveAssistService extends EventEmitter {
       // Immediate engine-only fallback shown while LLM runs
       if (this.activeGameId === 'chess' && chessContext?.engineSummary) {
         if (trackedCycleId !== undefined) pipelineLatency.startStep(trackedCycleId, 'engineTip');
-        const evalLine = this.formatEngineAsTip(chessContext);
+        const rawSummary = chessContext.engineSummary.split('\n').filter(Boolean).join(' | ');
         this.emit('insights', {
-          insights: { say_this: [`engine: ${opponentColorLabel} to move — ${evalLine}`], ask_this: [] },
+          insights: { say_this: [`engine: ${rawSummary}`], ask_this: [] },
           processedAt: Date.now(),
           clearExisting: true,
         });
@@ -1630,9 +1633,9 @@ class LiveAssistService extends EventEmitter {
     // Emit an immediate engine-only tip so the user sees something instantly.
     if (this.activeGameId === 'chess' && chessContext?.engineSummary) {
       if (trackedCycleId !== undefined) pipelineLatency.startStep(trackedCycleId, 'engineTip');
-      const engineFallback = this.formatEngineAsTip(chessContext);
+      const rawSummary = chessContext.engineSummary.split('\n').filter(Boolean).join(' | ');
       this.emit('insights', {
-        insights: { say_this: [`engine: ${engineFallback}`], ask_this: [] },
+        insights: { say_this: [`engine: ${rawSummary}`], ask_this: [] },
         processedAt: Date.now(),
         clearExisting: true,
       });

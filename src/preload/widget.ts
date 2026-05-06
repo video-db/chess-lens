@@ -47,6 +47,9 @@ export interface WidgetApi {
   onNudge: (callback: (nudge: WidgetNudge | null) => void) => () => void;
   onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineEval?: number; engineMate?: number | null }) => void) => () => void;
 
+  // Start-error event: fired when the recording pipeline fails to start
+  onStartError: (callback: (data: { message: string }) => void) => () => void;
+
   // Initial state request
   requestInitialState: () => Promise<void>;
 
@@ -99,6 +102,12 @@ const widgetApi: WidgetApi = {
     const listener = (_event: Electron.IpcRendererEvent, data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineEval?: number; engineMate?: number | null }) => callback(data);
     ipcRenderer.on('widget:fen', listener);
     return () => ipcRenderer.removeListener('widget:fen', listener);
+  },
+
+  onStartError: (callback: (data: { message: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data);
+    ipcRenderer.on('widget:start-error', listener);
+    return () => ipcRenderer.removeListener('widget:start-error', listener);
   },
 
   // Initial state request

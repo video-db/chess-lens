@@ -40,6 +40,7 @@ export interface WidgetApi {
   onVisualAnalysis: (callback: (data: { description: string }) => void) => () => void;
   onNudge: (callback: (nudge: WidgetNudge | null) => void) => () => void;
   onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineEval?: number; engineMate?: number | null }) => void) => () => void;
+  onStartError: (callback: (data: { message: string }) => void) => () => void;
   requestInitialState: () => Promise<void>;
   reportContentHeight: (height: number) => void;
 }

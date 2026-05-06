@@ -22,6 +22,7 @@ import {
   setWidgetRecordingControls,
   updateWidgetSessionState,
   updateWidgetVisualAnalysis,
+  sendWidgetStartError,
   clearWidgetState,
 } from './widget';
 
@@ -854,6 +855,7 @@ export function setupCaptureHandlers(): void {
       if (!user?.apiKey) {
         logger.error({ hasUser: Boolean(user) }, 'Missing VideoDB API key for capture session');
         captureStartInFlight = false;
+        sendWidgetStartError('Missing VideoDB API key. Please re-authenticate.');
         return {
           success: false,
           error: 'Missing VideoDB API key for capture session. Please re-authenticate.',
@@ -873,6 +875,7 @@ export function setupCaptureHandlers(): void {
           'Capture session preflight failed (unauthorized or not found)'
         );
         captureStartInFlight = false;
+        sendWidgetStartError(`Session unauthorized or not found: ${message}`);
         return {
           success: false,
           error: `Capture session unauthorized or not found. Regenerate the session and try again. (${message})`,
@@ -1146,6 +1149,7 @@ export function setupCaptureHandlers(): void {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         const errorStack = error instanceof Error ? error.stack : undefined;
         logger.error({ err: error, errorMessage, errorStack }, 'Failed to start recording');
+        sendWidgetStartError(errorMessage);
         await cleanupTranscriptWebSockets();
         await cleanupVisualIndexWebSocket();
         await cleanupSessionWebSocket();

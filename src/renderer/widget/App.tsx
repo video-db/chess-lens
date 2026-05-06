@@ -27,6 +27,7 @@ export function WidgetApp() {
   const [engineMate, setEngineMate] = useState<number | null | undefined>(undefined);
   const [isStopping, setIsStopping] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
+  const [connectingError, setConnectingError] = useState<string | null>(null);
 
   // Ref for the root wrapper — observed by ResizeObserver to auto-resize the window
   const rootRef = useRef<HTMLDivElement>(null);
@@ -112,6 +113,16 @@ export function WidgetApp() {
       setEngineMate(data.engineMate);
     });
 
+    const unsubStartError = api.onStartError?.((data) => {
+      // Stop polling and surface the error in the overlay
+      cancelled = true;
+      if (retryTimer) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      setConnectingError(data.message);
+    }) ?? (() => {});
+
     // Keep polling requestInitialState until the main process responds.
     // No retry cap — we stay in the connecting state until isRecording fires.
     // Each call is cheap (IPC ping); we stop as soon as cancelled.
@@ -137,6 +148,7 @@ export function WidgetApp() {
       unsubVisual();
       unsubNudge();
       unsubFen();
+      unsubStartError();
     };
   }, []);
 
@@ -219,7 +231,8 @@ export function WidgetApp() {
         onDismissCard={handleDismissCard}
         onDismissNudge={handleDismissNudge}
         stopDisabled={isStopping}
-        statusText={isConnecting ? 'Connecting to VideoDB and starting screen capture...' : undefined}
+        statusText={isConnecting || connectingError ? 'Connecting to VideoDB and starting screen capture...' : undefined}
+        connectingError={connectingError}
       />
     </div>
   );

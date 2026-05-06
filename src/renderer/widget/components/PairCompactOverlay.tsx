@@ -131,6 +131,8 @@ interface PairCompactOverlayProps {
   onDismissNudge?: () => void;
   stopDisabled?: boolean;
   statusText?: string;
+  /** Error message from the recording pipeline startup, shown instead of the connecting spinner. */
+  connectingError?: string | null;
 }
 
 function fmtElapsed(startTime?: number | null, endTime: number = Date.now()): string {
@@ -230,6 +232,7 @@ export function PairCompactOverlay({
   onUnmuteMic,
   stopDisabled = false,
   statusText,
+  connectingError,
 }: PairCompactOverlayProps) {
   const [now, setNow] = useState(Date.now());
   const [isExpanded, setIsExpanded] = useState(false);
@@ -385,6 +388,14 @@ export function PairCompactOverlay({
       : null),
     [isChess, recentSayThis]
   );
+  // Engine-only interim tip (prefixed with "engine:") — shown below the coaching
+  // tip once the real LLM tip has arrived, so the player can see both.
+  const chessEngineCard = useMemo(
+    () => (isChess
+      ? recentSayThis.find((card) => card.text.trim().toLowerCase().startsWith('engine:')) || null
+      : null),
+    [isChess, recentSayThis]
+  );
   const chessDrillCard = useMemo(
     () => (isChess ? recentAskThis.find((card) => !!card.text.trim()) || null : null),
     [isChess, recentAskThis]
@@ -392,6 +403,10 @@ export function PairCompactOverlay({
 
   const chessParagraphText = chessParagraphCard ? compact(chessParagraphCard.text, 300) : '';
   const chessDrillText = chessDrillCard ? compact(chessDrillCard.text, 220) : '';
+  // Strip the "engine: " prefix before displaying. No length cap — show full summary.
+  const chessEngineText = chessEngineCard
+    ? chessEngineCard.text.replace(/^engine:\s*/i, '').trim()
+    : '';
 
   // Format the eval badge label directly from the engine prop values — no regex needed.
   const engineEvalLabel: string | null = engineMate != null
@@ -512,45 +527,92 @@ export function PairCompactOverlay({
             borderBottom: '1px solid rgba(0,0,0,0.05)',
             boxSizing: 'border-box',
           }}>
-            {/* Row 1: spinner + "STARTING RECORDING..." */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{
-                width: 14,
-                height: 14,
-                borderRadius: '50%',
-                background: 'conic-gradient(from 180deg at 50% 50%, #FF4000 0deg, rgba(196,196,196,0) 360deg)',
-                animation: 'spin 1s linear infinite',
-                flexShrink: 0,
-              }} />
-              <span style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: '#464646',
-                lineHeight: '13px',
-                fontFamily: 'Inter, sans-serif',
-              }}>
-                STARTING RECORDING...
-              </span>
-            </div>
+            {connectingError ? (
+              /* ── Error state ── */
+              <>
+                {/* Row 1: warning icon + "FAILED TO START" */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                    <circle cx="7" cy="7" r="6.3" stroke="#E53935" strokeWidth="1.4"/>
+                    <line x1="7" y1="4" x2="7" y2="8" stroke="#E53935" strokeWidth="1.4" strokeLinecap="round"/>
+                    <circle cx="7" cy="10" r="0.7" fill="#E53935"/>
+                  </svg>
+                  <span style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: '#E53935',
+                    lineHeight: '13px',
+                    fontFamily: 'Inter, sans-serif',
+                  }}>
+                    FAILED TO START
+                  </span>
+                </div>
 
-            {/* Row 2: status pill */}
-            <div style={{
-              background: '#EFEFEF',
-              borderRadius: 12.84,
-              padding: '6.73px 10.09px',
-              boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
-            }}>
-              <span style={{
-                fontSize: 13,
-                fontWeight: 400,
-                color: '#464646',
-                lineHeight: '18px',
-                fontFamily: 'Inter, sans-serif',
-                display: 'block',
-              }}>
-                {statusText}
-              </span>
-            </div>
+                {/* Row 2: error message pill */}
+                <div style={{
+                  background: '#FFF3F3',
+                  borderRadius: 12.84,
+                  padding: '6.73px 10.09px',
+                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
+                  border: '1px solid rgba(229,57,53,0.15)',
+                }}>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 400,
+                    color: '#E53935',
+                    lineHeight: '18px',
+                    fontFamily: 'Inter, sans-serif',
+                    display: 'block',
+                    wordBreak: 'break-word',
+                  }}>
+                    {connectingError}
+                  </span>
+                </div>
+              </>
+            ) : (
+              /* ── Connecting (normal) state ── */
+              <>
+                {/* Row 1: spinner + "STARTING RECORDING..." */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    background: 'conic-gradient(from 180deg at 50% 50%, #FF4000 0deg, rgba(196,196,196,0) 360deg)',
+                    animation: 'spin 1s linear infinite',
+                    flexShrink: 0,
+                  }} />
+                  <span style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: '#464646',
+                    lineHeight: '13px',
+                    fontFamily: 'Inter, sans-serif',
+                  }}>
+                    STARTING RECORDING...
+                  </span>
+                </div>
+
+                {/* Row 2: status pill */}
+                <div style={{
+                  background: '#EFEFEF',
+                  borderRadius: 12.84,
+                  padding: '6.73px 10.09px',
+                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
+                }}>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 400,
+                    color: '#464646',
+                    lineHeight: '18px',
+                    fontFamily: 'Inter, sans-serif',
+                    display: 'block',
+                  }}>
+                    {statusText}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* ── Footer ── */}
@@ -783,10 +845,10 @@ export function PairCompactOverlay({
               </>
             ) : (
               <>
-                {/* ── Best move block ── */}
+                {/* ── Best move block — always above the coaching tip ── */}
                 {engineSan && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10.09 }}>
-                    {/* "BEST MOVE" label — grey, no spinner */}
+                    {/* "BEST MOVE" label — grey */}
                     <span style={{ fontSize: 12, fontWeight: 500, color: '#969696', lineHeight: '13px', fontFamily: 'Inter, sans-serif' }}>
                       BEST MOVE
                     </span>
@@ -803,7 +865,7 @@ export function PairCompactOverlay({
                 )}
 
                 {/* ── Coaching tip card ── */}
-                {/* #F5F5F8 card — shows spinner+"COACHING TIP INCOMING..." when tip pending, tip text when arrived */}
+                {/* Shows spinner+"COACHING TIP INCOMING..." while pending, tip text when arrived */}
                 <div style={{ background: '#F5F5F8', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 38, boxSizing: 'border-box', justifyContent: 'center' }}>
                   {chessParagraphText ? (
                     /* Tip has arrived — wrap naturally */
@@ -820,6 +882,25 @@ export function PairCompactOverlay({
                     </div>
                   )}
                 </div>
+
+                {/* ── Engine output text — shown ONLY after the coaching tip has arrived ── */}
+                {chessParagraphText && chessEngineText && (
+                  <div style={{ background: '#F7F7F7', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: '12px 13px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Header row: gear icon + "Engine" label */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                        <path d="M7.39783 6.66642V3.60242C7.39783 3.43053 7.45527 3.28714 7.57016 3.17226C7.68516 3.05726 7.82855 2.99976 8.00033 2.99976H13.731C13.9029 2.99976 14.0463 3.05726 14.1612 3.17226C14.2762 3.28714 14.3337 3.43053 14.3337 3.60242V6.66642C14.3337 6.8382 14.2762 6.98159 14.1612 7.09659C14.0463 7.21148 13.9029 7.26892 13.731 7.26892H8.00033C7.82855 7.26892 7.68516 7.21148 7.57016 7.09659C7.45527 6.98159 7.39783 6.8382 7.39783 6.66642ZM1.66699 12.3971V9.33309C1.66699 9.16131 1.72449 9.01792 1.83949 8.90292C1.95438 8.78803 2.09777 8.73059 2.26966 8.73059H7.33366C7.50544 8.73059 7.64883 8.78803 7.76383 8.90292C7.87871 9.01792 7.93616 9.16131 7.93616 9.33309V12.3971C7.93616 12.569 7.87871 12.7124 7.76383 12.8273C7.64883 12.9423 7.50544 12.9998 7.33366 12.9998H2.26966C2.09777 12.9998 1.95438 12.9423 1.83949 12.8273C1.72449 12.7124 1.66699 12.569 1.66699 12.3971ZM1.66699 6.66642V3.60242C1.66699 3.43053 1.72449 3.28714 1.83949 3.17226C1.95438 3.05726 2.09777 2.99976 2.26966 2.99976H5.33366C5.50544 2.99976 5.64883 3.05726 5.76383 3.17226C5.87871 3.28714 5.93616 3.43053 5.93616 3.60242V6.66642C5.93616 6.8382 5.87871 6.98159 5.76383 7.09659C5.64883 7.21148 5.50544 7.26892 5.33366 7.26892H2.26966C2.09777 7.26892 1.95438 7.21148 1.83949 7.09659C1.72449 6.98159 1.66699 6.8382 1.66699 6.66642ZM8.39766 6.26909H13.3337V3.99976H8.39766V6.26909ZM2.66699 11.9998H6.93633V9.73042H2.66699V11.9998ZM2.66699 6.26909H4.93633V3.99976H2.66699V6.26909ZM10.1952 12.9716L9.79516 13.1088C9.68494 13.1446 9.57749 13.1434 9.47283 13.1049C9.36805 13.0664 9.28533 13.001 9.22466 12.9088L9.13616 12.7459C9.07549 12.6425 9.05199 12.5333 9.06566 12.4184C9.07933 12.3034 9.13449 12.2066 9.23116 12.1279L9.53366 11.8689C9.48577 11.6818 9.46183 11.4946 9.46183 11.3074C9.46183 11.1202 9.48577 10.933 9.53366 10.7459L9.23116 10.4869C9.13883 10.4126 9.08366 10.3186 9.06566 10.2049C9.04777 10.0913 9.06916 9.9827 9.12983 9.87926L9.24133 9.70626C9.30199 9.61392 9.38194 9.54853 9.48116 9.51009C9.58027 9.47164 9.68494 9.47037 9.79516 9.50626L10.1952 9.64342C10.3259 9.51598 10.4678 9.4132 10.6208 9.33509C10.7738 9.25687 10.9362 9.19209 11.108 9.14076L11.176 8.74726C11.2008 8.63014 11.2576 8.53398 11.3465 8.45876C11.4354 8.38353 11.5384 8.34592 11.6555 8.34592H11.8323C11.9494 8.34592 12.0524 8.38526 12.1413 8.46392C12.2302 8.54248 12.287 8.64031 12.3118 8.75742L12.3798 9.14076C12.5516 9.19209 12.714 9.25687 12.867 9.33509C13.02 9.4132 13.1619 9.51598 13.2927 9.64342L13.6927 9.50626C13.8029 9.47037 13.9103 9.47164 14.015 9.51009C14.1198 9.54853 14.2025 9.61392 14.2632 9.70626L14.3515 9.86892C14.4123 9.97237 14.4358 10.0816 14.422 10.1966C14.4083 10.3115 14.3532 10.4083 14.2567 10.4869L13.9542 10.7459C14.002 10.933 14.026 11.1202 14.026 11.3074C14.026 11.4946 14.002 11.6818 13.9542 11.8689L14.2567 12.1279C14.349 12.2023 14.4041 12.2963 14.422 12.4101C14.44 12.5238 14.4187 12.6323 14.358 12.7356L14.2465 12.9088C14.1858 13.001 14.1059 13.0664 14.0067 13.1049C13.9075 13.1434 13.8029 13.1446 13.6927 13.1088L13.2927 12.9716C13.1575 13.0989 13.0146 13.2017 12.8638 13.2799C12.7129 13.3581 12.5516 13.4229 12.3798 13.4741L12.3118 13.8678C12.287 13.9848 12.2302 14.0809 12.1413 14.1561C12.0524 14.2313 11.9494 14.2689 11.8323 14.2689H11.6555C11.5384 14.2689 11.4354 14.2296 11.3465 14.1511C11.2576 14.0724 11.2008 13.9745 11.176 13.8574L11.108 13.4741C10.9362 13.4229 10.7749 13.3581 10.624 13.2799C10.4732 13.2017 10.3303 13.0989 10.1952 12.9716ZM12.724 12.2876C12.9937 12.0179 13.1285 11.6912 13.1285 11.3074C13.1285 10.9236 12.9937 10.5969 12.724 10.3273C12.4543 10.0576 12.1276 9.92276 11.7438 9.92276C11.3602 9.92276 11.0335 10.0576 10.7638 10.3273C10.4942 10.5969 10.3593 10.9236 10.3593 11.3074C10.3593 11.6912 10.4942 12.0179 10.7638 12.2876C11.0335 12.5573 11.3602 12.6921 11.7438 12.6921C12.1276 12.6921 12.4543 12.5573 12.724 12.2876Z" fill="#1E1E1E"/>
+                      </svg>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1E1E1E', lineHeight: '15px', fontFamily: 'Inter, sans-serif' }}>
+                        Engine
+                      </span>
+                    </div>
+                    {/* Engine analysis text */}
+                    <p style={{ fontSize: 13, lineHeight: '18px', color: '#464646', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                      {chessEngineText}
+                    </p>
+                  </div>
+                )}
 
                 {/* Waiting for next move */}
                 {chessWaitingText && !chessParagraphText && (

@@ -331,6 +331,10 @@ export function updateWidgetNudge(nudge: { id: string; message: string; type: 'i
   sendToWidget('widget:nudge', widgetNudge);
 }
 
+export function sendWidgetStartError(message: string): void {
+  sendToWidget('widget:start-error', { message });
+}
+
 export function updateWidgetFen(data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineEval?: number; engineMate?: number | null }): void {
   widgetFen = data;
   sendToWidget('widget:fen', widgetFen);
