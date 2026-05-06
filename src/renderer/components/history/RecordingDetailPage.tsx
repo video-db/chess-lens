@@ -737,9 +737,38 @@ function KeyMomentsCard({
 
   const keyMoments = classified.filter((t) => KEY_MOMENT_QUALITIES.has(t.quality));
 
-  // Fallback: if no key moments, show the 5 most impactful by CPL
-  const displayTips = keyMoments.length > 0
+  // Impact rank: lower = more impactful. Blunders/mistakes outrank inaccuracies;
+  // brilliant/great/best are notable positives ranked below errors in priority.
+  const IMPACT_RANK: Record<MoveQuality, number> = {
+    blunder:    0,
+    mistake:    1,
+    brilliant:  2,
+    great:      3,
+    inaccuracy: 4,
+    best:       5,
+    excellent:  6,
+    good:       7,
+    book:       8,
+  };
+
+  // Cap at 7: keep the most impactful moves, then restore chronological order.
+  const MAX_KEY_MOMENTS = 7;
+  const cappedKeyMoments = keyMoments.length > MAX_KEY_MOMENTS
     ? keyMoments
+        .slice()
+        .sort((a, b) => {
+          const rankDiff = IMPACT_RANK[a.quality] - IMPACT_RANK[b.quality];
+          if (rankDiff !== 0) return rankDiff;
+          // Within the same tier, prefer higher WP loss (more impactful)
+          return (b.centipawnLoss ?? 0) - (a.centipawnLoss ?? 0);
+        })
+        .slice(0, MAX_KEY_MOMENTS)
+        .sort((a, b) => a.originalIndex - b.originalIndex) // restore move order
+    : keyMoments;
+
+  // Fallback: if no key moments, show the 5 most impactful by CPL
+  const displayTips = cappedKeyMoments.length > 0
+    ? cappedKeyMoments
     : classified
         .filter((t) => t.centipawnLoss !== undefined)
         .sort((a, b) => (b.centipawnLoss ?? 0) - (a.centipawnLoss ?? 0))
