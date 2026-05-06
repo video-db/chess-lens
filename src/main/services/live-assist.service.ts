@@ -14,6 +14,7 @@ import { GPT_54_MODEL, getLLMService } from './llm.service';
 import { getChessEngineService } from './chess-engine.service';
 import type { LiveInsights } from '../../shared/types/live-assist.types';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
+import { fenDiffToSan } from '../lib/chess-notation';
 import {
   DEFAULT_GAME_ID,
   getGameVisualIndexTiming,
@@ -127,6 +128,9 @@ class LiveAssistService extends EventEmitter {
   // Chess: dedupe tips by position signature (FEN + played move) so we update on moves, not on a timer.
   private lastChessSignature: string | null = null;
   private lastChessBoard: string | null = null;
+  // Separate tracker for move history FEN diff — updated in injectConfirmedFen
+  // independently of lastChessSignature to avoid breaking the coaching skip check.
+  private lastFenForMoveHistory: string | null = null;
   private lastChessTurn: 'w' | 'b' | null = null;
   private lastChessPerspective: 'white' | 'black' = 'white';
   // Last engine result — carried on every fen event so the widget always has the current move/eval.
@@ -625,6 +629,7 @@ class LiveAssistService extends EventEmitter {
     this.lastChessBoard = null;
     this.lastChessTurn = null;
     this.lastChessPerspective = 'white';
+    this.lastFenForMoveHistory = null;
     this.lastEngineSan = undefined;
     this.lastEngineEval = undefined;
     this.lastEngineMate = undefined;
@@ -1288,6 +1293,37 @@ class LiveAssistService extends EventEmitter {
     // last best move until the new engine result arrives for this position.
     const whitePerspectiveFen = `${fenBoard} ${inferredTurn} ${castling} - 0 1`;
     const displayFen = this.buildDisplayFen(whitePerspectiveFen, perspective);
+
+    // Compute played SAN here — fires on EVERY confirmed position change,
+    // not just when the coaching LLM runs. Use lastFenForMoveHistory (separate
+    // from lastChessSignature) so this doesn't interfere with coaching skip logic.
+    const justMoved: 'w' | 'b' = inferredTurn === 'w' ? 'b' : 'w';
+    let fenPlayedSan: string | undefined;
+    let fenPlayedTurn: 'w' | 'b' | undefined;
+    if (this.lastFenForMoveHistory && this.lastFenForMoveHistory !== fenBoard) {
+      // prevFen: previous board position where justMoved was about to play
+      const prevFen = `${this.lastFenForMoveHistory} ${justMoved} - - 0 1`;
+      fenPlayedSan = fenDiffToSan(prevFen, whitePerspectiveFen, justMoved);
+      if (fenPlayedSan) {
+        fenPlayedTurn = justMoved;
+      } else {
+        // Fallback: turn inference may be wrong — try the other side
+        const otherSide: 'w' | 'b' = justMoved === 'w' ? 'b' : 'w';
+        const prevFenAlt = `${this.lastFenForMoveHistory} ${otherSide} - - 0 1`;
+        const altSan = fenDiffToSan(prevFenAlt, whitePerspectiveFen, otherSide);
+        if (altSan) {
+          fenPlayedSan = altSan;
+          fenPlayedTurn = otherSide;
+        }
+      }
+    }
+
+    // Update the move history FEN tracker immediately (separate from lastChessSignature
+    // which controls coaching deduplication — don't touch that here).
+    if (fenBoard && fenBoard !== this.lastFenForMoveHistory) {
+      this.lastFenForMoveHistory = fenBoard;
+    }
+
     this.emit('fen', {
       fen: whitePerspectiveFen,
       displayFen,
@@ -1296,6 +1332,8 @@ class LiveAssistService extends EventEmitter {
       engineSan: this.lastEngineSan,
       engineEval: this.lastEngineEval,
       engineMate: this.lastEngineMate,
+      playedMoveSan: fenPlayedSan,
+      playedTurn: fenPlayedTurn,
     });
 
     // The pipeline always works in white's perspective.
@@ -1713,6 +1751,15 @@ For ask_this, write one short calculation question about the next move or likely
 Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
     log.info({ visualCount: promptVisuals.length, hasVisual: !!chessSection }, 'Processing gameplay feed for live assist');
 
+    // Compute the actual played move SAN via FEN diff BEFORE updating lastChessSignature.
+    // prevFen = last known board + whose turn it was BEFORE the move (opposite of chessContext.turn).
+    let computedPlayedSan: string | undefined;
+    if (this.activeGameId === 'chess' && this.lastChessSignature && chessContext?.turn && chessContext?.fen) {
+      const prevFen = `${this.lastChessSignature} ${chessContext.turn === 'w' ? 'b' : 'w'} - - 0 1`;
+      computedPlayedSan = fenDiffToSan(prevFen, chessContext.fen, chessContext.turn);
+      log.debug({ prevFen, newFen: chessContext.fen, turn: chessContext.turn, computedPlayedSan }, '[LiveAssist] FEN diff → played SAN');
+    }
+
     // Mark this position as processed immediately so isProcessing is released.
     // The coaching LLM fires in the background and upgrades the engine tip when ready.
     if (this.activeGameId === 'chess' && chessSignature) {
@@ -1743,7 +1790,7 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
     // Fire coaching LLM as fire-and-forget — it will upgrade the engine tip
     // when it completes. isProcessing is released immediately after this return.
     this.coachingInFlight = true;
-    void this.runCoachingLLM(chessContext, chessSignature, userPrompt, bestMoveSan, trackedCycleId);
+    void this.runCoachingLLM(chessContext, chessSignature, userPrompt, bestMoveSan, trackedCycleId, computedPlayedSan);
   }
 
   /**
@@ -1756,7 +1803,8 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
     chessSignature: string | null,
     userPrompt: string,
     bestMoveSan: string | null,
-    cycleId?: number
+    cycleId?: number,
+    playedMoveSan?: string,
   ): Promise<void> {
     const hasLatency = cycleId !== undefined;
 
@@ -1990,6 +2038,7 @@ Rewrite it so say_this is more position-specific. Name the required move, explai
         centipawnLoss: chessContext?.centipawnLoss,
         turn: chessContext?.turn ?? undefined,
         moveSan: chessContext?.engineSan ?? chessContext?.playedMoveSan ?? undefined,
+        playedMoveSan: playedMoveSan ?? chessContext?.playedMoveSan ?? undefined,
       });
       endStep('coachingTip');
       endCycle('coachingTip');

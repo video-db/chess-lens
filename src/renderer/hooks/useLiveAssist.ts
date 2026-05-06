@@ -99,26 +99,19 @@ export function useLiveAssist() {
         winChance: event.winChance,
         turn: event.turn,
         moveSan: event.moveSan,
+        playedMoveSan: event.playedMoveSan,
       });
     });
 
-    // Subscribe to FEN events to build move history table
-    // Guard: onFen may not exist on older preload builds
+    // Subscribe to FEN events to build move history table.
+    // The fen event fires on EVERY confirmed position change (not just when LLM tips generate),
+    // so move history is complete even when coaching tips are skipped for repeated positions.
     let unsubFen: (() => void) | undefined;
     if (typeof api.liveAssistOn.onFen === 'function') {
-      let lastTurn: 'w' | 'b' | null = null;
-      let lastEngineSan: string | undefined = undefined;
-
       unsubFen = api.liveAssistOn.onFen((data) => {
-        const currentTurn = data.turn;
-        const san = data.engineSan;
-
-        if (lastTurn !== null && currentTurn !== null && lastTurn !== currentTurn && lastEngineSan) {
-          store.addMove(lastEngineSan, lastTurn);
+        if (data.playedMoveSan && data.playedTurn) {
+          store.addMove(data.playedMoveSan, data.playedTurn);
         }
-
-        lastTurn = currentTurn;
-        lastEngineSan = san;
       });
     }
 

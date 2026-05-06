@@ -494,30 +494,8 @@ export function LiveAssistPanel({ onAskAboutTip }: LiveAssistPanelProps = {}) {
 
   const isVisualAnalysisLoading = startVisualIndexMutation.isPending || pauseVisualIndexMutation.isPending || resumeVisualIndexMutation.isPending;
 
-  const getVisualAnalysisButtonText = () => {
-    if (isVisualAnalysisLoading) return 'Loading...';
-    if (isRunning) return 'Stop Visual Analysis';
-    if (sceneIndexId) return 'Restart Visual Analysis';
-    return 'Turn On Visual Analysis';
-  };
-
-  const showVisualAnalysisButton = isRecording && screenWsConnectionId;
-
   return (
     <div className="flex flex-col h-full gap-[20px] pt-[8px]">
-      {/* Visual Analysis button — shown only when recording + screen connected */}
-      {showVisualAnalysisButton && (
-        <div className="flex shrink-0">
-          <button
-            onClick={handleVisualAnalysisClick}
-            disabled={isVisualAnalysisLoading}
-            className={`flex items-center gap-[4px] px-[20px] py-[12px] rounded-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] transition-colors ${isVisualAnalysisLoading ? 'bg-[#ff4000]/70 cursor-not-allowed' : 'bg-[#ff4000] hover:bg-[#e63900]'}`}
-          >
-            {isVisualAnalysisLoading ? <Loader2 className="w-[20px] h-[20px] text-white animate-spin" /> : <DisplayIcon />}
-            <span className="font-semibold text-[14px] text-white tracking-[-0.28px]">{getVisualAnalysisButtonText()}</span>
-          </button>
-        </div>
-      )}
 
       {/* Panels */}
       <div className="flex-1 flex flex-col gap-[20px] min-h-0 overflow-hidden">
@@ -646,41 +624,34 @@ export function LiveAssistPanel({ onAskAboutTip }: LiveAssistPanelProps = {}) {
               </div>
             </div>
           ) : (
-            /* 3-column table */
-            <div style={{ display: 'flex', flexDirection: 'row', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              {/* Move No. column */}
-              <div style={{ display: 'flex', flexDirection: 'column', width: 119, flexShrink: 0, overflowY: 'auto' }} className="[&::-webkit-scrollbar]:hidden">
-                <div style={{ padding: '8px 20px', borderBottom: '1px solid #EFEFEF', height: 38, boxSizing: 'border-box', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                  <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 14, color: '#464646', lineHeight: '22px' }}>Move No.</span>
+            /* Scrollable table — single scroll container so all columns scroll together */
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} className="[&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              {/* Sticky header row */}
+              <div style={{ display: 'flex', flexDirection: 'row', position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 1, borderBottom: '1px solid #EFEFEF' }}>
+                <div style={{ width: 80, flexShrink: 0, padding: '8px 16px', display: 'flex', alignItems: 'center' }}>
+                  <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 14, color: '#464646', lineHeight: '22px' }}>No.</span>
                 </div>
-                {moveHistory.map((m) => (
-                  <div key={m.no} style={{ padding: '8px 20px', borderBottom: '1px solid #EFEFEF', height: 38, boxSizing: 'border-box', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                    <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 14, color: '#000000', lineHeight: '22px' }}>{m.no}</span>
-                  </div>
-                ))}
-              </div>
-              {/* White column */}
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflowY: 'auto' }} className="[&::-webkit-scrollbar]:hidden">
-                <div style={{ padding: '8px 20px', borderBottom: '1px solid #EFEFEF', height: 38, boxSizing: 'border-box', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                <div style={{ flex: 1, padding: '8px 16px', display: 'flex', alignItems: 'center', borderLeft: '1px solid #EFEFEF' }}>
                   <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 14, color: '#464646', lineHeight: '22px' }}>White</span>
                 </div>
-                {moveHistory.map((m) => (
-                  <div key={m.no} style={{ padding: '8px 20px', borderBottom: '1px solid #EFEFEF', height: 38, boxSizing: 'border-box', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                    <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 14, color: '#000000', lineHeight: '22px' }}>{m.white ?? ''}</span>
-                  </div>
-                ))}
-              </div>
-              {/* Black column */}
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflowY: 'auto' }} className="[&::-webkit-scrollbar]:hidden">
-                <div style={{ padding: '8px 20px', borderBottom: '1px solid #EFEFEF', height: 38, boxSizing: 'border-box', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                <div style={{ flex: 1, padding: '8px 16px', display: 'flex', alignItems: 'center', borderLeft: '1px solid #EFEFEF' }}>
                   <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 14, color: '#464646', lineHeight: '22px' }}>Black</span>
                 </div>
-                {moveHistory.map((m) => (
-                  <div key={m.no} style={{ padding: '8px 20px', borderBottom: '1px solid #EFEFEF', height: 38, boxSizing: 'border-box', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              </div>
+              {/* Data rows */}
+              {moveHistory.map((m) => (
+                <div key={m.no} style={{ display: 'flex', flexDirection: 'row', borderBottom: '1px solid #EFEFEF' }}>
+                  <div style={{ width: 80, flexShrink: 0, padding: '8px 16px', display: 'flex', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 14, color: '#000000', lineHeight: '22px' }}>{m.no}</span>
+                  </div>
+                  <div style={{ flex: 1, padding: '8px 16px', display: 'flex', alignItems: 'center', borderLeft: '1px solid #EFEFEF' }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 14, color: '#000000', lineHeight: '22px' }}>{m.white ?? ''}</span>
+                  </div>
+                  <div style={{ flex: 1, padding: '8px 16px', display: 'flex', alignItems: 'center', borderLeft: '1px solid #EFEFEF' }}>
                     <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 14, color: '#000000', lineHeight: '22px' }}>{m.black ?? ''}</span>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

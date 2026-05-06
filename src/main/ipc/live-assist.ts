@@ -54,6 +54,9 @@ export function setupLiveAssistHandlers(): void {
           sayCount: event.insights.say_this.length,
           askCount: event.insights.ask_this.length,
           clearExisting: !!event.clearExisting,
+          moveSan: (event as any).moveSan,
+          playedMoveSan: (event as any).playedMoveSan,
+          turn: (event as any).turn,
         },
         'Sending insights to renderer'
       );

@@ -354,6 +354,7 @@ const api: IpcApi = {
       centipawnLoss?: number;
       turn?: 'w' | 'b';
       moveSan?: string;
+      playedMoveSan?: string;
     }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
       ipcRenderer.on('live-assist:update', listener);
@@ -367,6 +368,8 @@ const api: IpcApi = {
       engineSan?: string;
       engineEval?: number;
       engineMate?: number | null;
+      playedMoveSan?: string;
+      playedTurn?: 'w' | 'b';
     }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
       ipcRenderer.on('live-assist:fen', listener);

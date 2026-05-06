@@ -198,6 +198,7 @@ export interface LiveAssistEvents {
     centipawnLoss?: number;
     turn?: 'w' | 'b';
     moveSan?: string;
+    playedMoveSan?: string;
   }) => void) => () => void;
   onFen: (callback: (data: {
     fen: string;
@@ -207,6 +208,8 @@ export interface LiveAssistEvents {
     engineSan?: string;
     engineEval?: number;
     engineMate?: number | null;
+    playedMoveSan?: string;
+    playedTurn?: 'w' | 'b';
   }) => void) => () => void;
 }
 

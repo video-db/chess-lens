@@ -46,7 +46,7 @@ interface LiveAssistState {
   winProbabilityHistory: WinProbabilityPoint[];
 
   // Actions
-  addInsights: (insights: LiveInsights, winData?: { winChance?: number; turn?: 'w' | 'b'; moveSan?: string }) => void;
+  addInsights: (insights: LiveInsights, winData?: { winChance?: number; turn?: 'w' | 'b'; moveSan?: string; playedMoveSan?: string }) => void;
   addMove: (san: string, turn: 'w' | 'b') => void;
   setProcessing: (isProcessing: boolean) => void;
   setError: (error: string | null) => void;
@@ -115,10 +115,39 @@ export const useLiveAssistStore = create<LiveAssistState>((set) => ({
       }
     }
 
+    // Update move history: playedMoveSan = actual move played, turn = side that just moved
+    let newMoveHistory = [...state.moveHistory];
+    const playedSan = winData?.playedMoveSan;
+    if (playedSan && winData?.turn) {
+      const san = playedSan;
+      const side = winData.turn; // side that just moved
+      // Deduplicate: skip if last entry already has this exact san on this side
+      const last = newMoveHistory[newMoveHistory.length - 1];
+      const alreadyAdded = last && (
+        (side === 'w' && last.white === san) ||
+        (side === 'b' && last.black === san)
+      );
+      if (!alreadyAdded) {
+        if (side === 'w') {
+          // White just played — start a new move entry
+          newMoveHistory.push({ no: newMoveHistory.length + 1, white: san });
+        } else {
+          // Black just played — fill the black slot of the last entry
+          if (last && last.white && !last.black) {
+            newMoveHistory[newMoveHistory.length - 1] = { ...last, black: san };
+          } else {
+            // Black opened (unusual) or last entry already has both
+            newMoveHistory.push({ no: newMoveHistory.length + 1, black: san });
+          }
+        }
+      }
+    }
+
     return {
       sayThis: combinedSayThis,
       askThis: combinedAskThis,
       coachingTips: trimmedTips,
+      moveHistory: newMoveHistory,
       lastProcessedAt: Date.now(),
       error: null,
       winProbabilityHistory: newHistory,
