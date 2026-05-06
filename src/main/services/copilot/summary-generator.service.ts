@@ -164,8 +164,16 @@ export class SummaryGeneratorService {
     log.info({ recordingId, tipCount: savedTips.length }, 'Generating summary from saved coaching tips');
 
     // Format as a readable game log for the LLM.
-    // Each tip has a sayThis (coaching paragraph) and an askThis (drill).
-    const gameLog = savedTips
+    // Only include tips that have actual coaching text (stage-2 LLM tips).
+    // Stage-1 engine-only tips (empty sayThis/askThis) are stored for accuracy tracking only.
+    const tipsWithText = savedTips.filter((tip) => tip.sayThis && tip.askThis);
+
+    if (tipsWithText.length === 0) {
+      log.warn({ recordingId, totalTips: savedTips.length }, 'No LLM coaching tips found — returning generic fallback');
+      return this.emptyChessFallback(gameName);
+    }
+
+    const gameLog = tipsWithText
       .map((tip, i) => `[Move ${i + 1}] Coach: ${tip.sayThis}\n  Drill: ${tip.askThis}`)
       .join('\n\n');
 

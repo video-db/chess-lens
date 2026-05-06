@@ -246,7 +246,7 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
           <KeyMomentsCard tips={gameplayTips} playerUrl={resolvedPlayerUrl} />
 
           {/* Insights & Patterns */}
-          <InsightsPatternsCard keyPoints={recording.keyPoints} />
+          <InsightsPatternsCard keyPoints={recording.keyPoints} recordingStatus={recording.status} />
         </div>
 
         {/* Vertical divider */}
@@ -429,7 +429,6 @@ function extractPlayerNames(title: string | null | undefined): { white: string; 
 // ── Accuracy Card ─────────────────────────────────────────────────────────────
 
 function AccuracyCard({ label, value, color }: { label: string; value: number | null; color: string }) {
-  const displayValue = value !== null ? value : null;
   const barWidth = value !== null ? `${Math.min(100, value)}%` : '0%';
 
   return (
@@ -440,16 +439,22 @@ function AccuracyCard({ label, value, color }: { label: string; value: number | 
       {/* Value + progress */}
       <div className="flex flex-col gap-[20px]">
         <div className="flex items-flex-end gap-[4px]">
-          <span className="text-[36px] font-bold leading-none" style={{ color: displayValue !== null ? color : '#000000' }}>
-            {displayValue !== null ? displayValue : '—'}
-          </span>
-          {displayValue !== null && (
-            <span className="text-[20px] font-semibold text-text-body" style={{ lineHeight: '28px', alignSelf: 'flex-end' }}>%</span>
+          {value !== null ? (
+            <>
+              <span className="text-[36px] font-bold leading-none" style={{ color }}>
+                {value}
+              </span>
+              <span className="text-[20px] font-semibold text-text-body" style={{ lineHeight: '28px', alignSelf: 'flex-end' }}>%</span>
+            </>
+          ) : (
+            <span className="text-[14px] font-medium" style={{ color: '#464646', opacity: 0.4, lineHeight: '36px' }}>
+              Pending
+            </span>
           )}
         </div>
         {/* Progress bar */}
         <div className="relative h-[4px] rounded-[30px] bg-white overflow-hidden">
-          <div className="absolute left-0 top-0 h-full rounded-[30px]" style={{ width: barWidth, background: displayValue !== null ? color : 'transparent' }} />
+          <div className="absolute left-0 top-0 h-full rounded-[30px]" style={{ width: barWidth, background: value !== null ? color : 'transparent' }} />
         </div>
       </div>
     </div>
@@ -962,29 +967,137 @@ function KeyMomentsCard({
 
 // ── Insights & Patterns Card ──────────────────────────────────────────────────
 
-function InsightsPatternsCard({ keyPoints }: { keyPoints: Array<{ topic: string; points: string[] }> | null | undefined }) {
-  if (!keyPoints || keyPoints.length === 0) return null;
+function InsightsPatternsCard({
+  keyPoints,
+  recordingStatus,
+}: {
+  keyPoints: Array<{ topic: string; points: string[] }> | null | undefined;
+  recordingStatus: string;
+}) {
+  const hasData = keyPoints && keyPoints.length > 0;
+  const isProcessing = recordingStatus === 'processing' || recordingStatus === 'recording';
+  const placeholderText = isProcessing ? 'Analysis in progress…' : 'No insights available for this session.';
 
   return (
-    <div className="flex flex-col gap-[20px]" style={{ background: '#F7F7F7', border: '1px solid #EFEFEF', borderRadius: 16, padding: 16 }}>
-      <span className="text-[14px] font-semibold text-black uppercase tracking-[0.005em]">Insights &amp; patterns</span>
+    <div
+      style={{
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        padding: 16,
+        gap: 20,
+        background: '#F7F7F7',
+        border: '1px solid #EFEFEF',
+        borderRadius: 16,
+        alignSelf: 'stretch',
+      }}
+    >
+      {/* Header */}
+      <span
+        style={{
+          fontFamily: 'Inter, sans-serif',
+          fontWeight: 600,
+          fontSize: 14,
+          lineHeight: '17px',
+          textTransform: 'uppercase',
+          color: '#000000',
+        }}
+      >
+        Insights &amp; Patterns
+      </span>
 
-      <div className="flex flex-col gap-[10px]">
-        {keyPoints.map((kp, idx) => (
-          <div key={idx} className="flex items-center gap-[16px] bg-white" style={{ border: '1px solid #EFEFEF', borderRadius: 12, padding: '8px 16px' }}>
-            <div className="flex flex-col gap-[2px] flex-1">
-              <span className="text-[13px] font-medium" style={{ color: '#C14103', lineHeight: '24px', letterSpacing: '0.005em' }}>
-                {kp.topic}
-              </span>
-              {kp.points[0] && (
-                <span className="text-[13px] text-[#1E1E1E]" style={{ lineHeight: '20px', letterSpacing: '0.005em' }}>
-                  {kp.points[0]}
+      {/* Content list or placeholder */}
+      {hasData ? (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: 10,
+            alignSelf: 'stretch',
+          }}
+        >
+          {keyPoints.map((kp, idx) => (
+            <div
+              key={idx}
+              style={{
+                boxSizing: 'border-box',
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: '8px 16px',
+                gap: 16,
+                background: '#FFFFFF',
+                border: '1px solid #EFEFEF',
+                borderRadius: 12,
+                alignSelf: 'stretch',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 2,
+                  flex: 1,
+                  minWidth: 0,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 500,
+                    fontSize: 13,
+                    lineHeight: '24px',
+                    letterSpacing: '0.005em',
+                    color: '#C14103',
+                    alignSelf: 'stretch',
+                  }}
+                >
+                  {kp.topic}
                 </span>
-              )}
+                {kp.points[0] && (
+                  <span
+                    style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontWeight: 400,
+                      fontSize: 13,
+                      lineHeight: '20px',
+                      letterSpacing: '0.005em',
+                      color: '#1E1E1E',
+                      alignSelf: 'stretch',
+                    }}
+                  >
+                    {kp.points[0]}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            alignSelf: 'stretch',
+            padding: '24px 0',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'Inter, sans-serif',
+              fontSize: 13,
+              color: '#464646',
+              opacity: 0.5,
+            }}
+          >
+            {placeholderText}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -310,6 +310,8 @@ function ensureRecordingColumns(): void {
   // Per-player accuracy scores (0–100 float) computed via the chess.com formula at session end.
   addColumnIfMissing('accuracy_white', "ALTER TABLE recordings ADD COLUMN accuracy_white REAL");
   addColumnIfMissing('accuracy_black', "ALTER TABLE recordings ADD COLUMN accuracy_black REAL");
+  // Game result: win / loss / draw — set at session end.
+  addColumnIfMissing('result', "ALTER TABLE recordings ADD COLUMN result TEXT CHECK(result IN ('win', 'loss', 'draw'))");
 }
 
 function ensureNudgesHistorySchema(): void {

@@ -180,7 +180,7 @@ export function useSession() {
         }
       }
 
-      if (transcriptionStore.enabled && recordingResult?.id) {
+      if (recordingResult?.id) {
         try {
           const copilotResult = await api.copilot.startCall(
             recordingResult.id,
@@ -255,16 +255,14 @@ export function useSession() {
         });
       }
 
-      if (useCopilotStore.getState().isCallActive) {
-        try {
-          const copilotResult = await api.copilot.endCall();
-          if (copilotResult.success && copilotResult.summary) {
-            const duration = useCopilotStore.getState().callDuration || 0;
-            useCopilotStore.getState().setCallSummary(copilotResult.summary, duration);
-          }
-        } catch (copilotError) {
-          // Ignore copilot errors
+      try {
+        const copilotResult = await api.copilot.endCall();
+        if (copilotResult.success && copilotResult.summary) {
+          const duration = useCopilotStore.getState().callDuration || 0;
+          useCopilotStore.getState().setCallSummary(copilotResult.summary, duration);
         }
+      } catch (copilotError) {
+        // Ignore copilot errors
       }
 
       transcriptionStore.clear();

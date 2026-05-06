@@ -64,12 +64,14 @@ export function setupLiveAssistHandlers(): void {
         askThis: event.insights.ask_this,
         clearExisting: event.clearExisting,
       });
-      // Persist full coaching tips (Stage 2: has both say_this and ask_this) to the
-      // DB so the post-session summary generator can use them.
-      // Stage 1 (engine-only) has an empty ask_this array — skip those.
+      // Persist coaching tips to DB for post-session summary and accuracy tracking.
+      // Stage 2 tips (full LLM output with both say_this and ask_this) are stored with text.
+      // Stage 1 tips (engine-only, empty ask_this) are stored text-free but carry WP/turn data
+      // so that per-player accuracy can be computed for both sides at session end.
       const sayText = event.insights.say_this[0] ?? '';
       const askText = event.insights.ask_this[0] ?? '';
-      if (sayText && askText) {
+      const hasWpData = event.winChance !== undefined || event.winChanceBefore !== undefined || event.centipawnLoss !== undefined;
+      if ((sayText && askText) || hasWpData) {
         try {
           getMeetingCopilot().addCoachingTip(sayText, askText, event.winChance, event.winChanceBefore, event.engineEval, event.centipawnLoss, event.turn);
         } catch {
