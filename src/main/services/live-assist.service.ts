@@ -1986,6 +1986,7 @@ Rewrite it so say_this is more position-specific. Name the required move, explai
         clearExisting: true,
         winChance: chessContext?.winChance,
         winChanceBefore: chessContext?.winChanceBefore,
+        engineEval: chessContext?.engineEval,
         centipawnLoss: chessContext?.centipawnLoss,
         turn: chessContext?.turn ?? undefined,
       });

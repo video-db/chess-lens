@@ -284,17 +284,15 @@ export const recordingsRouter = router({
       endTime: z.number(),
       tip: z.string(),
       winChance: z.number().optional(),
+      winChanceBefore: z.number().optional(),
+      engineEval: z.number().optional(),
       turn: z.enum(['w', 'b']).optional(),
+      centipawnLoss: z.number().optional(),
     })))
     .query(async ({ input }) => {
-      // Primary source: coaching tips persisted from the live assist pipeline.
-      // These are clean human-readable chess tips ("The best move is a4 because...").
       const coachingTips = getCoachingTipsByRecording(input.recordingId);
 
       if (coachingTips.length > 0) {
-        // Use tip timestamps relative to the first tip for readable display times.
-        // Apply toGameplayTip() to strip any raw XML/FEN tags that may have leaked
-        // into the sayThis field from the coaching pipeline.
         const sessionStart = coachingTips[0].timestamp;
         return coachingTips
           .map((tip, idx) => {
@@ -306,14 +304,15 @@ export const recordingsRouter = router({
               endTime: startTime + 5,
               tip: cleanedTip,
               winChance: tip.winChance,
+              winChanceBefore: tip.winChanceBefore,
+              engineEval: tip.engineEval,
               turn: tip.turn,
+              centipawnLoss: tip.centipawnLoss,
             };
           })
           .filter((item) => !!item.tip);
       }
 
-      // Fallback to visual index items for older sessions that predate coaching_tips.
-      // Apply toGameplayTip to strip raw FEN/XML.
       const items = getVisualIndexItemsByRecording(input.recordingId);
       return items
         .map((item) => ({
@@ -322,7 +321,10 @@ export const recordingsRouter = router({
           endTime: item.endTime,
           tip: toGameplayTip(item.text),
           winChance: undefined,
+          winChanceBefore: undefined,
+          engineEval: undefined,
           turn: undefined,
+          centipawnLoss: undefined,
         }))
         .filter((item) => !!item.tip);
     }),

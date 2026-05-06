@@ -18,6 +18,8 @@ export interface LiveInsightsEvent {
   winChance?: number;
   /** Win chance for White (0–100) BEFORE the move was played. */
   winChanceBefore?: number;
+  /** Engine eval (pawns) of the current position — for winning-buffer suppression. */
+  engineEval?: number;
   /** Centipawn loss for the move that triggered this tip (always ≥ 0). */
   centipawnLoss?: number;
   /** Which side made the move that triggered this tip. */

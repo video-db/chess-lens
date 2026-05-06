@@ -51,6 +51,7 @@ import {
 } from './summary-generator.service';
 
 import { exportMeetingToMarkdown } from '../markdown-export.service';
+import { computeAccuracy } from '../../../shared/lib/moveClassification';
 
 
 const log = logger.child({ module: 'chess-lens' });
@@ -146,11 +147,12 @@ export class MeetingCopilotService extends EventEmitter {
     askThis: string,
     winChance?: number,
     winChanceBefore?: number,
+    engineEval?: number,
     centipawnLoss?: number,
     turn?: 'w' | 'b',
   ): void {
     if (!this.callState?.isActive) return;
-    this.coachingTips.push({ sayThis, askThis, timestamp: Date.now(), winChance, winChanceBefore, centipawnLoss, turn });
+    this.coachingTips.push({ sayThis, askThis, timestamp: Date.now(), winChance, winChanceBefore, engineEval, centipawnLoss, turn });
     log.debug({ total: this.coachingTips.length }, 'Coaching tip accumulated');
   }
 
@@ -439,65 +441,29 @@ export class MeetingCopilotService extends EventEmitter {
     try {
       log.info({ recordingId, hasOverview: summary.shortOverview.length > 0 }, 'Saving call data to database');
 
-      // ── CAPS2-style accuracy formula ─────────────────────────────────────────
-      // We use centipawn loss (CPL) per move — the difference in engine eval
-      // between the position before and after the player's move, measured in
-      // centipawns. CPL is the standard basis for move-quality classification.
-      //
-      // Move classification by CPL (based on chess.com CAPS2 thresholds):
-      //   CPL = 0        → Best    (100 pts)
-      //   CPL < 10       → Best    (100 pts)
-      //   CPL < 20       → Excellent (95 pts)
-      //   CPL < 50       → Good    (85 pts)
-      //   CPL < 100      → Inaccuracy (65 pts)
-      //   CPL < 200      → Mistake (30 pts)
-      //   CPL ≥ 200      → Blunder  (0 pts)
-      //
-      // CAPS2 school-grade curve applied to the average move score:
-      //   accuracy = 103.1668 × exp(−0.04354 × (100 − avgScore)) − 3.1669
-      //   clamped to [0, 100], rounded to 1dp
+      // ── WP-based CAPS2 accuracy (shared moveClassification module) ────────────
+      const whiteMoves = this.coachingTips.filter((t) => t.turn === 'w');
+      const blackMoves = this.coachingTips.filter((t) => t.turn === 'b');
 
-      const cplToScore = (cpl: number): number => {
-        if (cpl <  10) return 100; // Best
-        if (cpl <  20) return  95; // Excellent
-        if (cpl <  50) return  85; // Good
-        if (cpl < 100) return  65; // Inaccuracy
-        if (cpl < 200) return  30; // Mistake
-        return 0;                   // Blunder
-      };
+      const accuracyWhite = computeAccuracy(whiteMoves.map((t) => ({
+        winChance: t.winChance,
+        winChanceBefore: t.winChanceBefore,
+        engineEval: t.engineEval,
+        centipawnLoss: t.centipawnLoss,
+        turn: t.turn,
+      })));
 
-      const caps2Curve = (avgScore: number): number => {
-        const avgLoss = 100 - avgScore;
-        const raw = 103.1668 * Math.exp(-0.04354 * avgLoss) - 3.1669;
-        return Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
-      };
-
-      const calcAccuracy = (tips: typeof this.coachingTips, side: 'w' | 'b'): number | null => {
-        const sideTips = tips.filter((t) => t.turn === side && t.centipawnLoss !== undefined);
-        if (sideTips.length === 0) return null;
-
-        log.debug(
-          { side, count: sideTips.length, cpls: sideTips.map((t) => t.centipawnLoss) },
-          'CAPS2 centipawn losses per move'
-        );
-
-        const scores = sideTips.map((t) => cplToScore(t.centipawnLoss!));
-        const avgScore = scores.reduce((s, v) => s + v, 0) / scores.length;
-
-        log.debug({ side, scores, avgScore }, 'CAPS2 move scores');
-        return caps2Curve(avgScore);
-      };
-
-      const accuracyWhite = calcAccuracy(this.coachingTips, 'w');
-      const accuracyBlack = calcAccuracy(this.coachingTips, 'b');
+      const accuracyBlack = computeAccuracy(blackMoves.map((t) => ({
+        winChance: t.winChance,
+        winChanceBefore: t.winChanceBefore,
+        engineEval: t.engineEval,
+        centipawnLoss: t.centipawnLoss,
+        turn: t.turn,
+      })));
 
       log.info(
-        {
-          recordingId, accuracyWhite, accuracyBlack,
-          whiteMoves: this.coachingTips.filter((t) => t.turn === 'w').length,
-          blackMoves: this.coachingTips.filter((t) => t.turn === 'b').length,
-        },
-        'CAPS2 accuracy computed'
+        { recordingId, accuracyWhite, accuracyBlack, whiteMoves: whiteMoves.length, blackMoves: blackMoves.length },
+        'WP-CAPS2 accuracy computed'
       );
 
       updateRecording(recordingId, {

@@ -31,6 +31,7 @@ import {
   Send,
   Check,
 } from 'lucide-react';
+import { classifyStoredMove, MOVE_BADGE, KEY_MOMENT_QUALITIES } from '../../../shared/lib/moveClassification';
 
 // ── Shared mock data ─────────────────────────────────────────────────────────
 
@@ -78,28 +79,28 @@ const MOCK_KEY_POINTS = [
 ];
 
 const MOCK_GAMEPLAY_TIPS = [
-  { id: 'tip-1',  startTime: 120,  tip: 'Excellent Sicilian Najdorf choice — keeps the position flexible.', winChance: 50.0, turn: 'w' as const },
-  { id: 'tip-2',  startTime: 360,  tip: 'Strong knight development to c6.', winChance: 46.2, turn: 'b' as const },
-  { id: 'tip-3',  startTime: 580,  tip: 'Good pawn structure — Najdorf 9...Nbd7 avoids sharp lines.', winChance: 43.8, turn: 'w' as const },
-  { id: 'tip-4',  startTime: 820,  tip: 'Solid defensive resource.', winChance: 47.0, turn: 'b' as const },
-  { id: 'tip-5',  startTime: 1050, tip: 'Missed tactic: ...Rxc3! wins material here.', winChance: 34.2, turn: 'w' as const },
-  { id: 'tip-6',  startTime: 1250, tip: 'Slight inaccuracy — slightly passive.', winChance: 35.7, turn: 'b' as const },
-  { id: 'tip-7',  startTime: 1480, tip: 'Good practical decision.', winChance: 44.0, turn: 'w' as const },
-  { id: 'tip-8',  startTime: 1700, tip: 'Blunder — walking into a discovered attack. Nd5 was the only move.', winChance: 33.3, turn: 'b' as const },
-  { id: 'tip-9',  startTime: 1920, tip: 'Endgame is difficult.', winChance: 28.6, turn: 'w' as const },
-  { id: 'tip-10', startTime: 2160, tip: 'Slight recovery — best move in the position.', winChance: 38.2, turn: 'b' as const },
-  { id: 'tip-11', startTime: 2390, tip: 'Strong defensive resource: Kf8 prevents rook entry.', winChance: 44.0, turn: 'w' as const },
-  { id: 'tip-12', startTime: 2600, tip: 'Inaccuracy — slightly passive. The active ...b4 push creates counterplay.', winChance: 36.9, turn: 'b' as const },
-  { id: 'tip-13', startTime: 2820, tip: 'Equal position reached.', winChance: 50.0, turn: 'w' as const },
-  { id: 'tip-14', startTime: 3050, tip: 'Good continuation.', winChance: 42.3, turn: 'b' as const },
-  { id: 'tip-15', startTime: 3260, tip: 'Solid.', winChance: 39.9, turn: 'w' as const },
-  { id: 'tip-16', startTime: 3480, tip: 'Active defence.', winChance: 45.2, turn: 'b' as const },
-  { id: 'tip-17', startTime: 3700, tip: 'Strong attacking resource.', winChance: 33.9, turn: 'w' as const },
-  { id: 'tip-18', startTime: 3920, tip: 'Good technique.', winChance: 35.1, turn: 'b' as const },
-  { id: 'tip-19', startTime: 4140, tip: 'Best defensive try.', winChance: 43.5, turn: 'w' as const },
-  { id: 'tip-20', startTime: 4360, tip: 'Clear advantage obtained.', winChance: 33.3, turn: 'b' as const },
-  { id: 'tip-21', startTime: 4580, tip: 'Clean endgame technique — king centralisation.', winChance: 27.4, turn: 'w' as const },
-  { id: 'tip-22', startTime: 4800, tip: 'Final consolidation.', winChance: 38.1, turn: 'b' as const },
+  { id: 'tip-1',  startTime: 120,  tip: 'Excellent Sicilian Najdorf choice — keeps the position flexible.', winChance: 50.0, turn: 'w' as const, centipawnLoss: 8   },
+  { id: 'tip-2',  startTime: 360,  tip: 'Strong knight development to c6.', winChance: 46.2, turn: 'b' as const, centipawnLoss: 5   },
+  { id: 'tip-3',  startTime: 580,  tip: 'Good pawn structure — Najdorf 9...Nbd7 avoids sharp lines.', winChance: 43.8, turn: 'w' as const, centipawnLoss: 15  },
+  { id: 'tip-4',  startTime: 820,  tip: 'Solid defensive resource.', winChance: 47.0, turn: 'b' as const, centipawnLoss: 22  },
+  { id: 'tip-5',  startTime: 1050, tip: 'Missed tactic: ...Rxc3! wins material here. The knight on c3 is undefended.', winChance: 34.2, turn: 'w' as const, centipawnLoss: 185 },
+  { id: 'tip-6',  startTime: 1250, tip: 'Slightly passive — the active ...b4 push would have created counterplay.', winChance: 35.7, turn: 'b' as const, centipawnLoss: 62  },
+  { id: 'tip-7',  startTime: 1480, tip: 'Best defensive try in a difficult position.', winChance: 44.0, turn: 'w' as const, centipawnLoss: 7   },
+  { id: 'tip-8',  startTime: 1700, tip: 'Blunder — walking into a discovered attack. Nd5 was the only move to maintain balance.', winChance: 33.3, turn: 'b' as const, centipawnLoss: 312 },
+  { id: 'tip-9',  startTime: 1920, tip: 'Endgame technique is critical here — activate the rook before advancing.', winChance: 28.6, turn: 'w' as const, centipawnLoss: 95  },
+  { id: 'tip-10', startTime: 2160, tip: 'Best move — centralises the king efficiently.', winChance: 38.2, turn: 'b' as const, centipawnLoss: 3   },
+  { id: 'tip-11', startTime: 2390, tip: 'Strong defensive resource: Kf8 prevents the rook from entering via the 7th rank.', winChance: 44.0, turn: 'w' as const, centipawnLoss: 9   },
+  { id: 'tip-12', startTime: 2600, tip: 'Inaccuracy — this allows the opponent to activate their bishop with tempo.', winChance: 36.9, turn: 'b' as const, centipawnLoss: 78  },
+  { id: 'tip-13', startTime: 2820, tip: 'Equal position reached after precise play.', winChance: 50.0, turn: 'w' as const, centipawnLoss: 18  },
+  { id: 'tip-14', startTime: 3050, tip: 'Mistake — this concedes the f5 outpost unnecessarily.', winChance: 42.3, turn: 'b' as const, centipawnLoss: 143 },
+  { id: 'tip-15', startTime: 3260, tip: 'Solid continuation.', winChance: 39.9, turn: 'w' as const, centipawnLoss: 30  },
+  { id: 'tip-16', startTime: 3480, tip: 'Active defence — well-timed rook lift.', winChance: 45.2, turn: 'b' as const, centipawnLoss: 12  },
+  { id: 'tip-17', startTime: 3700, tip: 'Strong attacking resource — opens the h-file with gain of tempo.', winChance: 33.9, turn: 'w' as const, centipawnLoss: 6   },
+  { id: 'tip-18', startTime: 3920, tip: 'Blunder — leaves the queen en prise after the knight fork on e5.', winChance: 35.1, turn: 'b' as const, centipawnLoss: 287 },
+  { id: 'tip-19', startTime: 4140, tip: 'Best defensive try — the only move that holds the position.', winChance: 43.5, turn: 'w' as const, centipawnLoss: 4   },
+  { id: 'tip-20', startTime: 4360, tip: 'Clear advantage obtained — rook dominates the 7th rank.', winChance: 33.3, turn: 'b' as const, centipawnLoss: 45  },
+  { id: 'tip-21', startTime: 4580, tip: 'Clean endgame technique — king centralisation before advancing the passed pawn.', winChance: 27.4, turn: 'w' as const, centipawnLoss: 11  },
+  { id: 'tip-22', startTime: 4800, tip: 'Final consolidation — accurate technique to convert the endgame.', winChance: 38.1, turn: 'b' as const, centipawnLoss: 19  },
 ];
 
 // ── Helpers (copied from RecordingDetailPage to make stories self-contained) ──
@@ -125,23 +126,6 @@ function extractPlayerNames(title: string | null | undefined): { white: string; 
   const match = title.match(/^(.+?)\s+vs\.?\s+(.+)$/i);
   if (match) return { white: match[1].trim(), black: match[2].trim() };
   return { white: 'White', black: 'Black' };
-}
-
-const moveBadgeColors: Record<string, { bg: string; color: string }> = {
-  best:       { bg: '#DFFBE0', color: '#009106' },
-  good:       { bg: '#DFFBE0', color: '#009106' },
-  inaccuracy: { bg: '#FFE9D3', color: '#EC5B16' },
-  mistake:    { bg: '#FEF9C3', color: '#C49A20' },
-  blunder:    { bg: '#FEE2E2', color: '#EF4444' },
-};
-
-function classifyTip(tipText: string): keyof typeof moveBadgeColors {
-  const lower = tipText.toLowerCase();
-  if (lower.includes('blunder') || lower.includes('walked into') || lower.includes('decisive mistake')) return 'blunder';
-  if (lower.includes('mistake') || lower.includes('cedes') || lower.includes('weaker')) return 'mistake';
-  if (lower.includes('excellent') || lower.includes('best') || lower.includes('strong') || lower.includes('well-timed')) return 'best';
-  if (lower.includes('inaccuracy') || lower.includes('slightly')) return 'inaccuracy';
-  return 'good';
 }
 
 // ── Pure presentational sub-components (mirrors RecordingDetailPage) ──────────
@@ -329,37 +313,44 @@ function MockMatchSummaryCard({ summary }: { summary: string | null | undefined 
   );
 }
 
-function MockKeyMomentsCard({ tips }: { tips: { id: string; startTime: number; tip: string }[] }) {
-  if (!tips.length) return null;
+function MockKeyMomentsCard({ tips }: { tips: { id: string; startTime: number; tip: string; centipawnLoss?: number; winChance?: number; winChanceBefore?: number; engineEval?: number; turn?: 'w' | 'b' }[] }) {
+  const classified = tips.map((t) => ({
+    ...t,
+    quality: classifyStoredMove({ winChance: t.winChance, winChanceBefore: t.winChanceBefore, engineEval: t.engineEval, centipawnLoss: t.centipawnLoss, turn: t.turn }),
+  }));
+  const keyMoments = classified.filter((t) => KEY_MOMENT_QUALITIES.has(t.quality));
+  const displayTips = keyMoments.length > 0 ? keyMoments : classified.slice(0, 5);
+  if (!displayTips.length) return null;
+
   return (
-    <div className="flex flex-col gap-[20px]" style={{ background: '#F7F7F7', border: '1px solid #EFEFEF', borderRadius: 16, padding: 16, minHeight: 200 }}>
-      <span className="text-[14px] font-semibold text-black">Key Moments</span>
-      <div className="flex flex-col gap-[16px]">
-        {tips.map((tip, idx) => {
-          const quality = classifyTip(tip.tip);
-          const badge = moveBadgeColors[quality];
+    <div className="flex flex-col gap-[20px]" style={{ background: '#F7F7F7', border: '1px solid #EFEFEF', borderRadius: 16, padding: 16 }}>
+      <div className="flex items-center justify-between">
+        <span className="text-[14px] font-semibold text-black">Key Moments</span>
+        <span className="text-[12px] text-text-body opacity-60">{displayTips.length} moves</span>
+      </div>
+      <div className="flex flex-col gap-[12px]">
+        {displayTips.map((tip) => {
+          const cfg = MOVE_BADGE[tip.quality];
           const moveMatch = tip.tip.match(/\b([NBRQK]?[a-h]?[1-8]?x?[a-h][1-8](?:=[NBRQ])?[+#]?)\b/);
           const moveLabel = moveMatch ? moveMatch[1] : '—';
           return (
-            <div key={tip.id} className="flex items-center gap-[20px] bg-white rounded-[12px]" style={{ padding: 16 }}>
-              <div className="flex flex-col gap-[8px]" style={{ width: 56, flexShrink: 0 }}>
-                <span className="text-[12px] text-text-body">MOVE {idx + 1}</span>
-                <span className="text-[20px] font-semibold text-black" style={{ lineHeight: '16px' }}>{moveLabel}</span>
+            <div key={tip.id} className="flex items-center gap-[16px] bg-white rounded-[12px]" style={{ padding: '12px 16px' }}>
+              <div style={{ background: cfg.bg, borderRadius: 8, padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, minWidth: 90, justifyContent: 'center' }}>
+                {cfg.symbol && <span style={{ fontSize: 11, fontWeight: 700, color: cfg.color }}>{cfg.symbol}</span>}
+                <span style={{ fontSize: 12, fontWeight: 600, color: cfg.color }}>{cfg.label}</span>
               </div>
-              <div style={{ width: 1, height: 40, background: '#EFEFEF', flexShrink: 0 }} />
-              <div className="flex-1 flex flex-col gap-[8px]">
-                <p className="text-[14px] text-text-body">{tip.tip}</p>
-                <div className="flex items-center gap-[4px]">
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M3 6L9 2M9 2V8M9 2H3" stroke="#C14103" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  <span className="text-[13px] font-medium text-text-body">Jump to {formatTipTimestamp(tip.startTime)}</span>
-                </div>
+              <div style={{ width: 1, height: 36, background: '#EFEFEF', flexShrink: 0 }} />
+              <div className="flex-1 flex flex-col gap-[4px] min-w-0">
+                {moveLabel !== '—' && <span className="text-[16px] font-semibold text-black" style={{ lineHeight: 1 }}>{moveLabel}</span>}
+                <p className="text-[13px] text-text-body" style={{ margin: 0, lineHeight: '18px' }}>
+                  {tip.tip.length > 120 ? tip.tip.slice(0, 117) + '…' : tip.tip}
+                </p>
               </div>
-              <div style={{ background: badge.bg, borderRadius: 6, padding: '6px' }}>
-                <span className="text-[13px] font-medium" style={{ color: badge.color }}>
-                  {quality.charAt(0).toUpperCase() + quality.slice(1)}
-                </span>
+              <div className="flex flex-col items-center gap-[2px]" style={{ minWidth: 44 }}>
+                <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+                  <path d="M3 6L9 2M9 2V8M9 2H3" stroke="#C14103" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span className="text-[11px] font-medium" style={{ color: '#C14103' }}>{formatTipTimestamp(tip.startTime)}</span>
               </div>
             </div>
           );
@@ -480,7 +471,7 @@ interface MockPageProps {
   duration: number | null;
   shortOverview: string | null;
   keyPoints: Array<{ topic: string; points: string[] }> | null;
-  gameplayTips: { id: string; startTime: number; tip: string; winChance?: number; turn?: 'w' | 'b' }[];
+  gameplayTips: { id: string; startTime: number; tip: string; winChance?: number; winChanceBefore?: number; engineEval?: number; turn?: 'w' | 'b'; centipawnLoss?: number }[];
   hasVideo: boolean;
   badges: { label: string; bg: string; color: string }[];
   accuracyWhite: number | null;

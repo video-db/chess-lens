@@ -28,6 +28,7 @@ import { trpc } from '../../api/trpc';
 import { getElectronAPI } from '../../api/ipc';
 import type { Recording } from '../../../shared/schemas/recording.schema';
 import { formatDate, formatDurationMinutes, cn } from '../../lib/utils';
+import { classifyStoredMove, MOVE_BADGE, KEY_MOMENT_QUALITIES, type MoveQuality } from '../../../shared/lib/moveClassification';
 
 interface RecordingDetailPageProps {
   recordingId: number;
@@ -697,17 +698,49 @@ function formatTipTimestamp(seconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-// Move quality badge colors
-const moveBadgeColors: Record<string, { bg: string; color: string }> = {
-  best:       { bg: '#DFFBE0', color: '#009106' },
-  good:       { bg: '#DFFBE0', color: '#009106' },
-  inaccuracy: { bg: '#FFE9D3', color: '#EC5B16' },
-  mistake:    { bg: '#FEF9C3', color: '#C49A20' },
-  blunder:    { bg: '#FEE2E2', color: '#EF4444' },
-};
+// MoveQuality, MOVE_BADGE, KEY_MOMENT_QUALITIES are imported from the shared
+// moveClassification module at the top of this file.
 
-function KeyMomentsCard({ tips, playerUrl }: { tips: { id: string; startTime: number; tip: string }[]; playerUrl: string | null | undefined }) {
-  if (!tips.length) return null;
+function KeyMomentsCard({
+  tips,
+  playerUrl,
+}: {
+  tips: {
+    id: string;
+    startTime: number;
+    tip: string;
+    centipawnLoss?: number;
+    winChance?: number;
+    winChanceBefore?: number;
+    engineEval?: number;
+    turn?: 'w' | 'b';
+  }[];
+  playerUrl: string | null | undefined;
+}) {
+  // Classify all tips using the WP-based shared classifier, preserving original index for move number
+  const classified = tips.map((tip, idx) => ({
+    ...tip,
+    originalIndex: idx,
+    quality: classifyStoredMove({
+      winChance: tip.winChance,
+      winChanceBefore: tip.winChanceBefore,
+      engineEval: tip.engineEval,
+      centipawnLoss: tip.centipawnLoss,
+      turn: tip.turn,
+    }) as MoveQuality,
+  }));
+
+  const keyMoments = classified.filter((t) => KEY_MOMENT_QUALITIES.has(t.quality));
+
+  // Fallback: if no key moments, show the 5 most impactful by CPL
+  const displayTips = keyMoments.length > 0
+    ? keyMoments
+    : classified
+        .filter((t) => t.centipawnLoss !== undefined)
+        .sort((a, b) => (b.centipawnLoss ?? 0) - (a.centipawnLoss ?? 0))
+        .slice(0, 5);
+
+  if (!displayTips.length) return null;
 
   const openAtTimestamp = (seconds: number) => {
     if (!playerUrl) return;
@@ -716,60 +749,207 @@ function KeyMomentsCard({ tips, playerUrl }: { tips: { id: string; startTime: nu
     window.electronAPI?.app.openExternalLink(timedUrl);
   };
 
-  // Classify tip quality from text
-  const classifyTip = (tipText: string): keyof typeof moveBadgeColors => {
-    const lower = tipText.toLowerCase();
-    if (lower.includes('blunder') || lower.includes('walked into') || lower.includes('decisive mistake')) return 'blunder';
-    if (lower.includes('mistake') || lower.includes('cedes') || lower.includes('weaker')) return 'mistake';
-    if (lower.includes('excellent') || lower.includes('best') || lower.includes('strong') || lower.includes('well-timed')) return 'best';
-    if (lower.includes('inaccuracy') || lower.includes('slightly')) return 'inaccuracy';
-    return 'good';
+  // Derive chess move number from the tip's position in the full tip list.
+  // Each full move = white tip + black tip, so move number = floor(originalIndex / 2) + 1.
+  const getMoveNumber = (originalIndex: number): number => Math.floor(originalIndex / 2) + 1;
+
+  // Derive a short move label from the tip text (SAN notation)
+  const getMoveLabel = (tipText: string): string => {
+    const moveMatch = tipText.match(/\b([NBRQK]?[a-h]?[1-8]?x?[a-h][1-8](?:=[NBRQ])?[+#]?)\b/);
+    return moveMatch ? moveMatch[1] : '—';
   };
 
   return (
-    <div className="flex flex-col gap-[20px]" style={{ background: '#F7F7F7', border: '1px solid #EFEFEF', borderRadius: 16, padding: 16, minHeight: 200 }}>
-      <span className="text-[14px] font-semibold text-black" style={{ textTransform: 'capitalize' }}>Key Moments</span>
+    <div
+      style={{
+        background: '#F7F7F7',
+        border: '1px solid #EFEFEF',
+        borderRadius: 16,
+        padding: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+      }}
+    >
+      {/* Section title */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span
+          style={{
+            fontSize: 14,
+            fontWeight: 700,
+            color: '#000000',
+            letterSpacing: '0.005em',
+            textTransform: 'uppercase',
+          }}
+        >
+          Key Moments
+        </span>
+        <span style={{ fontSize: 12, color: '#464646', opacity: 0.5, letterSpacing: '0.005em' }}>
+          {displayTips.length} move{displayTips.length !== 1 ? 's' : ''}
+        </span>
+      </div>
 
-      <div className="flex flex-col gap-[16px]">
-        {tips.map((tip, idx) => {
-          const quality = classifyTip(tip.tip);
-          const badge = moveBadgeColors[quality];
-          // Extract a short move label from tip text (first word that looks like a move)
-          const moveMatch = tip.tip.match(/\b([NBRQK]?[a-h]?[1-8]?x?[a-h][1-8](?:=[NBRQ])?[+#]?)\b/);
-          const moveLabel = moveMatch ? moveMatch[1] : '—';
+      {/* Rows table */}
+      <div
+        style={{
+          background: '#FFFFFF',
+          border: '1px solid #EFEFEF',
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}
+      >
+        {displayTips.map((tip, index) => {
+          const cfg = MOVE_BADGE[tip.quality];
+          const moveLabel = getMoveLabel(tip.tip);
+          const moveNumber = getMoveNumber(tip.originalIndex);
+          const shortDesc = tip.tip.length > 110 ? tip.tip.slice(0, 107) + '…' : tip.tip;
+          const isLast = index === displayTips.length - 1;
 
           return (
-            <div key={tip.id} className="flex items-center gap-[20px] bg-white rounded-[12px]" style={{ padding: 16 }}>
-              {/* Move # + notation */}
-              <div className="flex flex-col gap-[8px]" style={{ width: 56, flexShrink: 0 }}>
-                <span className="text-[12px] text-text-body" style={{ letterSpacing: '0.005em' }}>MOVE {idx + 1}</span>
-                <span className="text-[20px] font-semibold text-black" style={{ lineHeight: '16px' }}>{moveLabel}</span>
+            <div
+              key={tip.id}
+              style={{
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: 16,
+                gap: 20,
+                height: 72,
+                background: '#FFFFFF',
+                borderBottom: isLast ? 'none' : '1px solid #EFEFEF',
+                boxSizing: 'border-box',
+              }}
+            >
+              {/* left — "MOVE 4" label + "Bc4" SAN, flex-col, 56×40 */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  width: 56,
+                  flexShrink: 0,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 400,
+                    fontSize: 12,
+                    lineHeight: '16px',
+                    color: '#464646',
+                  }}
+                >
+                  MOVE {moveNumber}
+                </span>
+                <span
+                  style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 600,
+                    fontSize: 20,
+                    lineHeight: '16px',
+                    color: '#000000',
+                  }}
+                >
+                  {moveLabel}
+                </span>
               </div>
 
-              {/* Vertical divider */}
-              <div style={{ width: 1, height: 40, background: '#EFEFEF', flexShrink: 0 }} />
+              {/* vertical divider — rotated border, aligns via alignSelf stretch */}
+              <div style={{ width: 1, alignSelf: 'stretch', background: '#EFEFEF', flexShrink: 0 }} />
 
-              {/* Description + jump link */}
-              <div className="flex-1 flex flex-col gap-[8px]">
-                <p className="text-[14px] text-text-body">{tip.tip}</p>
+              {/* title column — description text + play row, flex-col, flex-grow 1 */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  flex: 1,
+                  minWidth: 0,
+                }}
+              >
+                {/* description */}
+                <p
+                  style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 400,
+                    fontSize: 14,
+                    lineHeight: '16px',
+                    color: '#464646',
+                    margin: 0,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    width: '100%',
+                  }}
+                  title={tip.tip}
+                >
+                  {shortDesc}
+                </p>
+
+                {/* play row — triangle icon + "Jump to X:XX" */}
                 <button
                   onClick={() => openAtTimestamp(tip.startTime)}
                   disabled={!playerUrl}
-                  className="flex items-center gap-[4px] text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: 0,
+                    background: 'none',
+                    border: 'none',
+                    cursor: playerUrl ? 'pointer' : 'not-allowed',
+                    opacity: playerUrl ? 1 : 0.4,
+                  }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M3 6L9 2M9 2V8M9 2H3" stroke="#C14103" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M11 6C11 6.152 10.962 6.303 10.886 6.436C10.811 6.569 10.703 6.68 10.573 6.759L2.168 11.718C2.031 11.801 1.875 11.847 1.715 11.850C1.554 11.852 1.396 11.813 1.257 11.735C1.118 11.657 1.002 11.543 0.922 11.407C0.843 11.271 0.800 11.116 0.800 10.958V1.042C0.800 0.884 0.843 0.729 0.922 0.593C1.002 0.457 1.118 0.343 1.257 0.265C1.396 0.187 1.554 0.148 1.715 0.150C1.875 0.153 2.031 0.199 2.168 0.282L10.573 5.241C10.703 5.320 10.811 5.431 10.886 5.564C10.962 5.697 11 5.848 11 6Z"
+                      fill="#C14103"
+                    />
                   </svg>
-                  <span className="text-[13px] font-medium text-text-body">
+                  <span
+                    style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontWeight: 500,
+                      fontSize: 13,
+                      lineHeight: '16px',
+                      color: '#464646',
+                    }}
+                  >
                     Jump to {formatTipTimestamp(tip.startTime)}
                   </span>
                 </button>
               </div>
 
-              {/* Quality badge */}
-              <div style={{ background: badge.bg, borderRadius: 6, padding: '6px' }}>
-                <span className="text-[13px] font-medium" style={{ color: badge.color, letterSpacing: '0.005em' }}>
-                  {quality.charAt(0).toUpperCase() + quality.slice(1)}
+              {/* badge */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: 6,
+                  gap: 1,
+                  background: cfg.bg,
+                  borderRadius: 6,
+                  flexShrink: 0,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 500,
+                    fontSize: 13,
+                    lineHeight: '16px',
+                    letterSpacing: '0.005em',
+                    color: cfg.color,
+                  }}
+                >
+                  {cfg.label}
                 </span>
               </div>
             </div>

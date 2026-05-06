@@ -71,7 +71,7 @@ export function setupLiveAssistHandlers(): void {
       const askText = event.insights.ask_this[0] ?? '';
       if (sayText && askText) {
         try {
-          getMeetingCopilot().addCoachingTip(sayText, askText, event.winChance, event.winChanceBefore, event.centipawnLoss, event.turn);
+          getMeetingCopilot().addCoachingTip(sayText, askText, event.winChance, event.winChanceBefore, event.engineEval, event.centipawnLoss, event.turn);
         } catch {
           // Copilot may not be active (e.g. tests) — silently ignore
         }
