@@ -188,7 +188,26 @@ export interface LiveAssistApi {
 }
 
 export interface LiveAssistEvents {
-  onUpdate: (callback: (data: { insights: { say_this: string[]; ask_this: string[] }; processedAt: number; clearExisting?: boolean }) => void) => () => void;
+  onUpdate: (callback: (data: {
+    insights: { say_this: string[]; ask_this: string[] };
+    processedAt: number;
+    clearExisting?: boolean;
+    winChance?: number;
+    winChanceBefore?: number;
+    engineEval?: number;
+    centipawnLoss?: number;
+    turn?: 'w' | 'b';
+    moveSan?: string;
+  }) => void) => () => void;
+  onFen: (callback: (data: {
+    fen: string;
+    displayFen: string;
+    board: string | null;
+    turn: 'w' | 'b' | null;
+    engineSan?: string;
+    engineEval?: number;
+    engineMate?: number | null;
+  }) => void) => () => void;
 }
 
 export interface WorkflowsApi {

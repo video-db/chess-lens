@@ -344,10 +344,33 @@ const api: IpcApi = {
   },
 
   liveAssistOn: {
-    onUpdate: (callback: (data: { insights: { say_this: string[]; ask_this: string[] }; processedAt: number; clearExisting?: boolean }) => void) => {
+    onUpdate: (callback: (data: {
+      insights: { say_this: string[]; ask_this: string[] };
+      processedAt: number;
+      clearExisting?: boolean;
+      winChance?: number;
+      winChanceBefore?: number;
+      engineEval?: number;
+      centipawnLoss?: number;
+      turn?: 'w' | 'b';
+      moveSan?: string;
+    }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
       ipcRenderer.on('live-assist:update', listener);
       return () => ipcRenderer.removeListener('live-assist:update', listener);
+    },
+    onFen: (callback: (data: {
+      fen: string;
+      displayFen: string;
+      board: string | null;
+      turn: 'w' | 'b' | null;
+      engineSan?: string;
+      engineEval?: number;
+      engineMate?: number | null;
+    }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+      ipcRenderer.on('live-assist:fen', listener);
+      return () => ipcRenderer.removeListener('live-assist:fen', listener);
     },
   },
 

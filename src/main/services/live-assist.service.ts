@@ -1989,6 +1989,7 @@ Rewrite it so say_this is more position-specific. Name the required move, explai
         engineEval: chessContext?.engineEval,
         centipawnLoss: chessContext?.centipawnLoss,
         turn: chessContext?.turn ?? undefined,
+        moveSan: chessContext?.engineSan ?? chessContext?.playedMoveSan ?? undefined,
       });
       endStep('coachingTip');
       endCycle('coachingTip');

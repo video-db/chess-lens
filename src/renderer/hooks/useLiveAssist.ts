@@ -81,27 +81,63 @@ export function useLiveAssist() {
         sayThis: event.insights.say_this.length,
         askThis: event.insights.ask_this.length,
         clearExisting: !!event.clearExisting,
+        winChance: event.winChance,
+        turn: event.turn,
+        moveSan: event.moveSan,
       });
 
       if (event.clearExisting) {
-        store.clear();
+        // NOTE: We intentionally do NOT clear tips here — clearExisting is sent on every
+        // position change but the live session UI should accumulate all tips over time.
+        // The widget handles its own clearing separately. Full reset only happens on session end.
       }
 
-      store.addInsights(event.insights);
+      // Pass winChance data alongside insights so the store can build the live chart.
+      // winChance arrives on every emit (both stage-1 engine-only and stage-2 LLM tips).
+      // We only add a chart point when we have a real winChance value.
+      store.addInsights(event.insights, {
+        winChance: event.winChance,
+        turn: event.turn,
+        moveSan: event.moveSan,
+      });
     });
+
+    // Subscribe to FEN events to build move history table
+    // Guard: onFen may not exist on older preload builds
+    let unsubFen: (() => void) | undefined;
+    if (typeof api.liveAssistOn.onFen === 'function') {
+      let lastTurn: 'w' | 'b' | null = null;
+      let lastEngineSan: string | undefined = undefined;
+
+      unsubFen = api.liveAssistOn.onFen((data) => {
+        const currentTurn = data.turn;
+        const san = data.engineSan;
+
+        if (lastTurn !== null && currentTurn !== null && lastTurn !== currentTurn && lastEngineSan) {
+          store.addMove(lastEngineSan, lastTurn);
+        }
+
+        lastTurn = currentTurn;
+        lastEngineSan = san;
+      });
+    }
 
     return () => {
       console.log('[LiveAssist] Cleaning up event listener');
       unsubscribe();
+      unsubFen?.();
     };
   }, [store]);
 
   return {
     sayThis: store.sayThis,
     askThis: store.askThis,
+    coachingTips: store.coachingTips,
+    moveHistory: store.moveHistory,
     isProcessing: store.isProcessing,
     lastProcessedAt: store.lastProcessedAt,
     error: store.error,
+    winProbabilityHistory: store.winProbabilityHistory,
     clear: store.clear,
   };
 }

@@ -1,0 +1,721 @@
+
+> chess-lens@1.0.2 dev
+> npm run build:main && concurrently -k "npm run dev:renderer" "sleep 2 && electron ."
+
+
+> chess-lens@1.0.2 build:main
+> tsc -p tsconfig.node.json
+
+[0] 
+[0] > chess-lens@1.0.2 dev:renderer
+[0] > vite
+[0] 
+[0] 
+[0]   [32m[1mVITE[22m v6.4.1[39m  [2mready in [0m[1m1138[22m[2m[0m ms[22m
+[0] 
+[0]   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m51730[22m/[39m
+[0] [2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[1] 
+[1] [2026-05-07 01:07:50.657 +0530] [32mINFO[39m: [36mApp starting[39m
+[1] [2026-05-07 01:07:50.657 +0530] [32mINFO[39m: [36mSkipping VideoDB patches in development mode[39m
+[1] [2026-05-07 01:07:50.658 +0530] [32mINFO[39m: [36mInitializing database[39m
+[1]     [35mdbPath[39m: "C:\Users\ASUS\AppData\Roaming\chess-lens\data\chess-lens.db"
+[1] [2026-05-07 01:07:50.675 +0530] [32mINFO[39m: [36mDatabase initialized successfully[39m
+[1] [2026-05-07 01:07:50.678 +0530] [32mINFO[39m: [36mHTTP server started[39m
+[1]     [35mmodule[39m: "http-server"
+[1]     [35mport[39m: 51731
+[1] [2026-05-07 01:07:50.678 +0530] [32mINFO[39m: [36mHTTP server started[39m
+[1]     [35mport[39m: 51731
+[1] [2026-05-07 01:07:50.678 +0530] [32mINFO[39m: [36m🔌 Initializing MCP Connection Orchestrator...[39m
+[1] [2026-05-07 01:07:50.678 +0530] [32mINFO[39m: [36mInitializing MCP Connection Orchestrator[39m
+[1]     [35mmodule[39m: "mcp-orchestrator"
+[1] [2026-05-07 01:07:50.679 +0530] [32mINFO[39m: [36mConnecting to auto-connect servers[39m
+[1]     [35mmodule[39m: "mcp-orchestrator"
+[1]     [35mcount[39m: 0
+[1] [2026-05-07 01:07:50.679 +0530] [32mINFO[39m: [36mMCP Connection Orchestrator initialized[39m
+[1]     [35mmodule[39m: "mcp-orchestrator"
+[1] [2026-05-07 01:07:50.679 +0530] [32mINFO[39m: [36m🔌 MCP Connection Orchestrator initialized[39m
+[1] [2026-05-07 01:07:50.679 +0530] [32mINFO[39m: [36mSetting up IPC handlers[39m
+[1]     [35mmodule[39m: "ipc"
+[1] [2026-05-07 01:07:50.679 +0530] [32mINFO[39m: [36mSetting up Meeting Co-Pilot IPC handlers[39m
+[1]     [35mmodule[39m: "copilot-ipc"
+[1] [2026-05-07 01:07:50.680 +0530] [32mINFO[39m: [36mMeeting Co-Pilot IPC handlers registered[39m
+[1]     [35mmodule[39m: "copilot-ipc"
+[1] [2026-05-07 01:07:50.680 +0530] [32mINFO[39m: [36mSetting up MCP IPC handlers[39m
+[1]     [35mmodule[39m: "mcp-ipc"
+[1] [2026-05-07 01:07:50.680 +0530] [32mINFO[39m: [36mMCP IPC handlers registered[39m
+[1]     [35mmodule[39m: "mcp-ipc"
+[1] [2026-05-07 01:07:50.680 +0530] [32mINFO[39m: [36mSetting up calendar IPC handlers[39m
+[1]     [35mmodule[39m: "ipc-calendar"
+[1] [2026-05-07 01:07:50.680 +0530] [32mINFO[39m: [36mCalendar IPC handlers registered[39m
+[1]     [35mmodule[39m: "ipc-calendar"
+[1] [2026-05-07 01:07:50.680 +0530] [32mINFO[39m: [36mSetting up workflow IPC handlers[39m
+[1]     [35mmodule[39m: "ipc-workflows"
+[1] [2026-05-07 01:07:50.680 +0530] [32mINFO[39m: [36mWorkflow IPC handlers registered[39m
+[1]     [35mmodule[39m: "ipc-workflows"
+[1] [2026-05-07 01:07:50.680 +0530] [32mINFO[39m: [36mIPC handlers registered[39m
+[1]     [35mmodule[39m: "ipc"
+[1] [2026-05-07 01:07:50.829 +0530] [32mINFO[39m: [36mResolved dev server URL[39m
+[1]     [35mcandidateUrl[39m: "http://localhost:51730"
+[1] [2026-05-07 01:07:52.975 +0530] [32mINFO[39m: [36mTray created[39m
+[1]     [35mmodule[39m: "tray"
+[1] [2026-05-07 01:07:52.976 +0530] [32mINFO[39m: [36mSystem tray created[39m
+[1] [2026-05-07 01:07:52.977 +0530] [34mDEBUG[39m: [36mUser already has collection ID[39m
+[1]     [35mcollectionId[39m: "c-b1b87263-2b2a-4dc7-b5bd-0383ee588d86"
+[1] [2026-05-07 01:07:52.978 +0530] [34mDEBUG[39m: [36mNo stuck recording sessions found at startup[39m
+[1]     [35mmodule[39m: "session-recovery"
+[1] [2026-05-07 01:07:52.978 +0530] [32mINFO[39m: [36mStarting background session recovery...[39m
+[1] [2026-05-07 01:07:52.979 +0530] [34mDEBUG[39m: [36mNo stuck recording sessions found at startup[39m
+[1]     [35mmodule[39m: "session-recovery"
+[1] [2026-05-07 01:07:52.979 +0530] [34mDEBUG[39m: [36mNo pending recordings to recover[39m
+[1]     [35mmodule[39m: "session-recovery"
+[1] [2026-05-07 01:07:52.979 +0530] [32mINFO[39m: [36mApp started successfully[39m
+[1] [2026-05-07 01:07:52.992 +0530] [32mINFO[39m: [36mLLM Service initialized (VideoDB proxy)[39m
+[1]     [35mmodule[39m: "llm-service"
+[1]     [35mmodel[39m: "pro"
+[1]     [35mapiBase[39m: "https://api.videodb.io"
+[1]     [35mrtstreamVisionModel[39m: "openai/gpt-5.4"
+[1] [2026-05-07 01:07:52.992 +0530] [32mINFO[39m: [36mMeeting Co-Pilot initialized with API key[39m
+[1]     [35mmodule[39m: "chess-lens"
+[1] [2026-05-07 01:07:52.993 +0530] [32mINFO[39m: [36mLLM Service initialized (VideoDB proxy)[39m
+[1]     [35mmodule[39m: "llm-service"
+[1]     [35mmodel[39m: "pro"
+[1]     [35mapiBase[39m: "https://api.videodb.io"
+[1]     [35mrtstreamVisionModel[39m: "openai/gpt-5.4"
+[1] [2026-05-07 01:07:52.993 +0530] [32mINFO[39m: [36mMeeting Co-Pilot initialized with API key[39m
+[1]     [35mmodule[39m: "chess-lens"
+[1] [2026-05-07 01:07:53.024 +0530] [32mINFO[39m: [36mFetching all recordings[39m
+[1]     [35mmodule[39m: "recordings-procedure"
+[1] [2026-05-07 01:07:53.025 +0530] [32mINFO[39m: [36mRecordings fetched[39m
+[1]     [35mmodule[39m: "recordings-procedure"
+[1]     [35mcount[39m: 16
+[1]     [35mrecordings[39m: [
+[1]       {
+[1]         "id": 1,
+[1]         "sessionId": "cap-51208d1e-b3f4-4258-90d3-9c118c66ebc8",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfdeb-fd81-7d81-a4bc-cc5e5c38608d"
+[1]       },
+[1]       {
+[1]         "id": 2,
+[1]         "sessionId": "cap-956fb91f-7025-4674-ab0e-fe37775edb02",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfdf8-3032-7042-8cc9-07e0e04e9d08"
+[1]       },
+[1]       {
+[1]         "id": 3,
+[1]         "sessionId": "cap-8b53d990-7717-4b91-a133-2532e75bcba2",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfe1b-5b46-7da1-bc55-4b738f7e4ad8"
+[1]       },
+[1]       {
+[1]         "id": 4,
+[1]         "sessionId": "cap-b7370101-53cb-4d3c-b2d9-7acc268ef0f8",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfe23-d495-7ab3-b697-8ced539b7080"
+[1]       },
+[1]       {
+[1]         "id": 5,
+[1]         "sessionId": "cap-c3e084ca-2def-4e9b-baf5-e41afa7f42ae",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfe27-80da-7a12-b3fc-26cf6b966008"
+[1]       },
+[1]       {
+[1]         "id": 6,
+[1]         "sessionId": "cap-7ae6e656-9b55-4d4d-96b5-d7b8cc81fc1b",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfe34-cec7-76f3-9ae6-93a0893eb1c6"
+[1]       },
+[1]       {
+[1]         "id": 7,
+[1]         "sessionId": "cap-0eea1ec4-7d21-4ac6-8d6c-72a13fd4bfbd",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfe36-ea7c-79a3-bc79-833fdd972f66"
+[1]       },
+[1]       {
+[1]         "id": 8,
+[1]         "sessionId": "cap-b7e0fbe0-7f7d-49fb-87ba-3e0ef4433567",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfe4d-19af-75b0-86a2-405758eb7dea"
+[1]       },
+[1]       {
+[1]         "id": 9,
+[1]         "sessionId": "cap-82e3f8cc-3157-43d5-907b-d286c67a0cd0",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfe59-7cd7-7dc2-9a99-66e9c2e5cd05"
+[1]       },
+[1]       {
+[1]         "id": 10,
+[1]         "sessionId": "cap-0384c08c-f290-472e-895d-c68c42a59cb5",
+[1]         "status": "failed",
+[1]         "insightsStatus": "failed",
+[1]         "videoId": null
+[1]       },
+[1]       {
+[1]         "id": 11,
+[1]         "sessionId": "cap-523d5ee6-68ed-4ee8-932f-bebf0dbcb18b",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfe99-8878-7af0-8b73-66573c1c205b"
+[1]       },
+[1]       {
+[1]         "id": 12,
+[1]         "sessionId": "cap-f4b5291c-3aa0-48ec-9894-e49d9c42de1d",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfeab-589a-7093-9629-4b1974915b22"
+[1]       },
+[1]       {
+[1]         "id": 13,
+[1]         "sessionId": "cap-e8bb4a81-3a85-4eb8-8301-2d65b30fc1e0",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfeb2-bc08-7cb0-bdb0-49788fa8a283"
+[1]       },
+[1]       {
+[1]         "id": 14,
+[1]         "sessionId": "cap-b157dbcb-a26a-4c9c-ac8c-e906ca80bdd6",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfebb-1471-79b2-b328-17022c16c620"
+[1]       },
+[1]       {
+[1]         "id": 15,
+[1]         "sessionId": "cap-97138477-c4ab-463d-af87-0222a8b37ce6",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfebe-7e19-7c92-bcab-d13e34704e23"
+[1]       },
+[1]       {
+[1]         "id": 16,
+[1]         "sessionId": "cap-63c6015a-b7a9-4afc-b7c0-0738ddf7d052",
+[1]         "status": "available",
+[1]         "insightsStatus": "pending",
+[1]         "videoId": "m-z-019dfec3-2c39-7f93-a5ed-f9a88b35c813"
+[1]       }
+[1]     ]
+[1] [2026-05-07 01:08:17.678 +0530] [32mINFO[39m: [36mLLM Service initialized (VideoDB proxy)[39m
+[1]     [35mmodule[39m: "llm-service"
+[1]     [35mmodel[39m: "pro"
+[1]     [35mapiBase[39m: "https://api.videodb.io"
+[1]     [35mrtstreamVisionModel[39m: "openai/gpt-5.4"
+[1] [2026-05-07 01:08:17.678 +0530] [32mINFO[39m: [36mMeeting Co-Pilot initialized with API key[39m
+[1]     [35mmodule[39m: "chess-lens"
+[1] [2026-05-07 01:08:19.524 +0530] [32mINFO[39m: [36mGenerating session token[39m
+[1]     [35mmodule[39m: "token-procedure"
+[1]     [35muserId[39m: "user-1"
+[1] [2026-05-07 01:08:19.525 +0530] [32mINFO[39m: [36mCreating new VideoDB connection[39m
+[1]     [35mmodule[39m: "videodb-service"
+[1] [2026-05-07 01:08:19.525 +0530] [32mINFO[39m: [36mCreating session token[39m
+[1]     [35mmodule[39m: "videodb-service"
+[1]     [35muserId[39m: "user-1"
+[1]     [35mexpiresIn[39m: 86400
+[1] [2026-05-07 01:08:19.542 +0530] [32mINFO[39m: [36mMCP Registry: getAllTools called[39m
+[1]     [35mmodule[39m: "mcp-connection-registry"
+[1]     [35mtotalConnections[39m: 0
+[1]     [35mconnectedServers[39m: 0
+[1]     [35mtotalTools[39m: 0
+[1]     [35mserverStatuses[39m: []
+[1] [2026-05-07 01:08:19.542 +0530] [32mINFO[39m: [36mMCP Registry: getAllTools called[39m
+[1]     [35mmodule[39m: "mcp-connection-registry"
+[1]     [35mtotalConnections[39m: 0
+[1]     [35mconnectedServers[39m: 0
+[1]     [35mtotalTools[39m: 0
+[1]     [35mserverStatuses[39m: []
+[1] [2026-05-07 01:08:20.488 +0530] [32mINFO[39m: [36mSession token generated[39m
+[1]     [35mmodule[39m: "token-procedure"
+[1]     [35muserId[39m: "user-1"
+[1]     [35mexpiresAt[39m: 1778182700
+[1] [2026-05-07 01:08:20.503 +0530] [32mINFO[39m: [36m[Capture] Creating capture session[39m
+[1]     [35mmodule[39m: "capture-procedure"
+[1]     [35muserId[39m: 1
+[1]     [35mcollectionId[39m: "c-b1b87263-2b2a-4dc7-b5bd-0383ee588d86"
+[1] [2026-05-07 01:08:20.503 +0530] [32mINFO[39m: [36mCreating capture session[39m
+[1]     [35mmodule[39m: "videodb-service"
+[1]     [35mendUserId[39m: "user-1"
+[1]     [35mcollectionId[39m: "c-b1b87263-2b2a-4dc7-b5bd-0383ee588d86"
+[1] [2026-05-07 01:08:22.360 +0530] [32mINFO[39m: [36mCapture session created[39m
+[1]     [35mmodule[39m: "videodb-service"
+[1]     [35msessionId[39m: "cap-50138e69-296c-4baf-b05e-b12cc8626ff5"
+[1]     [35mcollectionId[39m: "c-b1b87263-2b2a-4dc7-b5bd-0383ee588d86"
+[1] [2026-05-07 01:08:22.360 +0530] [32mINFO[39m: [36mCapture session created[39m
+[1]     [35mmodule[39m: "capture-procedure"
+[1]     [35msessionId[39m: "cap-50138e69-296c-4baf-b05e-b12cc8626ff5"
+[1] [2026-05-07 01:08:22.365 +0530] [32mINFO[39m: [36mStarting recording - IPC handler called[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35msessionId[39m: "cap-50138e69-296c-4baf-b05e-b12cc8626ff5"
+[1]     [35menableTranscription[39m: true
+[1] [2026-05-07 01:08:22.365 +0530] [33mWARN[39m: [36mWidget window not available, cannot send[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:22.365 +0530] [32mINFO[39m: [36mshowWidgetWindow called[39m
+[1]     [35mmodule[39m: "widget-window"
+[1] [2026-05-07 01:08:22.365 +0530] [32mINFO[39m: [36mCreating widget window[39m
+[1]     [35mmodule[39m: "widget-window"
+[1] [2026-05-07 01:08:22.632 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:22.632 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:22.632 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:22.632 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:22.661 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:22.661 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:22.661 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:22.661 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:22.662 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:22.662 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:22.662 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:22.662 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:22.672 +0530] [34mDEBUG[39m: [36mWidget resized to content[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mtargetHeight[39m: 300
+[1]     [35mclampedHeight[39m: 300
+[1]     [35mwinY[39m: 634
+[1]     [35mnewY[39m: 544
+[1] [2026-05-07 01:08:22.673 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:22.673 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:22.673 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:22.673 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:23.165 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:23.165 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:23.165 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:23.165 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:23.665 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:23.665 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:23.665 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:23.665 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:24.168 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:24.168 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:24.168 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:24.168 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:24.670 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:24.670 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:24.670 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:24.670 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:25.170 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:25.170 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:25.170 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:25.170 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:25.671 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:25.671 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:25.671 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:25.671 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:26.187 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:26.187 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:26.187 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:26.187 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:26.692 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:26.692 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:26.692 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:26.693 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:26.726 +0530] [32mINFO[39m: [36m[SessionWS] Session WebSocket connected[39m
+[1]     [35mmodule[39m: "session-events"
+[1]     [35mconnectionId[39m: "c9TMAcwDvHcCFUg="
+[1] [2026-05-07 01:08:26.726 +0530] [32mINFO[39m: [36m[WS] Session WebSocket connected for capture events[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35msessionWsId[39m: "c9TMAcwDvHcCFUg="
+[1] [2026-05-07 01:08:27.193 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:27.193 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:27.193 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:27.193 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:27.693 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:27.693 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:27.693 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:27.693 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:28.198 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:28.198 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:28.198 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:28.198 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:28.699 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:28.699 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:28.699 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:28.699 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:29.199 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:29.199 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:29.199 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:29.199 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:29.282 +0530] [32mINFO[39m: [36m[WS] Mic WebSocket connected[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35mconnectionId[39m: "c9TMaflgPHcCHOQ="
+[1] [2026-05-07 01:08:29.501 +0530] [32mINFO[39m: [36m[WS] SysAudio WebSocket connected[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35mconnectionId[39m: "c9TMbdWrPHcCJzg="
+[1] [2026-05-07 01:08:29.501 +0530] [32mINFO[39m: [36m[WS] WebSocket connections established[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35mmicWsId[39m: "c9TMaflgPHcCHOQ="
+[1]     [35msysAudioWsId[39m: "c9TMbdWrPHcCJzg="
+[1] [2026-05-07 01:08:29.706 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:29.706 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:29.706 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:29.706 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:30.212 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:30.212 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:30.212 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:30.212 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:30.712 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:30.712 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:30.712 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:30.712 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:31.217 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:31.218 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:31.218 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:31.218 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:31.719 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:31.719 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:31.719 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:31.719 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [Capture Binary]: Capture v0.2.9
+[1] [2026-05-07 01:08:32.071 +0530] [32mINFO[39m: [36m[WS] Screen WebSocket connected for visual indexing[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35mconnectionId[39m: "c9TM2ftQPHcCEYg="
+[1] [2026-05-07 01:08:32.071 +0530] [32mINFO[39m: [36m[WS] Visual index WebSocket established[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35mscreenWsId[39m: "c9TM2ftQPHcCEYg="
+[1] [2026-05-07 01:08:32.071 +0530] [32mINFO[39m: [36mCreating new CaptureClient[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1] [2026-05-07 01:08:32.072 +0530] [32mINFO[39m: [36mListing available channels[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1] [2026-05-07 01:08:32.146 +0530] [32mINFO[39m: [36mChannels listed successfully[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35mchannelCount[39m: 3
+[1] [2026-05-07 01:08:32.146 +0530] [32mINFO[39m: [36mCapture channel inventory[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35maudioChannels[39m: [
+[1]       {
+[1]         "id": "mic:default",
+[1]         "name": "Microphone"
+[1]       },
+[1]       {
+[1]         "id": "system_audio:default",
+[1]         "name": "System Audio"
+[1]       }
+[1]     ]
+[1]     [35msystemAudioChannels[39m: [
+[1]       {
+[1]         "id": "system_audio:default",
+[1]         "name": "System Audio"
+[1]       }
+[1]     ]
+[1]     [35mmicChannels[39m: [
+[1]       {
+[1]         "id": "mic:default",
+[1]         "name": "Microphone"
+[1]       }
+[1]     ]
+[1]     [35mdisplayChannels[39m: [
+[1]       {
+[1]         "id": "display:0",
+[1]         "name": "Generic PnP Monitor"
+[1]       }
+[1]     ]
+[1] [2026-05-07 01:08:32.146 +0530] [32mINFO[39m: [36mSelected system-audio capture candidates[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35mselectedSystemAudioChannels[39m: [
+[1]       {
+[1]         "id": "system_audio:default",
+[1]         "name": "System Audio"
+[1]       }
+[1]     ]
+[1] [2026-05-07 01:08:32.147 +0530] [32mINFO[39m: [36mChannel configs prepared from listed channels[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35mcaptureChannels[39m: [
+[1]       {
+[1]         "channelId": "mic:default",
+[1]         "type": "audio",
+[1]         "record": true,
+[1]         "store": true,
+[1]         "transcript": true
+[1]       },
+[1]       {
+[1]         "channelId": "system_audio:default",
+[1]         "type": "audio",
+[1]         "record": true,
+[1]         "store": true,
+[1]         "transcript": true
+[1]       },
+[1]       {
+[1]         "channelId": "display:0",
+[1]         "type": "video",
+[1]         "record": true,
+[1]         "store": true
+[1]       }
+[1]     ]
+[1] [2026-05-07 01:08:32.147 +0530] [32mINFO[39m: [36mStarting capture with channels[39m
+[1]     [35mmodule[39m: "ipc-capture"
+[1]     [35mcaptureChannels[39m: [
+[1]       {
+[1]         "channelId": "mic:default",
+[1]         "type": "audio",
+[1]         "record": true,
+[1]         "store": true,
+[1]         "transcript": true
+[1]       },
+[1]       {
+[1]         "channelId": "system_audio:default",
+[1]         "type": "audio",
+[1]         "record": true,
+[1]         "store": true,
+[1]         "transcript": true
+[1]       },
+[1]       {
+[1]         "channelId": "display:0",
+[1]         "type": "video",
+[1]         "record": true,
+[1]         "store": true
+[1]       }
+[1]     ]
+[1] [2026-05-07 01:08:32.219 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:32.220 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:32.220 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:32.220 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:32.726 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:32.726 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:32.726 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:32.726 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:33.233 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:33.233 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:33.233 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:33.233 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:33.733 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:33.733 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:33.733 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:33.733 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:34.240 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:34.240 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:34.240 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:34.240 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"
+[1] [2026-05-07 01:08:34.747 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:session-state"
+[1] [2026-05-07 01:08:34.747 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:live-assist"
+[1] [2026-05-07 01:08:34.747 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:visual-analysis"
+[1] [2026-05-07 01:08:34.747 +0530] [34mDEBUG[39m: [36mSending to widget[39m
+[1]     [35mmodule[39m: "widget-window"
+[1]     [35mchannel[39m: "widget:nudge"

@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Pause, Square, Loader2 } from 'lucide-react';
+import { Pause, Square, Loader2, Calendar } from 'lucide-react';
 import { useSession } from '../../hooks/useSession';
 import { useGameSetupStore } from '../../stores/meeting-setup.store';
 
@@ -76,32 +76,41 @@ export function RecordingHeader() {
   const gameName = name || 'Chess Game';
 
   return (
-    <div className="flex items-center gap-[12px] p-[20px]">
+    <div className="flex items-start gap-[12px]" style={{ padding: '30px 20px 20px' }}>
       {/* Title section */}
       <div className="flex-1 flex flex-col gap-[10px]">
-        <h1 className="font-semibold text-2xl text-black">{gameName}</h1>
-        <div className="flex items-center gap-[4px]">
-          <ClockIcon />
-          <span className="text-base text-text-body">Started at: {formatStartTime(startTime)}</span>
+        <h1 className="font-semibold text-black" style={{ fontSize: 24, lineHeight: '29px', letterSpacing: '0.005em' }}>{gameName}</h1>
+        <div className="flex items-center gap-[20px]">
+          <div className="flex items-center gap-[4px]">
+            <Calendar size={16} color="#464646" style={{ opacity: 0.2 }} />
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 400, fontSize: 13, color: '#464646', letterSpacing: '0.005em', lineHeight: '16px' }}>
+              {startTime.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </span>
+          </div>
+          <div className="flex items-center gap-[4px]">
+            <ClockIcon />
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 400, fontSize: 13, color: '#464646', letterSpacing: '0.005em', lineHeight: '16px' }}>
+              {formatStartTime(startTime)}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Controls section */}
-      <div className="flex items-center gap-[12px]">
+      <div className="flex items-center gap-[12px]" style={{ paddingTop: 2, flexShrink: 0 }}>
         {/* Timer */}
         <div className="flex items-center gap-[10px]">
-          {/* Recording indicator dot */}
           <div
             className={`w-[8px] h-[8px] rounded-[4px] ${
               isPaused
                 ? 'bg-chess-draw'
                 : isRecording
-                  ? 'bg-[var(--color-recording-dot)] animate-pulse'
+                  ? 'bg-[#D1242F] animate-pulse'
                   : 'bg-text-muted-brand'
             }`}
+            style={{ flexShrink: 0 }}
           />
-          {/* Time display */}
-          <span className="font-mono font-medium text-2xl text-black">
+          <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 500, fontSize: 24, letterSpacing: '0.005em', color: '#000000', lineHeight: '32px' }}>
             {formatTime(elapsedTime)}
           </span>
         </div>
@@ -125,10 +134,20 @@ export function RecordingHeader() {
         {isRecording && !isStopping && (
           <button
             onClick={stopRecording}
-            className="flex items-center gap-[4px] bg-status-error-alt rounded-[12px] px-[20px] py-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-status-error transition-colors"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              padding: '12px 20px',
+              gap: 4,
+              background: '#EF4444',
+              boxShadow: '0px 1.27px 15.27px rgba(0,0,0,0.05)',
+              borderRadius: 12,
+              border: 'none',
+              cursor: 'pointer',
+            }}
           >
             <StopIcon />
-            <span className="font-semibold text-base text-white tracking-[-0.28px]">Stop</span>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 14, letterSpacing: '-0.02em', color: '#FFFFFF' }}>Stop</span>
           </button>
         )}
 

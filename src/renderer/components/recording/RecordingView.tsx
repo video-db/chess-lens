@@ -16,12 +16,10 @@ import { useCopilotStore } from '../../stores/copilot.store';
 import { useGameSetupStore } from '../../stores/meeting-setup.store';
 import { useSessionLifecycle } from '../../hooks/useSessionLifecycle';
 import { RecordingHeader } from './RecordingHeader';
-import { MetricsBar } from './MetricsBar';
-import { LiveAssistPanel } from './LiveAssistPanel';
-import { MeetingAgendaPanel } from './MeetingAgendaPanel';
-import { TranscriptionPanel } from '../transcription/TranscriptionPanel';
+import { LiveAssistPanel, ChatPanel } from './LiveAssistPanel';
 import { CallSummaryView } from '../copilot';
 import { useSessionStore } from '../../stores/session.store';
+import { useState, useRef, useCallback } from 'react';
 import { ChessLensIconBlack } from '../ui/ChessLensIcon';
 
 // ─── Processing view — Figma "Generating Game Summary" ───────────────────────
@@ -173,29 +171,51 @@ function SummaryView({ onGoBack, onStartNewCall }: SummaryViewProps) {
 // ─── Active recording layout ──────────────────────────────────────────────────
 
 function ActiveRecordingLayout() {
-  const meetingSetupStore = useGameSetupStore();
-  const { checklist } = meetingSetupStore;
-  const hasChecklist = checklist.length > 0;
+  // Chat prefill state — managed here so ChatPanel (right) can receive tips from LiveAssistPanel (left)
+  const [chatPrefill, setChatPrefill] = useState<{ question: string; tipContext: string; seq: number } | null>(null);
+  const chatPrefillSeqRef = useRef(0);
+
+  const handleAskAboutTip = useCallback((tipText: string) => {
+    chatPrefillSeqRef.current += 1;
+    setChatPrefill({ question: '', tipContext: tipText, seq: chatPrefillSeqRef.current });
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-surface-muted">
       {/* Header with timer + controls */}
       <RecordingHeader />
 
-      {/* Main container */}
-      <div className="flex-1 bg-white border border-border-default rounded-t-[20px] mx-[10px] p-[20px] flex gap-[30px] overflow-hidden">
-        {/* Left column — AI coaching panel */}
+      {/* Main container — matches storybook: padding 16px, gap 20px, rounded top */}
+      <div className="flex-1 bg-white border border-border-default rounded-t-[20px] mx-[10px] p-[16px] flex gap-[20px] overflow-hidden">
+
+        {/* Left panel — Live Analysis + Coaching Tips + Move History */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <LiveAssistPanel />
+          <LiveAssistPanel onAskAboutTip={handleAskAboutTip} />
         </div>
 
-        {/* Right column — metrics, session goals, transcript */}
-        <div className="w-[460px] shrink-0 flex flex-col gap-[13px] h-full">
-          <MetricsBar />
-          <div className="flex-1 bg-surface-muted border border-border-default rounded-[16px] p-[12px] flex flex-col gap-[16px] overflow-hidden min-h-0">
-            {hasChecklist && <MeetingAgendaPanel checklist={checklist} />}
-            <TranscriptionPanel />
-          </div>
+        {/* Right panel — Chat with Coach (460px, #F7F7F7 bg, border-radius 16px) */}
+        <div
+          style={{
+            width: 460,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            padding: 12,
+            gap: 16,
+            background: '#F7F7F7',
+            border: '1px solid #EFEFEF',
+            borderRadius: 16,
+            overflow: 'hidden',
+            height: '100%',
+            boxSizing: 'border-box',
+          }}
+        >
+          <ChatPanel
+            prefillQuestion={chatPrefill?.question ?? undefined}
+            prefillTipContext={chatPrefill?.tipContext ?? undefined}
+            prefillSeq={chatPrefill?.seq ?? undefined}
+            onPrefillConsumed={() => setChatPrefill(null)}
+          />
         </div>
       </div>
     </div>
@@ -238,7 +258,7 @@ export function RecordingView({ onBack }: RecordingViewProps) {
   }
 
   if (isProcessing) {
-    return <ProcessingView onBack={handleGoBack} />;
+    return <ProcessingView onBack={onBack} />;
   }
 
   // If idle with no summary, useEffect above handles navigation; return null to avoid flash
