@@ -8,7 +8,7 @@
  * during render, only on button clicks, so no special setup is needed.
  */
 import type { Meta, StoryObj } from '@storybook/react';
-import { PairCompactOverlay } from './PairCompactOverlay';
+import { PairCompactOverlay, CoachingChatView } from './PairCompactOverlay';
 
 // ── Shared fixtures ─────────────────────────────────────────────────────────
 
@@ -234,6 +234,125 @@ export const Paused: Story = {
     engineSan: 'd5',
     engineEval: -0.3,
     engineMate: null,
+  },
+};
+
+// ── CoachingChatView stories ─────────────────────────────────────────────────
+
+const chatMeta: Meta<typeof CoachingChatView> = {
+  title: 'Widget/CoachingChatView',
+  component: CoachingChatView,
+  parameters: {
+    layout: 'centered',
+    backgrounds: {
+      default: 'dark',
+      values: [
+        { name: 'dark', value: '#1a1a2e' },
+        { name: 'light', value: '#f0f0f0' },
+      ],
+    },
+  },
+  decorators: [
+    (Story) => (
+      <div style={{ width: 400, fontFamily: 'Inter, sans-serif' }}>
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+// We can't export two default exports from one module, so we export the
+// CoachingChatView stories as named exports attached to the main meta.
+// Storybook picks them up automatically.
+
+type ChatStory = StoryObj<typeof CoachingChatView>;
+
+/**
+ * Chat panel just opened — coach greeting, no user messages yet.
+ * Matches the Figma "Coaching – chat opened" spec.
+ */
+export const ChatOpenInitial: ChatStory = {
+  name: 'Chat — initial greeting',
+  render: (args) => <CoachingChatView {...args} />,
+  args: {
+    displayFen: SAMPLE_FEN,
+    engineSan: 'c7c5',
+    engineEvalLabel: 'Best',
+    suggestionText:
+      'If White pushes d4, you can trade into a balanced structure and activate your queenside pieces.',
+    coachGreeting: 'Position loaded. What do you want to know about c7c5?',
+    chatMessages: [],
+    chatLoading: false,
+    chatInputValue: '',
+    elapsed: '01:05',
+    stopDisabled: false,
+  },
+};
+
+/**
+ * User asked a question, coach is replying.
+ */
+export const ChatWithConversation: ChatStory = {
+  name: 'Chat — with conversation',
+  render: (args) => <CoachingChatView {...args} />,
+  args: {
+    displayFen: SAMPLE_FEN,
+    engineSan: 'c7c5',
+    engineEvalLabel: '-0.18',
+    suggestionText:
+      'If White pushes d4, you can trade into a balanced structure and activate your queenside pieces.',
+    coachGreeting: 'Position loaded. What do you want to know about c7c5?',
+    chatMessages: [
+      { role: 'user', text: 'Why is c7c5 the best move here?' },
+      {
+        role: 'assistant',
+        text: 'c7-c5 challenges White\'s central pawn on d4, prevents e4-d5 space gains, and opens the c-file for your rook. It\'s the Sicilian setup — fighting for central control from the flank.',
+      },
+    ],
+    chatLoading: false,
+    chatInputValue: '',
+    elapsed: '02:14',
+    stopDisabled: false,
+  },
+};
+
+/**
+ * Coach reply loading (three dots).
+ */
+export const ChatLoading: ChatStory = {
+  name: 'Chat — coach reply loading',
+  render: (args) => <CoachingChatView {...args} />,
+  args: {
+    displayFen: SAMPLE_FEN,
+    engineSan: 'c7c5',
+    engineEvalLabel: '-0.18',
+    suggestionText: 'If White pushes d4, you can trade into a balanced structure.',
+    coachGreeting: 'Position loaded. What do you want to know about c7c5?',
+    chatMessages: [{ role: 'user', text: 'Why is c7c5 the best move here?' }],
+    chatLoading: true,
+    chatInputValue: '',
+    elapsed: '01:42',
+    stopDisabled: false,
+  },
+};
+
+/**
+ * Input bar has text typed — send button turns dark.
+ */
+export const ChatWithInputTyped: ChatStory = {
+  name: 'Chat — text typed in input',
+  render: (args) => <CoachingChatView {...args} />,
+  args: {
+    displayFen: SAMPLE_FEN,
+    engineSan: 'c7c5',
+    engineEvalLabel: 'Best',
+    suggestionText: 'If White pushes d4, you can trade into a balanced structure.',
+    coachGreeting: 'Position loaded. What do you want to know about c7c5?',
+    chatMessages: [],
+    chatLoading: false,
+    chatInputValue: 'What if my opponent plays d4?',
+    elapsed: '01:05',
+    stopDisabled: false,
   },
 };
 
