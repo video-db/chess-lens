@@ -68,20 +68,22 @@ Return only the summary paragraph.`;
 
   if (section === 'keyPoints') {
     return `You are a ${gameName} post-game coach. The data below is a log of coaching tips and engine suggestions from a live chess game.
-Return the key chess takeaways as JSON.
+Return 3-5 key chess takeaways grouped by theme as JSON. You MUST always return at least 2-3 topics even if the game was short — infer patterns from the engine suggestions and coaching tips provided.
 
 Rules:
-- Group by chess themes: Tactics, Piece Activity, Pawn Structure, King Safety, Opening/Middlegame, Endgame, Decision-Making.
-- Each point should describe a concrete chess idea, mistake, or pattern observed during the game.
-- Do NOT echo FEN strings, board mappings, XML, or coordinate dumps — only human-readable chess analysis.
+- Group by chess themes such as: Tactics, Piece Activity, Pawn Structure, King Safety, Opening/Middlegame, Endgame, Decision-Making.
+- Each point must be a concrete chess observation, idea, or pattern from the game.
+- If coaching data is sparse, extract insights from the engine evaluations and any moves mentioned.
+- Do NOT return an empty array. Always produce at least 2 topics with 1 point each.
+- Do NOT echo FEN strings, board mappings, XML, or raw coordinates.
 - Do not mention meetings, attendees, or agenda items.
 
-Output format:
+IMPORTANT: Always return valid JSON matching EXACTLY this format with snake_case key "key_points":
 {
   "key_points": [
     {
       "topic": "Topic Name",
-      "points": ["Concrete chess observation."]
+      "points": ["Concrete chess observation from the game."]
     }
   ]
 }`;
@@ -156,6 +158,8 @@ export class SummaryGeneratorService {
     // Primary source: coaching tips persisted by the live assist pipeline.
     const savedTips = getCoachingTipsByRecording(recordingId);
 
+    log.info({ recordingId, savedTipCount: savedTips.length }, 'Coaching tips loaded from DB for summary generation');
+
     if (savedTips.length === 0) {
       log.warn({ recordingId }, 'No coaching tips found in DB — returning generic fallback');
       return this.emptyChessFallback(gameName);
@@ -167,6 +171,8 @@ export class SummaryGeneratorService {
     // Only include tips that have actual coaching text (stage-2 LLM tips).
     // Stage-1 engine-only tips (empty sayThis/askThis) are stored for accuracy tracking only.
     const tipsWithText = savedTips.filter((tip) => tip.sayThis && tip.askThis);
+
+    log.info({ recordingId, totalTips: savedTips.length, tipsWithText: tipsWithText.length }, 'Tips with LLM text filtered');
 
     if (tipsWithText.length === 0) {
       log.warn({ recordingId, totalTips: savedTips.length }, 'No LLM coaching tips found — returning generic fallback');
@@ -185,7 +191,17 @@ export class SummaryGeneratorService {
       this.generateGameChecklist(userPrompt, gameId),
     ]);
 
-    return { shortOverview, keyPoints, postMeetingChecklist, generatedAt: Date.now() };
+    // If keyPoints came back empty, do a targeted retry with emphasis on producing output
+    let finalKeyPoints = keyPoints;
+    if (finalKeyPoints.length === 0) {
+      log.warn({ recordingId }, 'keyPoints empty after first attempt — retrying with overview context');
+      finalKeyPoints = await this.generateGameKeyPoints(
+        `${userPrompt}\n\nNote: The overview of this game is: ${shortOverview}\nYou MUST return at least 2 key_points topics based on this overview.`,
+        gameId
+      );
+    }
+
+    return { shortOverview, keyPoints: finalKeyPoints, postMeetingChecklist, generatedAt: Date.now() };
   }
 
   /**
@@ -224,11 +240,13 @@ ${gameLog}`;
       log.warn({ label }, 'VideoDB service not available — skipping generateText call');
       return null;
     }
+    log.info({ label, promptLength: fullPrompt.length, responseType }, 'Calling VideoDB generateCoachingText');
     const result = await videodb.generateCoachingText(fullPrompt, 'pro', responseType, 90000);
     if (!result) {
       log.warn({ label }, 'VideoDB generateText returned empty result');
       return null;
     }
+    log.info({ label, resultLength: result.length }, 'VideoDB generateCoachingText succeeded');
     return result;
   }
 
@@ -277,19 +295,37 @@ ${gameLog}`;
   private parseKeyPointsResponse(content: string): KeyPoint[] | null {
     try {
       let cleaned = content.trim();
-      if (cleaned.startsWith('```')) {
-        cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-      }
+      log.info({ rawContent: cleaned.slice(0, 500) }, 'parseKeyPointsResponse raw content');
+
+      // Strip any markdown code fences (```json ... ``` or ``` ... ```)
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
+      // Extract the first JSON object/array from the string in case there's surrounding text
+      const jsonMatch = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+      if (jsonMatch) cleaned = jsonMatch[1];
+
       const parsed = JSON.parse(cleaned);
-      const keyPoints = parsed.key_points || parsed;
+      log.info({ parsedType: typeof parsed, isArray: Array.isArray(parsed), keys: parsed && typeof parsed === 'object' ? Object.keys(parsed) : [] }, 'parseKeyPointsResponse parsed structure');
+
+      // Support multiple possible keys the LLM might use
+      const keyPoints =
+        parsed.key_points ||
+        parsed.keyPoints ||
+        parsed.insights ||
+        parsed.patterns ||
+        parsed.takeaways ||
+        (Array.isArray(parsed) ? parsed : null);
+
       if (Array.isArray(keyPoints)) {
+        log.info({ keyPointCount: keyPoints.length }, 'parseKeyPointsResponse extracted key points');
         return keyPoints.map((kp: { topic: string; points: string[] }) => ({
           topic: kp.topic || 'Chess Analysis',
           points: Array.isArray(kp.points) ? kp.points : [],
         }));
       }
+      log.warn({ parsedKeys: parsed && typeof parsed === 'object' ? Object.keys(parsed) : [] }, 'parseKeyPointsResponse: no recognizable key points array');
     } catch (error) {
-      log.warn({ error, content: content.slice(0, 200) }, 'Failed to parse key points JSON');
+      log.warn({ error, content: content.slice(0, 300) }, 'Failed to parse key points JSON');
     }
     return null;
   }
