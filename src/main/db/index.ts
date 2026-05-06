@@ -492,8 +492,10 @@ export interface CoachingTip {
   sayThis: string;
   askThis: string;
   timestamp: number;
-  /** Win chance for White (0–100) from chess-api.com at the time this tip was generated. */
+  /** Win chance for White (0–100) from chess-api.com AFTER this move was played. */
   winChance?: number;
+  /** Win chance for White (0–100) from chess-api.com BEFORE this move was played. */
+  winChanceBefore?: number;
   /** Centipawn loss for the move that triggered this tip (always ≥ 0). */
   centipawnLoss?: number;
   /** Which side made the move that triggered this tip ('w' = White, 'b' = Black). */

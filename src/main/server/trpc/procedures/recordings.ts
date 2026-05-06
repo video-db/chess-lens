@@ -284,6 +284,7 @@ export const recordingsRouter = router({
       endTime: z.number(),
       tip: z.string(),
       winChance: z.number().optional(),
+      turn: z.enum(['w', 'b']).optional(),
     })))
     .query(async ({ input }) => {
       // Primary source: coaching tips persisted from the live assist pipeline.
@@ -305,6 +306,7 @@ export const recordingsRouter = router({
               endTime: startTime + 5,
               tip: cleanedTip,
               winChance: tip.winChance,
+              turn: tip.turn,
             };
           })
           .filter((item) => !!item.tip);
@@ -320,6 +322,7 @@ export const recordingsRouter = router({
           endTime: item.endTime,
           tip: toGameplayTip(item.text),
           winChance: undefined,
+          turn: undefined,
         }))
         .filter((item) => !!item.tip);
     }),

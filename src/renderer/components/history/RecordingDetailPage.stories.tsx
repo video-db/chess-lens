@@ -78,28 +78,28 @@ const MOCK_KEY_POINTS = [
 ];
 
 const MOCK_GAMEPLAY_TIPS = [
-  { id: 'tip-1',  startTime: 120,  tip: 'Excellent Sicilian Najdorf choice — keeps the position flexible.', winChance: 50.0 },
-  { id: 'tip-2',  startTime: 360,  tip: 'Strong knight development to c6.', winChance: 46.2 },
-  { id: 'tip-3',  startTime: 580,  tip: 'Good pawn structure — Najdorf 9...Nbd7 avoids sharp lines.', winChance: 43.8 },
-  { id: 'tip-4',  startTime: 820,  tip: 'Solid defensive resource.', winChance: 47.0 },
-  { id: 'tip-5',  startTime: 1050, tip: 'Missed tactic: ...Rxc3! wins material here.', winChance: 34.2 },
-  { id: 'tip-6',  startTime: 1250, tip: 'Slight inaccuracy — slightly passive.', winChance: 35.7 },
-  { id: 'tip-7',  startTime: 1480, tip: 'Good practical decision.', winChance: 44.0 },
-  { id: 'tip-8',  startTime: 1700, tip: 'Blunder — walking into a discovered attack. Nd5 was the only move.', winChance: 33.3 },
-  { id: 'tip-9',  startTime: 1920, tip: 'Endgame is difficult.', winChance: 28.6 },
-  { id: 'tip-10', startTime: 2160, tip: 'Slight recovery — best move in the position.', winChance: 38.2 },
-  { id: 'tip-11', startTime: 2390, tip: 'Strong defensive resource: Kf8 prevents rook entry.', winChance: 44.0 },
-  { id: 'tip-12', startTime: 2600, tip: 'Inaccuracy — slightly passive. The active ...b4 push creates counterplay.', winChance: 36.9 },
-  { id: 'tip-13', startTime: 2820, tip: 'Equal position reached.', winChance: 50.0 },
-  { id: 'tip-14', startTime: 3050, tip: 'Good continuation.', winChance: 42.3 },
-  { id: 'tip-15', startTime: 3260, tip: 'Solid.', winChance: 39.9 },
-  { id: 'tip-16', startTime: 3480, tip: 'Active defence.', winChance: 45.2 },
-  { id: 'tip-17', startTime: 3700, tip: 'Strong attacking resource.', winChance: 33.9 },
-  { id: 'tip-18', startTime: 3920, tip: 'Good technique.', winChance: 35.1 },
-  { id: 'tip-19', startTime: 4140, tip: 'Best defensive try.', winChance: 43.5 },
-  { id: 'tip-20', startTime: 4360, tip: 'Clear advantage obtained.', winChance: 33.3 },
-  { id: 'tip-21', startTime: 4580, tip: 'Clean endgame technique — king centralisation.', winChance: 27.4 },
-  { id: 'tip-22', startTime: 4800, tip: 'Final consolidation.', winChance: 38.1 },
+  { id: 'tip-1',  startTime: 120,  tip: 'Excellent Sicilian Najdorf choice — keeps the position flexible.', winChance: 50.0, turn: 'w' as const },
+  { id: 'tip-2',  startTime: 360,  tip: 'Strong knight development to c6.', winChance: 46.2, turn: 'b' as const },
+  { id: 'tip-3',  startTime: 580,  tip: 'Good pawn structure — Najdorf 9...Nbd7 avoids sharp lines.', winChance: 43.8, turn: 'w' as const },
+  { id: 'tip-4',  startTime: 820,  tip: 'Solid defensive resource.', winChance: 47.0, turn: 'b' as const },
+  { id: 'tip-5',  startTime: 1050, tip: 'Missed tactic: ...Rxc3! wins material here.', winChance: 34.2, turn: 'w' as const },
+  { id: 'tip-6',  startTime: 1250, tip: 'Slight inaccuracy — slightly passive.', winChance: 35.7, turn: 'b' as const },
+  { id: 'tip-7',  startTime: 1480, tip: 'Good practical decision.', winChance: 44.0, turn: 'w' as const },
+  { id: 'tip-8',  startTime: 1700, tip: 'Blunder — walking into a discovered attack. Nd5 was the only move.', winChance: 33.3, turn: 'b' as const },
+  { id: 'tip-9',  startTime: 1920, tip: 'Endgame is difficult.', winChance: 28.6, turn: 'w' as const },
+  { id: 'tip-10', startTime: 2160, tip: 'Slight recovery — best move in the position.', winChance: 38.2, turn: 'b' as const },
+  { id: 'tip-11', startTime: 2390, tip: 'Strong defensive resource: Kf8 prevents rook entry.', winChance: 44.0, turn: 'w' as const },
+  { id: 'tip-12', startTime: 2600, tip: 'Inaccuracy — slightly passive. The active ...b4 push creates counterplay.', winChance: 36.9, turn: 'b' as const },
+  { id: 'tip-13', startTime: 2820, tip: 'Equal position reached.', winChance: 50.0, turn: 'w' as const },
+  { id: 'tip-14', startTime: 3050, tip: 'Good continuation.', winChance: 42.3, turn: 'b' as const },
+  { id: 'tip-15', startTime: 3260, tip: 'Solid.', winChance: 39.9, turn: 'w' as const },
+  { id: 'tip-16', startTime: 3480, tip: 'Active defence.', winChance: 45.2, turn: 'b' as const },
+  { id: 'tip-17', startTime: 3700, tip: 'Strong attacking resource.', winChance: 33.9, turn: 'w' as const },
+  { id: 'tip-18', startTime: 3920, tip: 'Good technique.', winChance: 35.1, turn: 'b' as const },
+  { id: 'tip-19', startTime: 4140, tip: 'Best defensive try.', winChance: 43.5, turn: 'w' as const },
+  { id: 'tip-20', startTime: 4360, tip: 'Clear advantage obtained.', winChance: 33.3, turn: 'b' as const },
+  { id: 'tip-21', startTime: 4580, tip: 'Clean endgame technique — king centralisation.', winChance: 27.4, turn: 'w' as const },
+  { id: 'tip-22', startTime: 4800, tip: 'Final consolidation.', winChance: 38.1, turn: 'b' as const },
 ];
 
 // ── Helpers (copied from RecordingDetailPage to make stories self-contained) ──
@@ -235,11 +235,13 @@ function MockAccuracyCard({ label, value, color }: { label: string; value: numbe
   );
 }
 
-function MockWinProbabilitySection({ players, tips }: { players: { white: string; black: string }; tips: { winChance?: number }[] }) {
+function MockWinProbabilitySection({ players, tips }: { players: { white: string; black: string }; tips: { winChance?: number; turn?: 'w' | 'b' }[] }) {
   const CHART_W = 691;
   const CHART_H = 168;
   const Y_LABELS = [{ val: 100, y: 0 }, { val: 75, y: 42 }, { val: 50, y: 84 }, { val: 25, y: 126 }, { val: 0, y: 168 }];
-  const dataPoints = tips.filter((t) => typeof t.winChance === 'number').map((t) => t.winChance as number);
+  const tipData = tips.filter((t) => typeof t.winChance === 'number');
+  const dataPoints = tipData.map((t) => t.winChance as number);
+  const turns = tipData.map((t) => t.turn);
   const hasData = dataPoints.length >= 2;
   const toY = (wc: number) => ((100 - wc) / 100) * CHART_H;
   const midY = toY(50);
@@ -250,10 +252,16 @@ function MockWinProbabilitySection({ players, tips }: { players: { white: string
   }));
   const polylinePoints = points.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
   const getDotColor = (i: number) => {
-    if (i === 0) return '#53B745';
-    const delta = Math.abs(dataPoints[i] - dataPoints[i - 1]);
-    if (delta >= 15) return '#C14103';
-    if (delta >= 7)  return '#FF7E32';
+    if (i === 0) return '#009106';
+    const delta = dataPoints[i] - dataPoints[i - 1];
+    const turn = turns[i];
+    const cpLoss = Math.abs(delta);
+    if (cpLoss < 3) return '#009106';
+    let goodForMover: boolean;
+    if (turn === 'w') { goodForMover = delta > 0; }
+    else if (turn === 'b') { goodForMover = delta < 0; }
+    else { return cpLoss >= 15 ? '#C14103' : cpLoss >= 7 ? '#FF7E32' : '#009106'; }
+    if (!goodForMover) { return cpLoss >= 15 ? '#C14103' : '#FF7E32'; }
     return '#009106';
   };
 
@@ -285,7 +293,7 @@ function MockWinProbabilitySection({ players, tips }: { players: { white: string
             ) : (
               <>
                 <line x1={0} y1={midY} x2={CHART_W} y2={midY} stroke="#FF4000" strokeWidth={1.23} strokeLinecap="round" strokeDasharray="2.47 2.47" />
-                <polyline points={polylinePoints} fill="none" stroke="#53B745" strokeWidth={1.23} strokeLinejoin="round" strokeLinecap="round" />
+                <polyline points={polylinePoints} fill="none" stroke="#464646" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.5} />
                 {points.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={2.78} fill={getDotColor(i)} stroke="white" strokeWidth={1.23} />)}
                 {points.map((p, i) => <text key={`l${i}`} x={p.x} y={CHART_H + 14} textAnchor="middle" fontSize={9} fill="#969696">{i + 1}</text>)}
               </>
@@ -472,7 +480,7 @@ interface MockPageProps {
   duration: number | null;
   shortOverview: string | null;
   keyPoints: Array<{ topic: string; points: string[] }> | null;
-  gameplayTips: { id: string; startTime: number; tip: string; winChance?: number }[];
+  gameplayTips: { id: string; startTime: number; tip: string; winChance?: number; turn?: 'w' | 'b' }[];
   hasVideo: boolean;
   badges: { label: string; bg: string; color: string }[];
   accuracyWhite: number | null;

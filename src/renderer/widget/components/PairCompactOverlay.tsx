@@ -415,7 +415,6 @@ export function PairCompactOverlay({
       ? `${engineEval >= 0 ? '+' : ''}${engineEval.toFixed(2)}`
       : null;
 
-  const currentTurnLabel = currentTurn === 'w' ? 'White to move' : currentTurn === 'b' ? 'Black to move' : '';
   const chessWaitingText = isChess && chessParagraphCard && now - chessParagraphCard.timestamp >= 6000
     ? 'Waiting for the next move…'
     : '';
@@ -817,14 +816,7 @@ export function PairCompactOverlay({
 
           {/* Chess board � only when FEN is present */}
           {(displayFen ?? currentFen) && (
-            <div>
-              <ChessBoard fen={displayFen ?? currentFen ?? ''} />
-              {currentTurnLabel && (
-                <p style={{ fontSize: 11, fontWeight: 600, color: '#464646', margin: '6px 0 0 0', fontFamily: 'Inter, sans-serif' }}>
-                  {currentTurnLabel}
-                </p>
-              )}
-            </div>
+            <ChessBoard fen={displayFen ?? currentFen ?? ''} />
           )}
 
           {/* Suggestions */}

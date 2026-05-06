@@ -76,8 +76,10 @@ interface ChessContextData {
   engineSan?: string;        // best move SAN directly from the engine response
   engineEval?: number;       // centipawn eval (as float, e.g. -11.62) from the engine response
   engineMate?: number | null; // mate-in-N (null if no forced mate)
-  /** Win chance for White (0–100) from chess-api.com. */
+  /** Win chance for White (0–100) AFTER this move was played. */
   winChance?: number;
+  /** Win chance for White (0–100) from the PREVIOUS position (before this move). */
+  winChanceBefore?: number;
   /** Centipawn loss of the move that was played (|evalBefore − evalAfter| × 100). */
   centipawnLoss?: number;
   playedMoveSan?: string;
@@ -853,14 +855,15 @@ class LiveAssistService extends EventEmitter {
     const currentWinChance = typeof result.winChance === 'number' ? result.winChance : undefined;
 
     // Centipawn loss = |evalBefore − evalAfter| × 100.
-    // The eval from the engine is always from White's perspective (positive = White better).
-    // After the player makes a move the position eval changes; the loss is the magnitude of that change.
     const centipawnLoss =
       this.lastPositionEval !== undefined && currentEval !== undefined
         ? Math.round(Math.abs(this.lastPositionEval - currentEval) * 100)
         : undefined;
 
-    // Persist the current eval so the next call can compute centipawn loss for that move.
+    // Capture the PREVIOUS win% BEFORE overwriting it — this is winChanceBefore for this move.
+    const winChanceBefore = this.lastPositionWinChance;
+
+    // Persist the current eval/winChance so the NEXT call can compute loss for that move.
     this.lastPositionEval = currentEval;
     this.lastPositionWinChance = currentWinChance;
 
@@ -871,11 +874,14 @@ class LiveAssistService extends EventEmitter {
       engineEval: currentEval,
       engineMate: result.mate ?? null,
       winChance: currentWinChance,
+      winChanceBefore,
       centipawnLoss,
       playedMoveSan: latestMove.san,
       playedMoveUci: latestMove.uci,
       board: resolvedFen.board,
-      turn: resolvedFen.turn,
+      // resolvedFen.turn is who is to move NEXT — flip it to get the side
+      // that just played the move that triggered this engine call.
+      turn: resolvedFen.turn === 'w' ? 'b' : 'w',
     };
   }
 
@@ -1278,10 +1284,8 @@ class LiveAssistService extends EventEmitter {
     // Emit 'fen' immediately so the overlay board updates the moment a new
     // confirmed position is available — even if the coaching LLM call
     // fails/times out later. This decouples board display from tip generation.
-    // Clear engine fields so the overlay doesn't show stale move/eval for the new position.
-    this.lastEngineSan = undefined;
-    this.lastEngineEval = undefined;
-    this.lastEngineMate = undefined;
+    // Keep the previous engine fields so the overlay continues to show the
+    // last best move until the new engine result arrives for this position.
     const whitePerspectiveFen = `${fenBoard} ${inferredTurn} ${castling} - 0 1`;
     const displayFen = this.buildDisplayFen(whitePerspectiveFen, perspective);
     this.emit('fen', {
@@ -1289,9 +1293,9 @@ class LiveAssistService extends EventEmitter {
       displayFen,
       board: fenBoard,
       turn: inferredTurn,
-      engineSan: undefined,
-      engineEval: undefined,
-      engineMate: undefined,
+      engineSan: this.lastEngineSan,
+      engineEval: this.lastEngineEval,
+      engineMate: this.lastEngineMate,
     });
 
     // The pipeline always works in white's perspective.
@@ -1567,9 +1571,11 @@ class LiveAssistService extends EventEmitter {
 
     // Determine the player's color from perspective, and the side currently to move.
     // lastChessPerspective = which side the player is playing as (board orientation).
-    // chessContext.turn   = whose turn it actually is right now in the position.
+    // chessContext.turn   = side that JUST MOVED (flipped in buildChessContext for accuracy tagging).
+    // sideToMove          = who is to move NEXT = opposite of chessContext.turn.
     const playerColor: 'w' | 'b' = this.lastChessPerspective === 'black' ? 'b' : 'w';
-    const sideToMove: 'w' | 'b' = chessContext?.turn ?? playerColor;
+    const justMoved: 'w' | 'b' = chessContext?.turn ?? playerColor;
+    const sideToMove: 'w' | 'b' = justMoved === 'w' ? 'b' : 'w';
     const isPlayerTurn = sideToMove === playerColor;
     const playerColorLabel = playerColor === 'b' ? 'Black' : 'White';
     const opponentColorLabel = playerColor === 'b' ? 'White' : 'Black';
@@ -1712,7 +1718,8 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
     if (this.activeGameId === 'chess' && chessSignature) {
       this.lastChessSignature = chessSignature;
       this.lastChessBoard = chessContext?.board || chessSignature;
-      this.lastChessTurn = chessContext?.turn || this.lastChessTurn;
+      // chessContext.turn is the side that JUST MOVED — flip to get side to move next.
+      this.lastChessTurn = chessContext?.turn ? (chessContext.turn === 'w' ? 'b' : 'w') : this.lastChessTurn;
       // Store engine result on instance so subsequent fen emits carry it too.
       this.lastEngineSan = chessContext?.engineSan;
       this.lastEngineEval = chessContext?.engineEval;
@@ -1978,6 +1985,7 @@ Rewrite it so say_this is more position-specific. Name the required move, explai
         processedAt: Date.now(),
         clearExisting: true,
         winChance: chessContext?.winChance,
+        winChanceBefore: chessContext?.winChanceBefore,
         centipawnLoss: chessContext?.centipawnLoss,
         turn: chessContext?.turn ?? undefined,
       });
