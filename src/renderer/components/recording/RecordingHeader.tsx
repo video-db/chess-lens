@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Pause, Square, Loader2, Calendar } from 'lucide-react';
+import { Pause, Square, Loader2, Calendar, ArrowLeft } from 'lucide-react';
 import { useSession } from '../../hooks/useSession';
 import { useGameSetupStore } from '../../stores/meeting-setup.store';
 
@@ -66,7 +66,7 @@ function formatStartTime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-export function RecordingHeader() {
+export function RecordingHeader({ onBack }: { onBack?: () => void }) {
   const { status, elapsedTime, isRecording, isStopping, isPaused, stopRecording, pauseRecording, resumeRecording } = useSession();
   const { name } = useGameSetupStore();
 
@@ -78,20 +78,34 @@ export function RecordingHeader() {
   return (
     <div className="flex items-start gap-[12px]" style={{ padding: '30px 20px 20px' }}>
       {/* Title section */}
-      <div className="flex-1 flex flex-col gap-[10px]">
-        <h1 className="font-semibold text-black" style={{ fontSize: 24, lineHeight: '29px', letterSpacing: '0.005em' }}>{gameName}</h1>
-        <div className="flex items-center gap-[20px]">
-          <div className="flex items-center gap-[4px]">
-            <Calendar size={16} color="#464646" style={{ opacity: 0.2 }} />
-            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 400, fontSize: 13, color: '#464646', letterSpacing: '0.005em', lineHeight: '16px' }}>
-              {startTime.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-            </span>
+      <div className="flex-1 flex gap-[16px] items-start">
+        {/* Back button */}
+        {onBack && (
+          <div style={{ display: 'flex', alignItems: 'center', paddingTop: 2 }}>
+            <button
+              onClick={onBack}
+              className="flex items-center justify-center bg-white hover:bg-gray-50 transition-colors"
+              style={{ width: 28, height: 28, border: '0.933px solid rgba(0,0,0,0.2)', borderRadius: 6.53, flexShrink: 0 }}
+            >
+              <ArrowLeft size={15} color="#000000" />
+            </button>
           </div>
-          <div className="flex items-center gap-[4px]">
-            <ClockIcon />
-            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 400, fontSize: 13, color: '#464646', letterSpacing: '0.005em', lineHeight: '16px' }}>
-              {formatStartTime(startTime)}
-            </span>
+        )}
+        <div className="flex flex-col gap-[10px]">
+          <h1 className="font-semibold text-black" style={{ fontSize: 24, lineHeight: '29px', letterSpacing: '0.005em' }}>{gameName}</h1>
+          <div className="flex items-center gap-[20px]">
+            <div className="flex items-center gap-[4px]">
+              <Calendar size={16} color="#464646" style={{ opacity: 0.2 }} />
+              <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 400, fontSize: 13, color: '#464646', letterSpacing: '0.005em', lineHeight: '16px' }}>
+                {startTime.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              </span>
+            </div>
+            <div className="flex items-center gap-[4px]">
+              <ClockIcon />
+              <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 400, fontSize: 13, color: '#464646', letterSpacing: '0.005em', lineHeight: '16px' }}>
+                {formatStartTime(startTime)}
+              </span>
+            </div>
           </div>
         </div>
       </div>

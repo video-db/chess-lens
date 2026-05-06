@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search, ChevronRight } from 'lucide-react';
 import { RecordingCard } from './RecordingCard';
 import { RecordingDetailPage } from './RecordingDetailPage';
 import { trpc } from '../../api/trpc';
@@ -9,9 +9,10 @@ interface HistoryViewProps {
   initialSelectedRecordingId?: number | null;
   onClearInitialSelection?: () => void;
   onStartRecording?: () => void;
+  onReturnToRecording?: () => void;
 }
 
-export function HistoryView({ initialSelectedRecordingId, onClearInitialSelection, onStartRecording }: HistoryViewProps = {}) {
+export function HistoryView({ initialSelectedRecordingId, onClearInitialSelection, onStartRecording, onReturnToRecording }: HistoryViewProps = {}) {
   const [selectedRecordingId, setSelectedRecordingId] = useState<number | null>(initialSelectedRecordingId ?? null);
   const [searchQuery, setSearchQuery] = useState('');
   const [hasCleanedUp, setHasCleanedUp] = useState(false);
@@ -172,6 +173,35 @@ export function HistoryView({ initialSelectedRecordingId, onClearInitialSelectio
           ) : (
             /* ── Cards grid ── */
             <div className="flex-1 overflow-y-auto px-[20px] pt-[20px] pb-[20px]">
+              {/* Recording-active alert banner */}
+              {activeSessionId && onReturnToRecording && (
+                <div
+                  className="flex flex-row items-center gap-[10px] px-[16px] py-[12px] rounded-[12px] mb-[20px] flex-shrink-0"
+                  style={{ background: '#FFF5EC', border: '1px solid #FFAD6D' }}
+                >
+                  {/* Pulsing dot */}
+                  <div className="relative w-[16px] h-[16px] flex items-center justify-center flex-shrink-0">
+                    <div className="absolute w-[16px] h-[16px] rounded-full" style={{ background: '#E2462C', opacity: 0.1 }} />
+                    <div className="w-[6px] h-[6px] rounded-full" style={{ background: '#E2462C' }} />
+                  </div>
+                  {/* Message */}
+                  <div className="flex flex-row items-center gap-[4px] flex-1 min-w-0">
+                    <span className="text-[13px] font-semibold flex-shrink-0" style={{ color: '#111928' }}>
+                      Recording in progress.
+                    </span>
+                    <span className="text-[13px] font-normal flex-1 truncate" style={{ color: '#111928' }}>
+                      A game session is currently active.
+                    </span>
+                    <button
+                      onClick={onReturnToRecording}
+                      className="flex items-center gap-[4px] flex-shrink-0 ml-auto"
+                    >
+                      <span className="text-[13px] font-semibold" style={{ color: '#EC5B16' }}>View recording</span>
+                      <ChevronRight className="h-[16px] w-[16px]" style={{ color: '#EC5B16' }} />
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[20px]">
                 {filteredRecordings.map((recording) => (
                   <RecordingCard

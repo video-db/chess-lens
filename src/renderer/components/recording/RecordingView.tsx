@@ -170,7 +170,7 @@ function SummaryView({ onGoBack, onStartNewCall }: SummaryViewProps) {
 
 // ─── Active recording layout ──────────────────────────────────────────────────
 
-function ActiveRecordingLayout() {
+function ActiveRecordingLayout({ onBack }: { onBack?: () => void }) {
   // Chat prefill state — managed here so ChatPanel (right) can receive tips from LiveAssistPanel (left)
   const [chatPrefill, setChatPrefill] = useState<{ question: string; tipContext: string; seq: number } | null>(null);
   const chatPrefillSeqRef = useRef(0);
@@ -183,7 +183,7 @@ function ActiveRecordingLayout() {
   return (
     <div className="flex flex-col h-full bg-surface-muted">
       {/* Header with timer + controls */}
-      <RecordingHeader />
+      <RecordingHeader onBack={onBack} />
 
       {/* Main container — matches storybook: padding 16px, gap 20px, rounded top */}
       <div className="flex-1 bg-white border border-border-default rounded-t-[20px] mx-[10px] p-[16px] flex gap-[20px] overflow-hidden">
@@ -226,9 +226,10 @@ function ActiveRecordingLayout() {
 
 export interface RecordingViewProps {
   onBack?: () => void;
+  onSessionEnd?: () => void;
 }
 
-export function RecordingView({ onBack }: RecordingViewProps) {
+export function RecordingView({ onBack, onSessionEnd }: RecordingViewProps) {
   const { isCallActive, callSummary } = useCopilotStore();
   const { status } = useSession();
   const { prepareNewSession } = useSessionLifecycle();
@@ -244,21 +245,21 @@ export function RecordingView({ onBack }: RecordingViewProps) {
       wasRecordingRef.current = true;
     }
     if (callSummary && wasRecordingRef.current) {
-      onBack?.();
+      onSessionEnd?.();
     }
-  }, [callSummary, isRecording, onBack]);
+  }, [callSummary, isRecording, onSessionEnd]);
 
   useCopilot();
 
   const handleStartNewCall = () => { prepareNewSession(); };
-  const handleGoBack = () => { prepareNewSession(); onBack?.(); };
+  const handleGoBack = () => { prepareNewSession(); onSessionEnd?.(); };
 
   if (callSummary && !isCallActive) {
     return <SummaryView onGoBack={handleGoBack} onStartNewCall={handleStartNewCall} />;
   }
 
   if (isProcessing) {
-    return <ProcessingView onBack={onBack} />;
+    return <ProcessingView onBack={onSessionEnd} />;
   }
 
   // If idle with no summary, useEffect above handles navigation; return null to avoid flash
@@ -266,7 +267,7 @@ export function RecordingView({ onBack }: RecordingViewProps) {
     return null;
   }
 
-  return <ActiveRecordingLayout />;
+  return <ActiveRecordingLayout onBack={onBack} />;
 }
 
 export default RecordingView;

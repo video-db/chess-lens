@@ -1203,45 +1203,7 @@ function ChatWithVideoButton({ videoId, collectionId, disabled }: { videoId: str
 // ── Coach Notes Section ───────────────────────────────────────────────────────
 
 function CoachNotesSection({ recordingId, tips }: { recordingId: number; tips: { id: string; startTime: number; tip: string }[] }) {
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [messages, setMessages] = useState<{ id: string; role: 'user' | 'assistant'; text: string }[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const idCounter = useRef(0);
   void recordingId;
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const handleSubmit = useCallback(async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const question = input.trim();
-    if (!question || isLoading) return;
-
-    const tipsContext = tips.length > 0
-      ? `Session coaching tips:\n${tips.slice(0, 5).map((t, i) => `${i + 1}. [${formatTipTimestamp(t.startTime)}] ${t.tip}`).join('\n')}`
-      : '';
-
-    setInput('');
-    setError(null);
-    const userMsg = { id: `cn-${++idCounter.current}`, role: 'user' as const, text: question };
-    setMessages((p) => [...p, userMsg]);
-    setIsLoading(true);
-
-    try {
-      const api = getElectronAPI();
-      if (!api) throw new Error('Electron API not available');
-      const result = await api.liveAssist.chat(question, tipsContext || undefined);
-      if (!result.success || !result.reply) throw new Error(result.error || 'No reply received');
-      setMessages((p) => [...p, { id: `cn-${++idCounter.current}`, role: 'assistant', text: result.reply! }]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to get a response');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [input, isLoading, tips]);
 
   return (
     <div className="flex flex-col gap-[20px]">
@@ -1268,7 +1230,7 @@ function CoachNotesSection({ recordingId, tips }: { recordingId: number; tips: {
                   </span>
                 </div>
               </div>
-              {/* Tip content — shown once, no duplication */}
+              {/* Tip content */}
               <p className="text-[13px] text-black" style={{ lineHeight: '20px' }}>
                 {tip.tip}
               </p>
@@ -1276,69 +1238,6 @@ function CoachNotesSection({ recordingId, tips }: { recordingId: number; tips: {
           ))}
         </div>
       )}
-
-      {/* Chat messages */}
-      {messages.length > 0 && (
-        <div className="flex flex-col gap-[10px] max-h-[300px] overflow-y-auto">
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className="max-w-[85%] text-[13px]"
-                style={{
-                  padding: '12px',
-                  borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                  background: msg.role === 'user' ? 'var(--color-chat-user-bg)' : 'var(--color-chat-coach-bg)',
-                  border: `1px solid ${msg.role === 'user' ? 'var(--color-chat-user-border)' : 'var(--color-chat-coach-border)'}`,
-                  lineHeight: '18px',
-                  color: 'var(--color-text-body)',
-                }}
-              >
-                {msg.role === 'assistant' ? (
-                  <div className="prose prose-sm max-w-none text-[13px] leading-[18px]">
-                    <ReactMarkdown>{msg.text}</ReactMarkdown>
-                  </div>
-                ) : msg.text}
-              </div>
-            </div>
-          ))}
-          {isLoading && (
-            <div className="flex justify-start">
-              <div style={{ background: 'var(--color-chat-coach-bg)', border: '1px solid var(--color-chat-coach-border)', borderRadius: '12px 12px 12px 2px', padding: '8px 12px' }} className="flex items-center gap-[6px]">
-                <Loader2 size={12} className="text-brand animate-spin" />
-                <span className="text-[13px] text-text-muted-brand">Thinking...</span>
-              </div>
-            </div>
-          )}
-          {error && (
-            <div className="flex items-center gap-[6px] rounded-[8px] px-[10px] py-[6px]" style={{ background: '#FEF2F2', border: '1px solid #FECACA' }}>
-              <span className="text-[12px] text-[#DC2626] flex-1">{error}</span>
-              <button onClick={() => setError(null)}><X size={12} className="text-[#DC2626]" /></button>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-      )}
-
-      {/* Chat input */}
-      <form onSubmit={handleSubmit} className="flex items-center gap-[4px]" style={{ background: '#F7F7F7', border: '1px solid rgba(13,13,13,0.1)', borderRadius: 9999, padding: '2px 6px 2px 12px' }}>
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask your coach..."
-          disabled={isLoading}
-          className="flex-1 bg-transparent text-[13px] font-medium text-text-label placeholder:text-text-muted-brand outline-none"
-          style={{ height: 40 }}
-        />
-        <button
-          type="submit"
-          disabled={!input.trim() || isLoading}
-          className="flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          style={{ width: 32, height: 32, borderRadius: 40, background: input.trim() ? '#000000' : '#969696', border: '1px solid #EFEFEF', flexShrink: 0 }}
-        >
-          <Send size={14} className="text-white" />
-        </button>
-      </form>
     </div>
   );
 }

@@ -37,6 +37,8 @@ export function App() {
   const [pendingRecordingNavigation, setPendingRecordingNavigation] = useState<number | null>(null);
   // Pending tab change when user needs to confirm discarding meeting setup
   const [pendingTabChange, setPendingTabChange] = useState<Tab | null>(null);
+  // Whether user navigated away from recording view to game library (recording still active)
+  const [browsedAwayFromRecording, setBrowsedAwayFromRecording] = useState(false);
 
   const configStore = useConfigStore();
   const sessionStore = useSessionStore();
@@ -134,6 +136,7 @@ export function App() {
   // Handle returning from recording/setup mode - navigate to history (detail page if we have a recording ID)
   const handleExitRecordingMode = React.useCallback(() => {
     setShowMeetingSetup(false);
+    setBrowsedAwayFromRecording(false);
 
     // Capture recording ID before clearing state (may be null if something went wrong)
     const recordingId = sessionStore.recordingId;
@@ -146,6 +149,13 @@ export function App() {
 
     prepareNewSession();
   }, [sessionStore, prepareNewSession]);
+
+  // Navigate back to game library while keeping the recording active.
+  // The recording continues in the background; the library shows an alert banner.
+  const handleBackToLibraryDuringRecording = React.useCallback(() => {
+    setBrowsedAwayFromRecording(true);
+    setActiveTab('history');
+  }, []);
 
   // When recording stops via the widget (not via RecordingView's own back handler),
   // isActivelyRecording transitions true→false while awaitingCallSummary is also false.
@@ -200,9 +210,25 @@ export function App() {
       );
     }
 
-    // If actively recording OR waiting for call summary, show RecordingView
+    // If actively recording OR waiting for call summary:
+    // - If user explicitly navigated to game library, show it (recording continues in background)
+    // - Otherwise show the recording view
     if (isActivelyRecording || awaitingCallSummary) {
-      return <RecordingView onBack={handleExitRecordingMode} />;
+      if (browsedAwayFromRecording) {
+        return (
+          <HistoryView
+            initialSelectedRecordingId={pendingRecordingNavigation}
+            onClearInitialSelection={() => setPendingRecordingNavigation(null)}
+            onStartRecording={() => {
+              setBrowsedAwayFromRecording(false);
+            }}
+            onReturnToRecording={() => {
+              setBrowsedAwayFromRecording(false);
+            }}
+          />
+        );
+      }
+      return <RecordingView onBack={handleBackToLibraryDuringRecording} onSessionEnd={handleExitRecordingMode} />;
     }
 
     // If showing game setup flow (after clicking Start New Game)
