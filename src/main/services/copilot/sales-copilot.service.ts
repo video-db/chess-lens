@@ -18,6 +18,7 @@ import {
   saveCoachingTips,
   type CoachingTip,
 } from '../../db';
+import { getLiveAssistService } from '../live-assist.service';
 
 import {
   TranscriptBufferService,
@@ -466,12 +467,15 @@ export class MeetingCopilotService extends EventEmitter {
         'WP-CAPS2 accuracy computed'
       );
 
+      const moveCount = getLiveAssistService().getTotalMoveCount();
+
       updateRecording(recordingId, {
         shortOverview: summary.shortOverview,
         keyPoints: JSON.stringify(summary.keyPoints),
         postMeetingChecklist: JSON.stringify(summary.postMeetingChecklist),
         metricsSnapshot: JSON.stringify(metrics),
         duration: Math.round(duration),
+        moveCount,
         ...(accuracyWhite !== null && { accuracyWhite }),
         ...(accuracyBlack !== null && { accuracyBlack }),
       });

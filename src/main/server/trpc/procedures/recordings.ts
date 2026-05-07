@@ -246,6 +246,8 @@ function toApiRecording(dbRecording: ReturnType<typeof getRecordingById>) {
     // Per-player accuracy
     accuracyWhite: typeof (dbRecording as any).accuracyWhite === 'number' ? (dbRecording as any).accuracyWhite : null,
     accuracyBlack: typeof (dbRecording as any).accuracyBlack === 'number' ? (dbRecording as any).accuracyBlack : null,
+    // Total moves played
+    moveCount: typeof (dbRecording as any).moveCount === 'number' ? (dbRecording as any).moveCount : null,
   };
 }
 

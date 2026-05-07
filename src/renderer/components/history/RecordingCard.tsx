@@ -68,7 +68,9 @@ export function RecordingCard({ recording, onClick }: RecordingCardProps) {
           )}
           <div className="flex items-center gap-[4px]">
             <Swords className="h-4 w-4 text-text-body opacity-20" />
-            <span className="text-sm text-text-body tracking-[0.005em]">— Moves</span>
+            <span className="text-sm text-text-body tracking-[0.005em]">
+              {recording.moveCount != null ? `${recording.moveCount} Moves` : '— Moves'}
+            </span>
           </div>
         </div>
       </div>

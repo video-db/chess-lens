@@ -46,6 +46,8 @@ export const recordings = sqliteTable('recordings', {
   // Per-player accuracy (0–100 float) computed via chess.com formula (avg centipawn loss).
   accuracyWhite: real('accuracy_white'),
   accuracyBlack: real('accuracy_black'),
+  // Total number of individual moves (half-moves / plies) played in the game.
+  moveCount: integer('move_count'),
 });
 
 // Meeting Co-Pilot Tables

@@ -312,6 +312,8 @@ function ensureRecordingColumns(): void {
   addColumnIfMissing('accuracy_black', "ALTER TABLE recordings ADD COLUMN accuracy_black REAL");
   // Game result: win / loss / draw — set at session end.
   addColumnIfMissing('result', "ALTER TABLE recordings ADD COLUMN result TEXT CHECK(result IN ('win', 'loss', 'draw'))");
+  // Total moves (half-moves / plies) played — set at session end.
+  addColumnIfMissing('move_count', "ALTER TABLE recordings ADD COLUMN move_count INTEGER");
 }
 
 function ensureNudgesHistorySchema(): void {

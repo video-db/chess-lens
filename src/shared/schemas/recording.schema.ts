@@ -101,6 +101,8 @@ export const RecordingSchema = z.object({
   // Per-player accuracy (0–100) computed via chess.com formula at session end.
   accuracyWhite: z.number().nullable().optional(),
   accuracyBlack: z.number().nullable().optional(),
+  // Total number of individual moves (plies) played in the game.
+  moveCount: z.number().int().nullable().optional(),
 });
 
 export const CreateRecordingInputSchema = z.object({

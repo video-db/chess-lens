@@ -136,6 +136,8 @@ class LiveAssistService extends EventEmitter {
   // Separate tracker for move history FEN diff — updated in injectConfirmedFen
   // independently of lastChessSignature to avoid breaking the coaching skip check.
   private lastFenForMoveHistory: string | null = null;
+  /** Count of confirmed board-position changes (plies) in the current session. */
+  private totalMoveCount = 0;
   private lastChessTurn: 'w' | 'b' | null = null;
   private lastChessPerspective: 'white' | 'black' = 'white';
   // Last engine result — carried on every fen event so the widget always has the current move/eval.
@@ -839,6 +841,8 @@ class LiveAssistService extends EventEmitter {
     this.lastChessTurn = null;
     this.lastChessPerspective = 'white';
     this.lastFenForMoveHistory = null;
+    // NOTE: totalMoveCount is intentionally NOT reset here — it is reset in
+    // start() so that stop() → copilot reads the count before a new session zeros it.
     this.lastEngineSan = undefined;
     this.lastEngineLan = undefined;
     this.lastEngineFrom = undefined;
@@ -856,6 +860,12 @@ class LiveAssistService extends EventEmitter {
       blackQueenside: false,
     };
     this.hasSeenInitialChessPosition = false;
+  }
+
+  /** Returns the total number of confirmed distinct board positions seen this session (= plies played). */
+  getTotalMoveCount(): number {
+    // Subtract 1 to exclude the initial board position itself (which is not a move).
+    return Math.max(0, this.totalMoveCount - 1);
   }
 
   private isInitialChessBoard(board: string): boolean {
@@ -1251,7 +1261,7 @@ class LiveAssistService extends EventEmitter {
     this.activeGameId = context?.gameId || DEFAULT_GAME_ID;
     this.activeCoachPersonalityId = context?.coachPersonalityId || 'default';
     this.resetChessSessionState();
-    this.pendingRoundEndAt = null;
+    this.totalMoveCount = 0;
     this.roundTipVisible = false;
     this.roundTipAutoClearAt = null;
     this.currentVisibleTip = null;
@@ -1629,6 +1639,7 @@ class LiveAssistService extends EventEmitter {
     // which controls coaching deduplication — don't touch that here).
     if (fenBoard && fenBoard !== this.lastFenForMoveHistory) {
       this.lastFenForMoveHistory = fenBoard;
+      this.totalMoveCount++;
     }
 
     this.emit('fen', {
