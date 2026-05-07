@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Pause, Square, Loader2, Calendar, ArrowLeft } from 'lucide-react';
+import { Square, Loader2, Calendar, ArrowLeft } from 'lucide-react';
 import { useSession } from '../../hooks/useSession';
 import { useGameSetupStore } from '../../stores/meeting-setup.store';
 
@@ -28,30 +28,11 @@ function ClockIcon() {
   );
 }
 
-// Pause icon
-function PauseIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="5" y="4" width="3" height="12" rx="1" fill="currentColor" />
-      <rect x="12" y="4" width="3" height="12" rx="1" fill="currentColor" />
-    </svg>
-  );
-}
-
 // Stop icon
 function StopIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect x="5" y="5" width="10" height="10" rx="1" fill="white" />
-    </svg>
-  );
-}
-
-// Play icon (for resume)
-function PlayIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M6 4L16 10L6 16V4Z" fill="currentColor" />
     </svg>
   );
 }
@@ -67,7 +48,7 @@ function formatStartTime(date: Date): string {
 }
 
 export function RecordingHeader({ onBack }: { onBack?: () => void }) {
-  const { status, elapsedTime, isRecording, isStopping, isPaused, stopRecording, pauseRecording, resumeRecording } = useSession();
+  const { status, elapsedTime, isRecording, isStopping, isPaused, stopRecording } = useSession();
   const { name } = useGameSetupStore();
 
   // Capture start time once when component mounts
@@ -128,21 +109,6 @@ export function RecordingHeader({ onBack }: { onBack?: () => void }) {
             {formatTime(elapsedTime)}
           </span>
         </div>
-
-        {/* Pause/Resume Recording button */}
-        {isRecording && !isStopping && (
-          <button
-            onClick={isPaused ? resumeRecording : pauseRecording}
-            className={`flex items-center gap-[6px] bg-white border rounded-[12px] pl-[16px] pr-[20px] py-[12px] shadow-[0px_1.272px_15.267px_0px_rgba(0,0,0,0.05)] hover:bg-surface-muted transition-colors ${
-              isPaused ? 'border-brand' : 'border-border-default'
-            }`}
-          >
-            {isPaused ? <PlayIcon /> : <PauseIcon />}
-            <span className={`font-semibold text-base tracking-[-0.28px] ${isPaused ? 'text-brand' : 'text-black'}`}>
-              {isPaused ? 'Resume Recording' : 'Pause Recording'}
-            </span>
-          </button>
-        )}
 
         {/* Stop button */}
         {isRecording && !isStopping && (

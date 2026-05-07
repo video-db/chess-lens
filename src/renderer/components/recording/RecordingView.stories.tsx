@@ -147,63 +147,69 @@ function MockRecordingHeader({ onBack }: { onBack: () => void }) {
 // ── Win Probability Chart ─────────────────────────────────────────────────────
 
 function MockWinProbChart() {
-  const W = 784, H = 167;
+  const CHART_W = 691;
+  const CHART_H = 168;
+
+  const Y_LABELS: { val: number; y: number }[] = [
+    { val: 100, y: 0   },
+    { val: 75,  y: 42  },
+    { val: 50,  y: 84  },
+    { val: 25,  y: 126 },
+    { val: 0,   y: 168 },
+  ];
+
+  const toY = (wc: number) => ((100 - wc) / 100) * CHART_H;
   const n = MOCK_WIN_PROB_POINTS.length;
-  const toY = (v: number) => H - (v / 100) * H;
-  const pts = MOCK_WIN_PROB_POINTS.map((v, i) => `${(i / (n - 1)) * W},${toY(v)}`).join(' ');
-  const moveLabels = MOCK_WIN_PROB_POINTS.map((_, i) => i + 1);
+  const midY = toY(50);
+
+  const pts = MOCK_WIN_PROB_POINTS
+    .map((v, i) => `${((i / (n - 1)) * CHART_W).toFixed(2)},${toY(v).toFixed(2)}`)
+    .join(' ');
+
+  const labelEvery = Math.max(1, Math.ceil(n / 10));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
-      {/* Legend */}
-      <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'flex-end', gap: 12, paddingBottom: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 8h8" stroke="#C14103" strokeWidth="1.5" strokeDasharray="2 2"/></svg>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 13, color: '#242424', letterSpacing: '0.005em' }}>Gaurav</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 8h8" stroke="#009106" strokeWidth="1.5"/></svg>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 13, color: '#242424', letterSpacing: '0.005em' }}>Magnus Carlsen</span>
-        </div>
-      </div>
+    <div style={{ display: 'flex', gap: 8 }}>
 
-      {/* Chart */}
-      <div style={{ display: 'flex', flexDirection: 'row', gap: 6, width: '100%' }}>
-        {/* Y-axis labels */}
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', width: 14, height: H }}>
-          {[100, 75, 50, 25, 0].map(v => (
-            <span key={v} style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 10, color: '#969696', letterSpacing: '0.005em', lineHeight: '10px' }}>{v}</span>
-          ))}
-        </div>
-
-        {/* SVG chart area */}
-        <div style={{ flex: 1, position: 'relative' }}>
-          <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: 'block' }}>
-            {/* Grid lines at 0, 25, 50, 75, 100% */}
-            {[0, 25, 50, 75, 100].map(v => (
-              <line key={v} x1={0} y1={toY(v)} x2={W} y2={toY(v)} stroke="#E5E7EB" strokeWidth={1} />
-            ))}
-            {/* 50% baseline dashed red */}
-            <line x1={0} y1={toY(50)} x2={W} y2={toY(50)} stroke="#FF4000" strokeWidth={1.2} strokeDasharray="4 3" />
-            {/* Win probability line */}
-            <polyline points={pts} fill="none" stroke="#53B745" strokeWidth={1.5} />
-            {/* Dots */}
-            {MOCK_WIN_PROB_POINTS.map((v, i) => {
-              const x = (i / (n - 1)) * W;
-              const y = toY(v);
-              const delta = i > 0 ? v - MOCK_WIN_PROB_POINTS[i - 1] : 0;
-              const color = delta >= 3 ? '#009106' : delta <= -3 ? '#C14103' : '#FF7E32';
-              return <circle key={i} cx={x} cy={y} r={3.4} fill={color} stroke="#FFFFFF" strokeWidth={1.2} />;
-            })}
-          </svg>
-        </div>
-      </div>
-
-      {/* X-axis move labels */}
-      <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 20, paddingRight: 2 }}>
-        {moveLabels.filter((_, i) => i % 4 === 0 || i === moveLabels.length - 1).map(v => (
-          <span key={v} style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 10, color: '#969696', letterSpacing: '0.005em' }}>{v}</span>
+      {/* Y-axis labels */}
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', width: 22, flexShrink: 0, height: CHART_H + 20 }}>
+        {Y_LABELS.map(({ val }) => (
+          <span key={val} style={{ fontSize: 10, fontWeight: 500, color: '#969696', fontFamily: 'Inter, sans-serif', letterSpacing: '0.005em', lineHeight: 1 }}>
+            {val}
+          </span>
         ))}
+        <span style={{ fontSize: 10, color: 'transparent', lineHeight: 1 }}>0</span>
+      </div>
+
+      {/* SVG */}
+      <div style={{ flex: 1, height: CHART_H + 20 }}>
+        <svg
+          width="100%"
+          height={CHART_H + 20}
+          viewBox={`0 0 ${CHART_W} ${CHART_H + 20}`}
+          preserveAspectRatio="none"
+          style={{ display: 'block', overflow: 'visible' }}
+        >
+          {/* Grid lines */}
+          {Y_LABELS.map(({ y }) => (
+            <line key={y} x1={0} y1={y} x2={CHART_W} y2={y} stroke="#E5E7EB" strokeWidth={0.8} />
+          ))}
+          {/* 50% dashed baseline */}
+          <line x1={0} y1={midY} x2={CHART_W} y2={midY} stroke="#FF4000" strokeWidth={1.23} strokeLinecap="round" strokeDasharray="2.47 2.47" />
+          {/* Win probability line */}
+          <polyline points={pts} fill="none" stroke="#464646" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.5} />
+          {/* X-axis move numbers */}
+          {MOCK_WIN_PROB_POINTS.map((_, i) => {
+            if (i % labelEvery !== 0 && i !== n - 1) return null;
+            const x = (i / (n - 1)) * CHART_W;
+            const moveNum = Math.floor(i / 2) + 1;
+            return (
+              <text key={`lbl-${i}`} x={x} y={CHART_H + 14} textAnchor="middle" fontSize={9} fill="#969696" fontFamily="Inter, sans-serif">
+                {moveNum}
+              </text>
+            );
+          })}
+        </svg>
       </div>
     </div>
   );
@@ -214,9 +220,24 @@ function MockWinProbChart() {
 function MockLiveAnalysisPanelData() {
   return (
     <div style={{ border: '1px solid #EFEFEF', borderRadius: 12, display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
-      {/* Heading */}
+      {/* Heading — title + live badge + legend */}
       <div style={{ ...S.panelHeading, height: 48 }}>
         <span style={S.panelTitle}>Live Analysis</span>
+        {/* Legend */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginRight: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <svg width="20" height="8" viewBox="0 0 20 8" style={{ flexShrink: 0 }}>
+              <line x1="0" y1="4" x2="20" y2="4" stroke="#464646" strokeWidth="1.5" strokeOpacity="0.5" strokeLinecap="round" />
+            </svg>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 11, color: '#464646' }}>White's win %</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <svg width="20" height="8" viewBox="0 0 20 8" style={{ flexShrink: 0 }}>
+              <line x1="0" y1="4" x2="20" y2="4" stroke="#FF4000" strokeWidth="1.23" strokeDasharray="2.47 2.47" strokeLinecap="round" />
+            </svg>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 11, color: '#464646' }}>Equal (50%)</span>
+          </div>
+        </div>
         {/* Live badge */}
         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', padding: '4px 12px 4px 4px', gap: 10, background: '#FFFFFF', border: '1px solid #EFEFEF', borderRadius: 20 }}>
           <div style={{ position: 'relative', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
