@@ -512,6 +512,15 @@ class ChessScreenshotService {
     }
     // Note: cycle is NOT ended here — live-assist will end it after coachingTip.
   }
+  /**
+   * Clear the last confirmed FEN so the next screenshot cycle that produces
+   * the same board will re-inject it into live-assist (e.g. after an engine
+   * timeout that left the position without analysis).
+   */
+  invalidateLastConfirmed(): void {
+    this.lastConfirmedFen = null;
+    log.debug('[ChessScreenshot] lastConfirmedFen invalidated — next matching vote will re-inject');
+  }
 }
 
 // Singleton

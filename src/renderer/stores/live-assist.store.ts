@@ -82,15 +82,18 @@ export const useLiveAssistStore = create<LiveAssistState>((set) => ({
     const combinedSayThis = [...state.sayThis, ...newSayThis].slice(-15);
     const combinedAskThis = [...state.askThis, ...newAskThis].slice(-15);
 
-    // Build structured coaching tip entries with move context
+    // Build structured coaching tip entries with move context.
+    // Use the current move history length as the move number — moveHistory is updated
+    // by fen events which fire before coaching tips arrive, so this reflects the real game clock.
     const newCoachingTips = [...state.coachingTips];
+    const currentMoveNo = state.moveHistory.length > 0 ? state.moveHistory.length : newCoachingTips.length + 1;
     const existingTipTexts = new Set(state.coachingTips.map(t => t.text.toLowerCase()));
     for (const text of newSayThis) {
       if (!existingTipTexts.has(text.toLowerCase())) {
         newCoachingTips.push({
           text,
           moveSan: winData?.moveSan,
-          moveNo: newCoachingTips.length + 1,
+          moveNo: currentMoveNo,
         });
       }
     }

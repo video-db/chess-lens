@@ -769,6 +769,9 @@ export function PairCompactOverlay({
   const [now, setNow] = useState(Date.now());
   const [isExpanded, setIsExpanded] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  // Track when the latest FEN arrived so we can show a fallback after a long wait.
+  const [lastFenAt, setLastFenAt] = useState<number | null>(null);
+  const prevFenRef = useRef<string | null>(null);
 
   // Detect whether the board is shown from black's perspective.
   // When flipped, currentFen's board part !== displayFen's board part.
@@ -776,6 +779,17 @@ export function PairCompactOverlay({
     if (!currentFen || !displayFen) return false;
     return currentFen.split(' ')[0] !== displayFen.split(' ')[0];
   }, [currentFen, displayFen]);
+
+  // Track when the board position last changed so we can show a fallback
+  // message if the engine/LLM hasn't responded after a reasonable wait.
+  const activeFen = displayFen ?? currentFen;
+  useEffect(() => {
+    const fenBoard = activeFen ? activeFen.split(' ')[0] : null;
+    if (fenBoard && fenBoard !== prevFenRef.current) {
+      prevFenRef.current = fenBoard;
+      setLastFenAt(Date.now());
+    }
+  }, [activeFen]);
 
   // ── Chat state ──
   const {
@@ -970,6 +984,8 @@ export function PairCompactOverlay({
 
   const chessHasCoachContent = !!(chessParagraphText || engineSan || chessDrillText);
   const chessHasAnyContent = !!(chessHasCoachContent || (displayFen ?? currentFen));
+  // Show a fallback message if coaching hasn't arrived 20s after the board was confirmed.
+  const coachTipTimedOut = !chessHasCoachContent && lastFenAt !== null && (now - lastFenAt) > 20000;
   const primaryText = isChess
     ? (chessParagraphText || engineSan || '')
     : (compactTopTip || visualHeading || visualBody || '');
@@ -1442,13 +1458,19 @@ export function PairCompactOverlay({
                       {chessParagraphText}
                     </p>
                   ) : (
-                    /* Tip still loading — spinner + label */
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <div style={{ width: 14, height: 14, borderRadius: '50%', background: 'conic-gradient(from 90deg, rgba(254,72,11,1) 0deg, rgba(196,196,196,0) 360deg)', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
-                      <span style={{ fontSize: 12, fontWeight: 500, color: '#464646', lineHeight: '13px', fontFamily: 'Inter, sans-serif' }}>
-                        COACHING TIP INCOMING...
+                    /* Tip still loading — spinner or timeout fallback */
+                    coachTipTimedOut ? (
+                      <span style={{ fontSize: 12, fontWeight: 400, color: '#969696', lineHeight: '16px', fontFamily: 'Inter, sans-serif' }}>
+                        Engine is taking longer than usual. Tip will appear when ready.
                       </span>
-                    </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ width: 14, height: 14, borderRadius: '50%', background: 'conic-gradient(from 90deg, rgba(254,72,11,1) 0deg, rgba(196,196,196,0) 360deg)', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, fontWeight: 500, color: '#464646', lineHeight: '13px', fontFamily: 'Inter, sans-serif' }}>
+                          COACHING TIP INCOMING...
+                        </span>
+                      </div>
+                    )
                   )}
                 </div>
 

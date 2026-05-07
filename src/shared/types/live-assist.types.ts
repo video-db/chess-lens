@@ -24,4 +24,8 @@ export interface LiveInsightsEvent {
   centipawnLoss?: number;
   /** Which side made the move that triggered this tip. */
   turn?: 'w' | 'b';
+  /** SAN of the engine's recommended move (e.g. "Bc4"). */
+  moveSan?: string;
+  /** SAN of the move actually played by the player (e.g. "e4"). */
+  playedMoveSan?: string;
 }

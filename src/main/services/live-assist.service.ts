@@ -12,6 +12,7 @@ import { pipelineLatency } from '../lib/pipeline-latency';
 import type { VoteMeta } from '../lib/pipeline-latency';
 import { GPT_54_MODEL, getLLMService } from './llm.service';
 import { getChessEngineService } from './chess-engine.service';
+import { getChessScreenshotService } from './chess-screenshot.service';
 import type { LiveInsights } from '../../shared/types/live-assist.types';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
 import { fenDiffToSan } from '../lib/chess-notation';
@@ -788,50 +789,51 @@ class LiveAssistService extends EventEmitter {
    *  5. If the board is unchanged → no move detected → keep the last known turn.
    *  6. If there is no previous board → fall back to the last known turn or 'w'.
    */
+  /**
+   * Determine whose turn it is next by trying both sides with fenDiffToSan.
+   *
+   * fenDiffToSan already handles all move types correctly (quiet moves, captures,
+   * en passant, castling, promotion).  We call it with each side as the mover:
+   *   - If White-as-mover produces a valid SAN → White just moved → Black to move ('b')
+   *   - If Black-as-mover produces a valid SAN → Black just moved → White to move ('w')
+   *
+   * This is deterministic and does not depend on lastKnownTurn for the common case.
+   * lastKnownTurn is only used as a last-resort flip when the diff is ambiguous
+   * (both sides produce a SAN, which shouldn't happen in clean positions) or when
+   * neither produces a SAN (boards differ by more than one legal move — OCR noise).
+   */
   private inferTurnFromBoards(
     prevBoard: string | null,
     currBoard: string,
     lastKnownTurn: 'w' | 'b' | null
   ): 'w' | 'b' {
     if (!prevBoard || prevBoard === currBoard) {
-      // No change detected (or cold start) — use lastKnownTurn if available.
-      // IMPORTANT: if lastKnownTurn is null it means we have no history yet
-      // (e.g. "Live assist already running" path where start() returned early
-      // and state wasn't fully reset). Always use the caller's seed in this case
-      // rather than blindly defaulting to 'w'.
       return lastKnownTurn ?? 'w';
     }
 
-    const prev = this.countPieces(prevBoard);
-    const curr = this.countPieces(currBoard);
+    // Build minimal synthetic FENs (turn field doesn't matter for fenDiffToSan
+    // since it only reads the board parts, but castling/ep are irrelevant here too)
+    const prevFen = `${prevBoard} w - - 0 1`;
+    const currFen = `${currBoard} b - - 0 1`;
 
-    const whiteLost = prev.white - curr.white;
-    const blackLost = prev.black - curr.black;
+    const whiteMoved = fenDiffToSan(prevFen, currFen, 'w');
+    const blackMoved = fenDiffToSan(prevFen, currFen, 'b');
 
-    if (whiteLost > 0 && blackLost === 0) {
-      // Black captured a white piece → white pieces decreased → it's white's turn now
-      log.debug({ whiteLost, prevBoard: prevBoard.substring(0, 30), currBoard: currBoard.substring(0, 30) },
-        '[TurnDetect] White piece captured by black → white to move');
+    if (whiteMoved && !blackMoved) {
+      log.debug({ san: whiteMoved }, '[TurnDetect] fenDiff: White moved → Black to move');
+      return 'b';
+    }
+    if (blackMoved && !whiteMoved) {
+      log.debug({ san: blackMoved }, '[TurnDetect] fenDiff: Black moved → White to move');
       return 'w';
     }
 
-    if (blackLost > 0 && whiteLost === 0) {
-      // White captured a black piece → black pieces decreased → it's black's turn now
-      log.debug({ blackLost, prevBoard: prevBoard.substring(0, 30), currBoard: currBoard.substring(0, 30) },
-        '[TurnDetect] Black piece captured by white → black to move');
-      return 'b';
-    }
-
-    if (whiteLost > 0 && blackLost > 0) {
-      // Both sides lost pieces (promotion+capture or OCR noise) — flip from last known
-      log.debug({ whiteLost, blackLost }, '[TurnDetect] Both sides lost pieces — flipping turn');
-      return lastKnownTurn === 'w' ? 'b' : 'w';
-    }
-
-    // Quiet move — board changed but no captures. Flip from last known turn.
-    const flipped = lastKnownTurn === 'w' ? 'b' : 'w';
-    log.debug({ prevBoard: prevBoard.substring(0, 30), currBoard: currBoard.substring(0, 30), flipped },
-      '[TurnDetect] Quiet move detected → flipping turn');
+    // Ambiguous or neither side produced a SAN — fall back to flip
+    const flipped: 'w' | 'b' = lastKnownTurn === 'w' ? 'b' : 'w';
+    log.debug(
+      { whiteMoved, blackMoved, lastKnownTurn, flipped },
+      '[TurnDetect] fenDiff ambiguous — flipping from lastKnownTurn'
+    );
     return flipped;
   }
 
@@ -1561,29 +1563,34 @@ class LiveAssistService extends EventEmitter {
       return true;
     }
 
-    // Prefer the turn reported directly by the indexing LLM from UI indicators.
-    // When the LLM successfully identified the last-move highlight, it outputs a
-    // <turn> tag (tier 1) which is the most direct signal.  When that's absent,
-    // fall back to the board-diff heuristic (tier 2).  If the board is unchanged
-    // since last frame, keep the last confirmed turn rather than firing the
-    // perspective seed (tier 3 fix — prevents mid-game same-board re-reads from
-    // wrongly overriding the turn with the player's colour).  Only use the
-    // perspective seed on a true cold start when lastChessTurn is still null (tier 4).
+    // Turn resolution priority chain:
     //
-    // Tier 1 — <turn> tag from LLM (highlight-based, kept simple and reliable).
-    // Tier 2 — board-diff heuristic (piece count diff between prev and curr board).
-    // Tier 3 — keep last confirmed turn (safe for same-board re-reads mid-game).
-    // Tier 4 — cold-start perspective seed (only when lastChessTurn is still null).
+    // Tier 1 — Board-diff (highest priority when board changed).
+    //   Directly examines which side's pieces moved between the previous
+    //   confirmed board and the new one. Deterministic — does not depend on
+    //   the LLM or accumulated state.  Returns null when the board is unchanged
+    //   (same-board re-read) since there is nothing to diff.
+    //
+    // Tier 2 — <turn> tag from LLM.
+    //   Used when the board is unchanged (burst re-read) or as a sanity signal.
+    //   Less reliable than the board diff on its own but useful as a fallback.
+    //
+    // Tier 3 — Keep last confirmed turn.
+    //   Safe for same-board re-reads mid-game — avoids the perspective-seed bug.
+    //
+    // Tier 4 — Cold-start perspective seed (only when lastChessTurn is null).
+    const boardDiffTurn = (this.lastChessBoard && this.lastChessBoard !== fenBoard)
+      ? this.inferTurnFromBoards(this.lastChessBoard, fenBoard, this.lastChessTurn)
+      : null;
+
     const inferredTurn: 'w' | 'b' =
+      boardDiffTurn ??
       reportedTurn ??
-      (this.lastChessBoard && this.lastChessBoard !== fenBoard
-        ? this.inferTurnFromBoards(this.lastChessBoard, fenBoard, this.lastChessTurn)
-        : null) ??
       this.lastChessTurn ??
       (perspective === 'black' ? 'b' : 'w');
 
     log.debug(
-      { reportedTurn, tier: reportedTurn != null ? 1 : (this.lastChessBoard && this.lastChessBoard !== fenBoard) ? 2 : this.lastChessTurn != null ? 3 : 4 },
+      { boardDiffTurn, reportedTurn, inferredTurn, tier: boardDiffTurn != null ? 1 : reportedTurn != null ? 2 : this.lastChessTurn != null ? 3 : 4 },
       '[LiveAssist] injectConfirmedFen: turn tier used'
     );
 
@@ -1936,9 +1943,14 @@ class LiveAssistService extends EventEmitter {
       log.warn({ chessSignature }, '[LiveAssist] No engine analysis for this position — skipping LLM tip');
       this.lastProcessedTimestamp = now;
       endCycleIfTracked('noEngineAnalysis');
-      // Invalidate the pending signature so we retry when a new (valid) FEN arrives.
+      // Invalidate both the pending AND confirmed signatures so the screenshot
+      // service's next confirmation of the same board is treated as a new position
+      // and triggers a fresh engine call. Without this, lastConfirmedFen in the
+      // screenshot service blocks re-injection and the position is permanently stuck.
       this.pendingChessSignature = null;
       this.pendingChessSignatureCount = 0;
+      this.lastChessSignature = null;
+      getChessScreenshotService().invalidateLastConfirmed();
       return;
     }
 
