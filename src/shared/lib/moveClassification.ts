@@ -117,8 +117,11 @@ const WP_GOOD       = 0.05;
 const WP_INACCURACY = 0.15;
 const WP_MISTAKE    = 0.30;
 
-/** If the best-move eval is above this (pawns), suppress Mistake/Inaccuracy labels. */
-const WINNING_BUFFER_EVAL = 5.0;
+/** If the best-move eval is above this (pawns), suppress Mistake/Inaccuracy labels.
+ *  3.0 pawns (~85% WP) is a clearly winning position without being trivially won.
+ *  The previous value of 5.0 was too aggressive — it suppressed real mistakes in
+ *  positions that were winning but far from over. */
+const WINNING_BUFFER_EVAL = 3.0;
 
 /** WP gap between best and second-best to qualify as "Only Move / Great". */
 const GREAT_MOVE_WP_GAP = 0.20;

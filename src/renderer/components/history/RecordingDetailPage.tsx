@@ -234,10 +234,10 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
           </div>
 
           {/* Win Probability chart */}
-          <WinProbabilitySection players={players} tips={gameplayTips} />
+          <WinProbabilitySection tips={gameplayTips} keyMomentIndices={computeKeyMomentIndices(gameplayTips)} />
 
           {/* Badges row */}
-          <BadgesRow recording={recording} />
+          <BadgesRow tips={gameplayTips} keyMomentIndices={computeKeyMomentIndices(gameplayTips)} />
 
           {/* Match Summary */}
           <MatchSummaryCard summary={recording.shortOverview || recording.insights} />
@@ -463,12 +463,47 @@ function AccuracyCard({ label, value, color }: { label: string; value: number | 
 
 // ── Win Probability Section ───────────────────────────────────────────────────
 
+// ── Shared key-moment index computation ──────────────────────────────────────
+
+const KM_IMPACT_RANK: Record<MoveQuality, number> = {
+  blunder: 0, mistake: 1, brilliant: 2, great: 3,
+  inaccuracy: 4, best: 5, excellent: 6, good: 7, book: 8,
+};
+const KM_MAX = 7;
+
+function computeKeyMomentIndices(
+  tips: { winChance?: number; winChanceBefore?: number; turn?: 'w' | 'b'; centipawnLoss?: number; engineEval?: number }[]
+): Set<number> {
+  const classified = tips.map((tip, idx) => ({
+    idx,
+    quality: classifyStoredMove({
+      winChance: tip.winChance, winChanceBefore: tip.winChanceBefore,
+      engineEval: tip.engineEval, centipawnLoss: tip.centipawnLoss, turn: tip.turn,
+    }) as MoveQuality,
+    centipawnLoss: tip.centipawnLoss,
+  }));
+
+  const keyMoments = classified.filter((t) => KEY_MOMENT_QUALITIES.has(t.quality));
+
+  const capped = keyMoments.length > KM_MAX
+    ? keyMoments
+        .slice()
+        .sort((a, b) => {
+          const d = KM_IMPACT_RANK[a.quality] - KM_IMPACT_RANK[b.quality];
+          return d !== 0 ? d : (b.centipawnLoss ?? 0) - (a.centipawnLoss ?? 0);
+        })
+        .slice(0, KM_MAX)
+    : keyMoments;
+
+  return new Set(capped.map((t) => t.idx));
+}
+
 function WinProbabilitySection({
-  players,
   tips,
+  keyMomentIndices,
 }: {
-  players: { white: string; black: string };
-  tips: { winChance?: number; turn?: 'w' | 'b' }[];
+  tips: { winChance?: number; winChanceBefore?: number; turn?: 'w' | 'b'; centipawnLoss?: number; engineEval?: number }[];
+  keyMomentIndices: Set<number>;
 }) {
   // ── Layout constants (match Figma SVG: 743×252 card) ──────────────────────
   // Chart canvas within the SVG viewBox
@@ -487,10 +522,17 @@ function WinProbabilitySection({
   const toY = (wc: number) => ((100 - wc) / 100) * CHART_H;
 
   // ── Data ────────────────────────────────────────────────────────────────────
-  const tipData = tips.filter((t) => typeof t.winChance === 'number');
+  const tipData    = tips.filter((t) => typeof t.winChance === 'number');
   const dataPoints = tipData.map((t) => t.winChance as number);
-  const turns = tipData.map((t) => t.turn);
-  const hasData = dataPoints.length >= 2;
+  const hasData    = dataPoints.length >= 2;
+
+  // Classify so key-moment dots can be coloured by quality
+  const pointQualities = tipData.map((t) =>
+    classifyStoredMove({
+      winChance: t.winChance, winChanceBefore: t.winChanceBefore,
+      turn: t.turn, centipawnLoss: t.centipawnLoss, engineEval: t.engineEval,
+    }) as MoveQuality
+  );
 
   const points = dataPoints.map((wc, i) => ({
     x: dataPoints.length === 1 ? 0 : (i / (dataPoints.length - 1)) * CHART_W,
@@ -501,33 +543,6 @@ function WinProbabilitySection({
   const polylinePoints = points.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
   const midY = toY(50);
 
-  // ── Dot colour based on whose move it was and whether winChance went up or down ──
-  // winChance is always White's win% — so:
-  //   White played → line goes UP   = good move (green)   | line goes DOWN = bad (red)
-  //   Black played → line goes DOWN = good move (green)   | line goes UP   = bad (red)
-  const getDotColor = (i: number): string => {
-    if (i === 0) return '#009106'; // first point: neutral
-    const delta = dataPoints[i] - dataPoints[i - 1]; // positive = White improved
-    const turn = turns[i]; // 'w' = White just played, 'b' = Black just played
-    const cpLoss = Math.abs(delta);
-    if (cpLoss < 3) return '#009106'; // negligible change = good
-
-    let goodForMover: boolean;
-    if (turn === 'w') {
-      goodForMover = delta > 0; // White played → good if winChance went up
-    } else if (turn === 'b') {
-      goodForMover = delta < 0; // Black played → good if winChance went down
-    } else {
-      // turn unknown — use magnitude only
-      return cpLoss >= 15 ? '#C14103' : cpLoss >= 7 ? '#FF7E32' : '#009106';
-    }
-
-    if (!goodForMover) {
-      return cpLoss >= 15 ? '#C14103' : '#FF7E32'; // blunder or inaccuracy
-    }
-    return '#009106'; // good move
-  };
-
   return (
     <div style={{ background: '#F7F7F7', border: '0.617px solid #EFEFEF', borderRadius: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -536,26 +551,19 @@ function WinProbabilitySection({
         <span style={{ fontSize: 14, fontWeight: 600, color: '#000000', fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '0.005em' }}>
           Win Probability
         </span>
+        {/* Legend — explains the single line and the 50% baseline */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* White player legend */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" style={{ flexShrink: 0 }}>
-              <circle cx="8" cy="8" r="4" fill="#C14103" fillOpacity="0.2" />
-              <circle cx="8" cy="8" r="2.5" fill="#C14103" />
+            <svg width="20" height="8" viewBox="0 0 20 8" style={{ flexShrink: 0 }}>
+              <line x1="0" y1="4" x2="20" y2="4" stroke="#464646" strokeWidth="1.5" strokeOpacity="0.5" strokeLinecap="round" />
             </svg>
-            <span style={{ fontSize: 13, fontWeight: 500, color: '#242424', fontFamily: 'Inter, sans-serif', letterSpacing: '0.005em' }}>
-              {players.white}
-            </span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: '#464646', fontFamily: 'Inter, sans-serif' }}>White's win %</span>
           </div>
-          {/* Black player legend */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" style={{ flexShrink: 0 }}>
-              <circle cx="8" cy="8" r="4" fill="#009106" fillOpacity="0.2" />
-              <circle cx="8" cy="8" r="2.5" fill="#009106" />
+            <svg width="20" height="8" viewBox="0 0 20 8" style={{ flexShrink: 0 }}>
+              <line x1="0" y1="4" x2="20" y2="4" stroke="#FF4000" strokeWidth="1.23" strokeDasharray="2.47 2.47" strokeLinecap="round" />
             </svg>
-            <span style={{ fontSize: 13, fontWeight: 500, color: '#242424', fontFamily: 'Inter, sans-serif', letterSpacing: '0.005em' }}>
-              {players.black}
-            </span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: '#464646', fontFamily: 'Inter, sans-serif' }}>Equal (50%)</span>
           </div>
         </div>
       </div>
@@ -594,7 +602,7 @@ function WinProbabilitySection({
               </text>
             ) : (
               <>
-                {/* 50% dashed baseline — red, matches Figma */}
+                {/* 50% dashed baseline */}
                 <line
                   x1={0} y1={midY} x2={CHART_W} y2={midY}
                   stroke="#FF4000"
@@ -603,7 +611,7 @@ function WinProbabilitySection({
                   strokeDasharray="2.47 2.47"
                 />
 
-                {/* Win probability line — dark neutral, dots are coloured by move quality */}
+                {/* Win probability line */}
                 <polyline
                   points={polylinePoints}
                   fill="none"
@@ -614,18 +622,22 @@ function WinProbabilitySection({
                   strokeOpacity={0.5}
                 />
 
-                {/* Dots at each data point — coloured by move quality */}
-                {points.map((p, i) => (
-                  <circle
-                    key={i}
-                    cx={p.x}
-                    cy={p.y}
-                    r={2.78}
-                    fill={getDotColor(i)}
-                    stroke="white"
-                    strokeWidth={1.23}
-                  />
-                ))}
+                {/* Dots — only at positions that appear in the Key Moments card */}
+                {points.map((p, i) => {
+                  if (!keyMomentIndices.has(i)) return null;
+                  const badge = MOVE_BADGE[pointQualities[i]];
+                  return (
+                    <circle
+                      key={i}
+                      cx={p.x}
+                      cy={p.y}
+                      r={3.5}
+                      fill={badge.color}
+                      stroke="white"
+                      strokeWidth={1.23}
+                    />
+                  );
+                })}
 
                 {/* X-axis move numbers */}
                 {points.map((p, i) => (
@@ -651,23 +663,53 @@ function WinProbabilitySection({
 }
 
 // ── Badges Row ────────────────────────────────────────────────────────────────
+// Shows one pill per distinct quality in the capped key moments —
+// acts as a colour legend for the win probability chart dots.
 
-function BadgesRow({ recording }: { recording: Recording }) {
-  void recording;
-  const badges = [
-    { label: 'Hypermodern Opening', bg: '#FFE9D3', color: '#EC5B16' },
-    { label: 'Best', bg: '#DFFBE0', color: '#009106' },
+function BadgesRow({
+  tips,
+  keyMomentIndices,
+}: {
+  tips: { winChance?: number; winChanceBefore?: number; turn?: 'w' | 'b'; centipawnLoss?: number; engineEval?: number }[];
+  keyMomentIndices: Set<number>;
+}) {
+  const qualityOrder: MoveQuality[] = [
+    'brilliant', 'great', 'best', 'inaccuracy', 'mistake', 'blunder',
   ];
 
+  const presentQualities = new Set<MoveQuality>();
+  keyMomentIndices.forEach((idx) => {
+    const tip = tips[idx];
+    if (!tip) return;
+    const q = classifyStoredMove({
+      winChance: tip.winChance, winChanceBefore: tip.winChanceBefore,
+      turn: tip.turn, centipawnLoss: tip.centipawnLoss, engineEval: tip.engineEval,
+    }) as MoveQuality;
+    if (KEY_MOMENT_QUALITIES.has(q)) presentQualities.add(q);
+  });
+
+  const badges = qualityOrder.filter((q) => presentQualities.has(q));
   if (!badges.length) return null;
 
   return (
-    <div className="flex items-center gap-[12px] flex-wrap">
-      {badges.map((b, i) => (
-        <div key={i} className="flex items-center" style={{ background: b.bg, borderRadius: 6, padding: '6px 10px' }}>
-          <span className="text-[13px] font-medium" style={{ color: b.color, letterSpacing: '0.005em' }}>{b.label}</span>
-        </div>
-      ))}
+    <div className="flex items-center gap-[8px] flex-wrap">
+      {badges.map((q) => {
+        const b = MOVE_BADGE[q];
+        return (
+          <div
+            key={q}
+            className="flex items-center gap-[5px]"
+            style={{ background: b.bg, border: `1px solid ${b.color}`, borderRadius: 6, padding: '4px 10px' }}
+          >
+            <svg width="8" height="8" viewBox="0 0 8 8" style={{ flexShrink: 0 }}>
+              <circle cx="4" cy="4" r="3.5" fill={b.color} />
+            </svg>
+            <span style={{ fontSize: 12, fontWeight: 600, color: b.color, fontFamily: 'Inter, sans-serif', letterSpacing: '0.005em' }}>
+              {b.label}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
