@@ -200,49 +200,23 @@ List your visual scan inside <board_mapping> tags. Verify that the sum of pieces
 STEP 3: GENERATE RAW STRING
 Combine the 8 visual rows using the '/' separator and output the raw string inside <raw_board> tags. Do not include anything else.
 
-STEP 4: DETERMINE WHOSE TURN IT IS
-Use the last-move highlight to determine who just moved, then the OPPOSITE side is to move next.
+STEP 4: IDENTIFY THE LAST MOVE SQUARES
+After a move is made, exactly TWO squares will look visually different from the rest of the board — they have a tint, overlay, or background wash compared to their neighboring squares. The exact color of the highlight varies by board theme; do NOT try to identify or name the color. Just find the two squares that appear visually distinct from all other squares.
 
-HOW TO READ THE HIGHLIGHT:
-On Chess.com (game review, live game, or analysis), the last move is shown by TWO highlighted squares:
-  - The ORIGIN square: where the piece WAS before — this square is highlighted but NOW EMPTY (no piece on it).
-  - The DESTINATION square: where the piece MOVED TO — this square is highlighted and HAS A PIECE on it.
+Using the row-by-row scan you already completed in Step 2:
+- FROM square: the visually distinct square that is EMPTY (the piece has left this square)
+- TO square: the visually distinct square that HAS A PIECE on it (the piece arrived here)
 
-To determine whose turn it is:
-  1. Find the DESTINATION square (highlighted square that contains a piece).
-  2. Identify whether that piece is White (uppercase: P N B R Q K) or Black (lowercase: p n b r q k).
-  3. If the piece on the destination square is WHITE → White just moved → it is now BLACK's turn → output "black".
-  4. If the piece on the destination square is BLACK → Black just moved → it is now WHITE's turn → output "white".
+Output the visual grid position of each square as row and column numbers, counted from the TOP-LEFT corner of the board exactly as you scanned it in Step 2 (row 1 = topmost row, col 1 = leftmost column, both going up to 8).
 
-CRITICAL: The origin square is EMPTY. Do not use the empty highlighted square — use only the one that has a piece on it.
+<last_move_from>row R, col C</last_move_from>
+<last_move_to>row R, col C</last_move_to>
 
-If you cannot find any highlighted squares or cannot determine which piece moved, omit the <turn> tag entirely.
+If you cannot identify two visually distinct squares with confidence, omit BOTH tags entirely. Do NOT guess.
 
-Output exactly "white" or "black" inside <turn> tags.
-
-Example format:
-<perspective>
-white
-</perspective>
-
-<board_mapping>
-Visual Row 1 (Top): r, n, b, q, k, b, n, r (String: rnbqkbnr)
-Visual Row 2: p, p, p, p, p, p, p, p (String: pppppppp)
-Visual Row 3: 8 empty (String: 8)
-Visual Row 4: 8 empty (String: 8)
-Visual Row 5: 4 empty, P, 3 empty (String: 4P3)
-Visual Row 6: 8 empty (String: 8)
-Visual Row 7: P, P, P, P, 1 empty, P, P, P (String: PPPP1PPP)
-Visual Row 8 (Bottom): R, N, B, Q, K, B, N, R (String: RNBQKBNR)
-</board_mapping>
-
-<raw_board>
-rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR
-</raw_board>
-
-<turn>
-white
-</turn>
+Example (White just played e2→e4, white perspective — piece moved from row 7 col 5 to row 5 col 5):
+<last_move_from>row 7, col 5</last_move_from>
+<last_move_to>row 5, col 5</last_move_to>
 
 IMPORTANT: ALWAYS ensure each row strictly sums to 8. ALWAYS scan Top-to-Bottom, Left-to-Right.`,
     liveAssistPrompt:

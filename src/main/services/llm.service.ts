@@ -526,7 +526,7 @@ export class LLMService {
     indexingPrompt: string,
     maxRetries = 1,
     cycleId?: number
-  ): Promise<{ fenBoard: string; perspective: 'white' | 'black'; reportedTurn: 'w' | 'b' | null } | null> {
+  ): Promise<{ fenBoard: string; perspective: 'white' | 'black'; reportedTurn: 'w' | 'b' | null; reportedLastMoveFrom: { row: number; col: number } | null; reportedLastMoveTo: { row: number; col: number } | null } | null> {
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
@@ -547,6 +547,19 @@ export class LLMService {
 
     let savedPerspective: 'white' | 'black' = 'white';
     let savedReportedTurn: 'w' | 'b' | null = null;
+    let savedLastMoveFrom: { row: number; col: number } | null = null;
+    let savedLastMoveTo: { row: number; col: number } | null = null;
+
+    /** Parse a <last_move_from> or <last_move_to> tag and return {row, col} or null. */
+    const parseGridTag = (text: string, tag: string): { row: number; col: number } | null => {
+      const re = new RegExp(`<${tag}>\\s*row\\s*(\\d+)\\s*,\\s*col\\s*(\\d+)\\s*</${tag}>`, 'i');
+      const m = text.match(re);
+      if (!m) return null;
+      const row = parseInt(m[1], 10);
+      const col = parseInt(m[2], 10);
+      if (row < 1 || row > 8 || col < 1 || col > 8) return null;
+      return { row, col };
+    };
 
     log.info({ model: RTSTREAM_VISION_MODEL }, '[VideoDB] extractFenFromImage starting');
 
@@ -574,13 +587,26 @@ export class LLMService {
           log.warn({ attempt }, '[VideoDB] <perspective> tag missing in response — defaulting to white. Board may be silently flipped if player is Black.');
         }
 
-        // Parse optional <turn> tag — whose turn it is according to UI indicators.
-        // Present only when Step 4 of the prompt is included. Null means the LLM
-        // could not determine the turn and the heuristic fallback will be used.
+        // Parse legacy <turn> tag (kept for safety — new prompt no longer emits it,
+        // but older cached prompt versions may still produce it).
         const turnMatch = rawText.match(/<turn>\s*(.*?)\s*<\/turn>/is);
         if (turnMatch) {
           savedReportedTurn = turnMatch[1].toLowerCase().includes('black') ? 'b' : 'w';
-          log.debug({ reportedTurn: savedReportedTurn, attempt }, '[VideoDB] <turn> tag parsed');
+          log.debug({ reportedTurn: savedReportedTurn, attempt }, '[VideoDB] <turn> tag parsed (legacy)');
+        }
+
+        // Parse new <last_move_from> / <last_move_to> tags (visual grid row/col).
+        // These are emitted by Step 4 of the updated indexing prompt and give us
+        // the two highlighted squares in a theme-agnostic, coordinate-label-free way.
+        const parsedFrom = parseGridTag(rawText, 'last_move_from');
+        const parsedTo   = parseGridTag(rawText, 'last_move_to');
+        if (parsedFrom && parsedTo) {
+          savedLastMoveFrom = parsedFrom;
+          savedLastMoveTo   = parsedTo;
+          log.debug({ from: parsedFrom, to: parsedTo, attempt }, '[VideoDB] <last_move_from/to> tags parsed');
+        } else if (parsedFrom || parsedTo) {
+          // Only one tag present — unreliable, discard both
+          log.debug({ parsedFrom, parsedTo, attempt }, '[VideoDB] Only one last_move tag found — discarding');
         }
 
         const rawBoardMatches = [...rawText.matchAll(/<raw_board>\s*(.*?)\s*<\/raw_board>/gis)];
@@ -622,9 +648,9 @@ export class LLMService {
             rows.reverse();
             fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
           }
-          log.info({ fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn, attempt }, '[VideoDB] FEN extracted successfully');
+          log.info({ fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn, lastMoveFrom: savedLastMoveFrom, lastMoveTo: savedLastMoveTo, attempt }, '[VideoDB] FEN extracted successfully');
           // cycleId endStep is called by the chess-screenshot service after this returns
-          return { fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn };
+          return { fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn, reportedLastMoveFrom: savedLastMoveFrom, reportedLastMoveTo: savedLastMoveTo };
         }
 
         // Retry with the math error correction message (same as Python)

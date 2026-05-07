@@ -141,9 +141,14 @@ function saveDebugFrame(opts: {
 interface VoteEntry {
   fenBoard: string;
   perspective: 'white' | 'black';
-  /** Whose turn it is as reported by the LLM from UI indicators. Null when the
-   *  LLM could not determine the turn (no clock/indicator visible). */
+  /** Whose turn it is as reported by the LLM from the legacy <turn> tag. Null when absent. */
   reportedTurn: 'w' | 'b' | null;
+  /** Visual grid position (row/col 1-indexed from top-left) of the FROM square of the
+   *  last move, as identified by the LLM from the highlight. Null when not detected. */
+  reportedLastMoveFrom: { row: number; col: number } | null;
+  /** Visual grid position (row/col 1-indexed from top-left) of the TO square of the
+   *  last move, as identified by the LLM from the highlight. Null when not detected. */
+  reportedLastMoveTo: { row: number; col: number } | null;
   /** Wall-clock time (Date.now()) when this entry was added to the buffer.
    *  Used as the start anchor for fenStabilization phase latency. */
   seenAt: number;
@@ -271,13 +276,14 @@ class ChessScreenshotService {
       const matchingEntries = [...this.fenVoteBuffer]
         .filter((e) => e.fenBoard === bestFen);
 
-      // Prefer the entry that has a non-null reportedTurn — this means the LLM
-      // successfully read the move highlight and the turn value is reliable.
-      // Use the *earliest* matching entry with a turn: it was captured closest in
-      // time to when the move was made, so the highlight was most likely still
-      // visible. Later burst frames may have missed the highlight entirely.
+      // Prefer the entry that has grid-based last-move data — this is the most
+      // reliable turn signal (theme-agnostic, no coordinate labels needed).
+      // Fall back to entries with a legacy <turn> tag, then any matching entry.
+      const withGrid = matchingEntries.filter(
+        (e) => e.reportedLastMoveFrom !== null && e.reportedLastMoveTo !== null
+      );
       const withTurn = matchingEntries.filter((e) => e.reportedTurn !== null);
-      return withTurn[0] ?? matchingEntries[matchingEntries.length - 1] ?? null;
+      return withGrid[0] ?? withTurn[0] ?? matchingEntries[matchingEntries.length - 1] ?? null;
     }
     return null;
   }
@@ -447,6 +453,8 @@ class ChessScreenshotService {
         rawFen: rawResult.fenBoard,
         rawPerspective: rawResult.perspective,
         rawReportedTurn: rawResult.reportedTurn,
+        rawLastMoveFrom: rawResult.reportedLastMoveFrom,
+        rawLastMoveTo: rawResult.reportedLastMoveTo,
         votedFen: votedEntry?.fenBoard ?? null,
         bufferSize: this.fenVoteBuffer.length,
         window: FEN_VOTE_WINDOW,
@@ -476,7 +484,7 @@ class ChessScreenshotService {
     }
 
     log.info(
-      { votedFen: votedEntry.fenBoard, perspective: votedEntry.perspective, reportedTurn: votedEntry.reportedTurn, prevConfirmed: this.lastConfirmedFen },
+      { votedFen: votedEntry.fenBoard, perspective: votedEntry.perspective, reportedTurn: votedEntry.reportedTurn, lastMoveFrom: votedEntry.reportedLastMoveFrom, lastMoveTo: votedEntry.reportedLastMoveTo, prevConfirmed: this.lastConfirmedFen },
       '[ChessScreenshot] New majority-voted FEN confirmed — pushing to live-assist'
     );
     this.lastConfirmedFen = votedEntry.fenBoard;
@@ -488,7 +496,15 @@ class ChessScreenshotService {
     const liveAssist = getLiveAssistService();
     // Pass cycleId and voteMeta so live-assist can attach them to the tracker
     // and report the full fenStabilization phase in the cycle summary.
-    liveAssist.injectConfirmedFen(votedEntry.fenBoard, votedEntry.perspective, votedEntry.reportedTurn, cycleId, voteMeta);
+    liveAssist.injectConfirmedFen(
+      votedEntry.fenBoard,
+      votedEntry.perspective,
+      votedEntry.reportedTurn,
+      cycleId,
+      voteMeta,
+      votedEntry.reportedLastMoveFrom,
+      votedEntry.reportedLastMoveTo,
+    );
 
     // ── Step 7: Burst to confirm new position quickly ─────────────────────
     if (!isBurst) {

@@ -574,6 +574,65 @@ class LiveAssistService extends EventEmitter {
   }
 
   /**
+   * Derive whose turn it is next from the visual grid position of the TO square
+   * of the last move (as reported by the LLM) and the current board in white-
+   * perspective FEN notation.
+   *
+   * The LLM scans the board top-to-bottom, left-to-right (row 1 = visual top,
+   * col 1 = visual left). The fenBoard stored here is ALWAYS in white perspective
+   * (already normalised by llm.service.ts).
+   *
+   * Coordinate mapping:
+   *   White perspective: row 1 → rank 8 (array index 0), col 1 → file a (index 0)
+   *   Black perspective: row 1 → rank 1 (array index 7), col 1 → file h (index 7)
+   *
+   * Returns 'w' (White to move next) when a Black piece is on the TO square,
+   * 'b' (Black to move next) when a White piece is there, or null when the
+   * square is empty / out of range / parse error (safely falls through to tier 1+).
+   */
+  private deriveTurnFromGridMove(
+    toGrid: { row: number; col: number },
+    perspective: 'white' | 'black',
+    fenBoard: string,
+  ): 'w' | 'b' | null {
+    // Convert visual grid → white-perspective rank index (0=rank8) and file index (0=fileA)
+    let rankIdx: number;
+    let fileIdx: number;
+    if (perspective === 'white') {
+      rankIdx = toGrid.row - 1;        // row 1 → rank 8 → index 0
+      fileIdx = toGrid.col - 1;        // col 1 → file a → index 0
+    } else {
+      // Black perspective: LLM row 1 is rank 1 (white array index 7); col 1 is file h (index 7)
+      rankIdx = 8 - toGrid.row;        // row 1 → rank 1 → index 7
+      fileIdx = 7 - (toGrid.col - 1);  // col 1 → file h → index 7
+    }
+
+    if (rankIdx < 0 || rankIdx > 7 || fileIdx < 0 || fileIdx > 7) return null;
+
+    // Walk the white-perspective FEN rank to find the piece at fileIdx
+    const ranks = fenBoard.split('/');
+    if (ranks.length !== 8) return null;
+    const rank = ranks[rankIdx];
+    if (!rank) return null;
+
+    let col = 0;
+    for (const ch of rank) {
+      if (/\d/.test(ch)) {
+        col += parseInt(ch, 10);
+      } else {
+        if (col === fileIdx) {
+          if (/[A-Z]/.test(ch)) return 'b'; // White piece on TO → White just moved → Black to move
+          if (/[a-z]/.test(ch)) return 'w'; // Black piece on TO → Black just moved → White to move
+          return null; // Unexpected character
+        }
+        col++;
+      }
+      if (col > fileIdx) break;
+    }
+    return null; // Square was empty or not reached (parse issue)
+  }
+
+  /**
    * Determine whose turn it is by comparing the previous board with the current board.
    *
    * Algorithm:
@@ -1246,7 +1305,7 @@ class LiveAssistService extends EventEmitter {
    * Returns true if the FEN was accepted into the buffer, false if the
    * service is not running.
    */
-  injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white', reportedTurn: 'w' | 'b' | null = null, cycleId?: number, voteMeta?: VoteMeta): boolean {
+  injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white', reportedTurn: 'w' | 'b' | null = null, cycleId?: number, voteMeta?: VoteMeta, reportedLastMoveFrom?: { row: number; col: number } | null, reportedLastMoveTo?: { row: number; col: number } | null): boolean {
     if (!this.isRunning) return false;
 
     // Store cycle ID and vote metadata so downstream steps can continue tracking.
@@ -1275,12 +1334,39 @@ class LiveAssistService extends EventEmitter {
     // the board-diff heuristic which compares piece counts between the previous
     // confirmed board and the new one. Only use the perspective seed as a last
     // resort when there is genuinely no board history to diff against.
+    //
+    // Tier 0 — grid-based last-move derivation (highest priority, theme-agnostic):
+    //   The LLM identified the FROM and TO squares of the last move by their visual
+    //   highlight (any color/style, purely relative contrast). We look up the piece
+    //   on the TO square in the current white-perspective fenBoard and determine turn
+    //   from its colour. This never depends on coordinate labels or highlight colour.
+    //
+    // Tier 1 — legacy <turn> tag (kept as a secondary cross-check).
+    //
+    // Tier 2 — board-diff heuristic (piece count diff between prev and curr board).
+    //
+    // Tier 3 — keep last confirmed turn (safe for same-board re-reads mid-game;
+    //   avoids the previous bug where the perspective seed fired on re-reads and
+    //   always returned the player's colour even on the opponent's turn).
+    //
+    // Tier 4 — cold-start perspective seed (only when lastChessTurn is still null).
+    const turnFromGrid = (reportedLastMoveTo != null)
+      ? this.deriveTurnFromGridMove(reportedLastMoveTo, perspective, fenBoard)
+      : null;
+
     const inferredTurn: 'w' | 'b' =
+      turnFromGrid ??
       reportedTurn ??
       (this.lastChessBoard && this.lastChessBoard !== fenBoard
         ? this.inferTurnFromBoards(this.lastChessBoard, fenBoard, this.lastChessTurn)
         : null) ??
+      this.lastChessTurn ??
       (perspective === 'black' ? 'b' : 'w');
+
+    log.debug(
+      { turnFromGrid, reportedTurn, tier: turnFromGrid != null ? 0 : reportedTurn != null ? 1 : (this.lastChessBoard && this.lastChessBoard !== fenBoard) ? 2 : this.lastChessTurn != null ? 3 : 4 },
+      '[LiveAssist] injectConfirmedFen: turn tier used'
+    );
 
     // Update castling rights from this confirmed board before updating other state.
     // This ensures getCastlingRightsString() is accurate when we build the FEN below.
@@ -1293,7 +1379,7 @@ class LiveAssistService extends EventEmitter {
 
     const castling = this.getCastlingRightsString();
     log.debug(
-      { fenBoard: fenBoard.slice(0, 30), perspective, reportedTurn, inferredTurn, castling },
+      { fenBoard: fenBoard.slice(0, 30), perspective, turnFromGrid, reportedTurn, inferredTurn, castling },
       '[LiveAssist] injectConfirmedFen: turn and castling rights updated'
     );
 
