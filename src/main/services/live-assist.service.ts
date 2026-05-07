@@ -278,6 +278,118 @@ class LiveAssistService extends EventEmitter {
     return whiteKings + blackKings >= 1;
   }
 
+  /**
+   * Count every piece type on the board and return a map of piece char → count.
+   * e.g. { P: 5, N: 2, B: 1, R: 2, Q: 1, K: 1, p: 7, n: 1, b: 2, r: 2, q: 1, k: 1 }
+   */
+  private pieceCounts(board: string): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const ch of board) {
+      if (/[prnbqkPRNBQK]/.test(ch)) {
+        counts.set(ch, (counts.get(ch) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }
+
+  /**
+   * Validate that a candidate board is physically plausible given the last
+   * confirmed board. Catches pawn↔bishop and knight↔rook LLM hallucinations
+   * while correctly allowing all legal chess moves including promotions.
+   *
+   * PROMOTION HANDLING — all cases are tolerated by the +1 threshold:
+   *
+   *   pawn → queen:   P−1, Q+1  → P+B decreases 1, N+R unchanged    ✓
+   *   pawn → bishop:  P−1, B+1  → P+B unchanged (net 0)              ✓
+   *   pawn → knight:  P−1, N+1  → P+B decreases 1, N+R increases 1  ✓
+   *   pawn → rook:    P−1, R+1  → P+B decreases 1, N+R increases 1  ✓
+   *   + capture:      opponent piece −1  → only decreases sums        ✓
+   *
+   * In every promotion case the P+B and N+R sums for the promoting side change
+   * by at most +1, which is exactly the tolerance built into the checks below.
+   * A hallucination where a pawn is misread as a bishop increases the sum by 2
+   * (real bishop +1 from promotion + hallucinated bishop +1 from misread pawn),
+   * which correctly exceeds the threshold and is rejected.
+   *
+   * Returns true (plausible) or false (reject — wait for the next frame).
+   * Always returns true when prevBoard is null (cold start, no baseline).
+   */
+  private isBoardPlausible(prevBoard: string | null, candidateBoard: string): boolean {
+    if (!prevBoard) return true; // cold start — no baseline to compare against
+
+    const prev = this.pieceCounts(prevBoard);
+    const cand = this.pieceCounts(candidateBoard);
+
+    const get = (m: Map<string, number>, k: string) => m.get(k) ?? 0;
+
+    // --- Pawn+Bishop stability check (most common LLM confusion pair) ---
+    // The combined P+B sum per side can legitimately increase by at most 1
+    // (pawn promotes to bishop: P−1 B+1 = net 0 normally, but with a
+    // simultaneous capture of an opponent pawn/bishop it could be −1 for
+    // opponent). We allow +1 to cover the promotion-to-bishop case. Any
+    // increase of +2 or more is a hallucination (pawn misread as bishop on
+    // top of a real change).
+    const whitePB_prev = get(prev, 'P') + get(prev, 'B');
+    const whitePB_cand = get(cand, 'P') + get(cand, 'B');
+    const blackPB_prev = get(prev, 'p') + get(prev, 'b');
+    const blackPB_cand = get(cand, 'p') + get(cand, 'b');
+
+    if (whitePB_cand > whitePB_prev + 1) {
+      log.warn(
+        { prevWhitePB: whitePB_prev, candWhitePB: whitePB_cand, prevBoard: prevBoard.slice(0, 30), candidateBoard: candidateBoard.slice(0, 30) },
+        '[LiveAssist] isBoardPlausible: white P+B count increased by >1 — likely pawn↔bishop hallucination, rejecting'
+      );
+      return false;
+    }
+    if (blackPB_cand > blackPB_prev + 1) {
+      log.warn(
+        { prevBlackPB: blackPB_prev, candBlackPB: blackPB_cand },
+        '[LiveAssist] isBoardPlausible: black p+b count increased by >1 — likely pawn↔bishop hallucination, rejecting'
+      );
+      return false;
+    }
+
+    // --- Knight+Rook stability check (another common confusion pair) ---
+    // Same +1 tolerance: pawn→knight and pawn→rook promotions each increase
+    // the N+R sum by exactly 1, which is allowed. +2 is a hallucination.
+    const whiteNR_prev = get(prev, 'N') + get(prev, 'R');
+    const whiteNR_cand = get(cand, 'N') + get(cand, 'R');
+    const blackNR_prev = get(prev, 'n') + get(prev, 'r');
+    const blackNR_cand = get(cand, 'n') + get(cand, 'r');
+
+    if (whiteNR_cand > whiteNR_prev + 1) {
+      log.warn(
+        { prevWhiteNR: whiteNR_prev, candWhiteNR: whiteNR_cand },
+        '[LiveAssist] isBoardPlausible: white N+R count increased by >1 — likely knight↔rook hallucination, rejecting'
+      );
+      return false;
+    }
+    if (blackNR_cand > blackNR_prev + 1) {
+      log.warn(
+        { prevBlackNR: blackNR_prev, candBlackNR: blackNR_cand },
+        '[LiveAssist] isBoardPlausible: black n+r count increased by >1 — likely knight↔rook hallucination, rejecting'
+      );
+      return false;
+    }
+
+    // --- Total piece count sanity ---
+    // A single move removes at most 1 piece (capture) and adds 0 (promotions
+    // replace a pawn with another piece — net change is −1 for a capturing
+    // promotion, 0 otherwise). We allow +2 to tolerate multi-move skips
+    // (e.g. capture lag), but +3 or more is always a hallucination.
+    const prevTotal = [...prev.values()].reduce((a, b) => a + b, 0);
+    const candTotal = [...cand.values()].reduce((a, b) => a + b, 0);
+    if (candTotal > prevTotal + 2) {
+      log.warn(
+        { prevTotal, candTotal },
+        '[LiveAssist] isBoardPlausible: total piece count jumped up — rejecting implausible board'
+      );
+      return false;
+    }
+
+    return true;
+  }
+
   private isSemanticFenValid(board: string): boolean {
     // Additional semantic validation for chess positions.
     // Checks pawn placement, castling plausibility, promotion state.
@@ -574,62 +686,92 @@ class LiveAssistService extends EventEmitter {
   }
 
   /**
-   * Derive whose turn it is next from the visual grid position of the TO square
-   * of the last move (as reported by the LLM) and the current board in white-
-   * perspective FEN notation.
+   * Derive whose turn it is next from the two highlighted squares reported by
+   * the LLM (visual grid row/col, 1-indexed from top-left of the scan).
    *
-   * The LLM scans the board top-to-bottom, left-to-right (row 1 = visual top,
-   * col 1 = visual left). The fenBoard stored here is ALWAYS in white perspective
-   * (already normalised by llm.service.ts).
+   * We accept BOTH the from-square and to-square and determine turn from
+   * whichever square has a piece — this makes the result robust against the LLM
+   * swapping the FROM/TO labels, which is a common mistake.
    *
-   * Coordinate mapping:
-   *   White perspective: row 1 → rank 8 (array index 0), col 1 → file a (index 0)
-   *   Black perspective: row 1 → rank 1 (array index 7), col 1 → file h (index 7)
+   * Logic:
+   *   - Convert each grid position to a white-perspective FEN rank/file index
+   *     (accounting for board perspective).
+   *   - Look up the piece on each square in the current white-perspective fenBoard.
+   *   - The highlighted square that HAS a piece is unambiguously the TO square
+   *     (the piece just arrived there). The highlighted square that is EMPTY is
+   *     the FROM square (piece left).
+   *   - Uppercase piece on TO → White just moved → Black to move ('b').
+   *   - Lowercase piece on TO → Black just moved → White to move ('w').
+   *   - If both squares have pieces or both are empty → ambiguous → return null.
    *
-   * Returns 'w' (White to move next) when a Black piece is on the TO square,
-   * 'b' (Black to move next) when a White piece is there, or null when the
-   * square is empty / out of range / parse error (safely falls through to tier 1+).
+   * Returns null when either grid position is out of range, the board parse
+   * fails, or the result is ambiguous — safely falls through to the next tier.
    */
   private deriveTurnFromGridMove(
+    fromGrid: { row: number; col: number },
     toGrid: { row: number; col: number },
     perspective: 'white' | 'black',
     fenBoard: string,
   ): 'w' | 'b' | null {
-    // Convert visual grid → white-perspective rank index (0=rank8) and file index (0=fileA)
-    let rankIdx: number;
-    let fileIdx: number;
-    if (perspective === 'white') {
-      rankIdx = toGrid.row - 1;        // row 1 → rank 8 → index 0
-      fileIdx = toGrid.col - 1;        // col 1 → file a → index 0
-    } else {
-      // Black perspective: LLM row 1 is rank 1 (white array index 7); col 1 is file h (index 7)
-      rankIdx = 8 - toGrid.row;        // row 1 → rank 1 → index 7
-      fileIdx = 7 - (toGrid.col - 1);  // col 1 → file h → index 7
-    }
-
-    if (rankIdx < 0 || rankIdx > 7 || fileIdx < 0 || fileIdx > 7) return null;
-
-    // Walk the white-perspective FEN rank to find the piece at fileIdx
-    const ranks = fenBoard.split('/');
-    if (ranks.length !== 8) return null;
-    const rank = ranks[rankIdx];
-    if (!rank) return null;
-
-    let col = 0;
-    for (const ch of rank) {
-      if (/\d/.test(ch)) {
-        col += parseInt(ch, 10);
+    const gridToIndices = (grid: { row: number; col: number }): { rankIdx: number; fileIdx: number } | null => {
+      let rankIdx: number;
+      let fileIdx: number;
+      if (perspective === 'white') {
+        rankIdx = grid.row - 1;        // row 1 → rank 8 → array index 0
+        fileIdx = grid.col - 1;        // col 1 → file a → index 0
       } else {
-        if (col === fileIdx) {
-          if (/[A-Z]/.test(ch)) return 'b'; // White piece on TO → White just moved → Black to move
-          if (/[a-z]/.test(ch)) return 'w'; // Black piece on TO → Black just moved → White to move
-          return null; // Unexpected character
-        }
-        col++;
+        // Black perspective: LLM row 1 = rank 1 (white array index 7), col 1 = file h (index 7)
+        rankIdx = 8 - grid.row;        // row 1 → index 7, row 8 → index 0
+        fileIdx = 7 - (grid.col - 1);  // col 1 → index 7 (file h), col 8 → index 0 (file a)
       }
-      if (col > fileIdx) break;
+      if (rankIdx < 0 || rankIdx > 7 || fileIdx < 0 || fileIdx > 7) return null;
+      return { rankIdx, fileIdx };
+    };
+
+    const getPiece = (rankIdx: number, fileIdx: number): string | null => {
+      const ranks = fenBoard.split('/');
+      if (ranks.length !== 8) return null;
+      const rank = ranks[rankIdx];
+      if (!rank) return null;
+      let col = 0;
+      for (const ch of rank) {
+        if (/\d/.test(ch)) {
+          const skip = parseInt(ch, 10);
+          if (fileIdx < col + skip) return ''; // empty square within the run
+          col += skip;
+        } else {
+          if (col === fileIdx) return ch;
+          col++;
+        }
+        if (col > fileIdx) break;
+      }
+      return ''; // reached end without finding piece — treat as empty
+    };
+
+    const fromIdx = gridToIndices(fromGrid);
+    const toIdx   = gridToIndices(toGrid);
+    if (!fromIdx || !toIdx) return null;
+
+    const fromPiece = getPiece(fromIdx.rankIdx, fromIdx.fileIdx);
+    const toPiece   = getPiece(toIdx.rankIdx,   toIdx.fileIdx);
+
+    if (fromPiece === null || toPiece === null) return null; // parse error
+
+    // Determine which square is the actual TO (has a piece) regardless of label
+    let actualToPiece: string;
+    if (toPiece !== '' && fromPiece === '') {
+      actualToPiece = toPiece;   // LLM labelled correctly
+    } else if (fromPiece !== '' && toPiece === '') {
+      actualToPiece = fromPiece; // LLM swapped FROM/TO — use the non-empty one
+    } else {
+      // Both occupied or both empty — ambiguous, fall through
+      log.debug({ fromPiece, toPiece, fromGrid, toGrid }, '[TurnDetect] deriveTurnFromGridMove: ambiguous highlight squares, falling through');
+      return null;
     }
-    return null; // Square was empty or not reached (parse issue)
+
+    if (/[A-Z]/.test(actualToPiece)) return 'b'; // White piece on TO → White moved → Black to move
+    if (/[a-z]/.test(actualToPiece)) return 'w'; // Black piece on TO → Black moved → White to move
+    return null;
   }
 
   /**
@@ -797,15 +939,28 @@ class LiveAssistService extends EventEmitter {
 
     const [board, , , enPassant, halfmove = '0', fullmove = '1'] = parts;
 
-    // Use the player's color (perspective) as the side to move.
-    // This matches what injectConfirmedFen sets, so lastChessTurn is always
-    // the player's color once a screenshot-path FEN has been confirmed.
     let inferredTurn: 'w' | 'b';
     if (this.lastChessTurn !== null) {
+      // Screenshot-path FEN has been confirmed — use the already-resolved turn.
       inferredTurn = this.lastChessTurn;
     } else {
-      // Cold start before the first screenshot-path FEN: derive from perspective.
-      inferredTurn = this.lastChessPerspective === 'black' ? 'b' : 'w';
+      // Screenshot vote has not yet promoted a FEN (websocket-fallback path or
+      // very start of a session). Try to read the <turn> tag from the most recent
+      // visual index frame — the WebSocket indexing pipeline embeds it there.
+      // This avoids the perspective-seed bug where the engine gets the wrong side
+      // just because the screenshot vote window hasn't filled yet.
+      let turnFromVisuals: 'w' | 'b' | null = null;
+      if (visuals && visuals.length > 0) {
+        for (let i = visuals.length - 1; i >= 0; i--) {
+          const turnMatch = visuals[i].text.match(/<turn>\s*(.*?)\s*<\/turn>/is);
+          if (turnMatch) {
+            turnFromVisuals = turnMatch[1].toLowerCase().includes('black') ? 'b' : 'w';
+            log.debug({ turnFromVisuals, source: 'visual_index_turn_tag' }, '[LiveAssist] applyNextTurnToFen: turn read from visual index <turn> tag');
+            break;
+          }
+        }
+      }
+      inferredTurn = turnFromVisuals ?? (this.lastChessPerspective === 'black' ? 'b' : 'w');
     }
 
     const castling = this.getCastlingRightsString();
@@ -1328,34 +1483,86 @@ class LiveAssistService extends EventEmitter {
       this.lastChessBoard = null;
     }
 
-    // Prefer the turn reported directly by the indexing LLM from UI indicators
-    // (highlighted move, clocks, active-player styling). When the highlight was
-    // missed (both vote frames captured after the highlight faded), fall back to
-    // the board-diff heuristic which compares piece counts between the previous
-    // confirmed board and the new one. Only use the perspective seed as a last
-    // resort when there is genuinely no board history to diff against.
-    //
-    // Tier 0 — grid-based last-move derivation (highest priority, theme-agnostic):
-    //   The LLM identified the FROM and TO squares of the last move by their visual
-    //   highlight (any color/style, purely relative contrast). We look up the piece
-    //   on the TO square in the current white-perspective fenBoard and determine turn
-    //   from its colour. This never depends on coordinate labels or highlight colour.
-    //
-    // Tier 1 — legacy <turn> tag (kept as a secondary cross-check).
-    //
-    // Tier 2 — board-diff heuristic (piece count diff between prev and curr board).
-    //
-    // Tier 3 — keep last confirmed turn (safe for same-board re-reads mid-game;
-    //   avoids the previous bug where the perspective seed fired on re-reads and
-    //   always returned the player's colour even on the opponent's turn).
-    //
-    // Tier 4 — cold-start perspective seed (only when lastChessTurn is still null).
-    const turnFromGrid = (reportedLastMoveTo != null)
-      ? this.deriveTurnFromGridMove(reportedLastMoveTo, perspective, fenBoard)
-      : null;
+    // ── Semantic validity guard ───────────────────────────────────────────────
+    // Reject boards that are structurally impossible in a real chess game.
+    // This catches LLM failures such as all-empty boards (8/8/8/8/8/8/8/8),
+    // boards missing both kings, pawns on the back rank, or more than 16 pieces
+    // per side. These boards must never reach the engine or update game state.
+    if (!this.isValidFenBoard(fenBoard) || !this.isSemanticFenValid(fenBoard)) {
+      log.warn(
+        { fenBoard: fenBoard.slice(0, 40) },
+        '[LiveAssist] injectConfirmedFen: board failed semantic validation (empty/missing kings/illegal pieces) — discarding'
+      );
+      return false;
+    }
 
+    // ── Plausibility guard ────────────────────────────────────────────────────
+    // Reject boards that are physically impossible given the last confirmed
+    // position. The most common LLM hallucination is confusing pawns with
+    // bishops (P↔B / p↔b) or knights with rooks (N↔R / n↔r) because they can
+    // look similar in certain piece sets. A single chess move cannot increase the
+    // combined count of (pawns + bishops) or (knights + rooks) for either side —
+    // so any increase in those sums is a hallucination, not a real move.
+    //
+    // We compare against lastChessBoard (last frame accepted into live-assist,
+    // not last confirmed engine FEN) so the check is always relative to the most
+    // recent known-good state.
+    if (!this.isBoardPlausible(this.lastChessBoard, fenBoard)) {
+      log.warn(
+        { fenBoard: fenBoard.slice(0, 40), lastBoard: (this.lastChessBoard ?? '').slice(0, 40) },
+        '[LiveAssist] injectConfirmedFen: board rejected by plausibility check — waiting for next frame'
+      );
+      return false;
+    }
+
+    // ── Initial position: always White's turn ────────────────────────────────
+    // The starting position is deterministic — White always moves first.
+    // Override any LLM-reported or heuristic-derived turn to prevent the
+    // perspective seed or a stale lastChessTurn from setting it to 'b'.
+    if (this.isInitialChessBoard(fenBoard)) {
+      const inferredTurn: 'w' | 'b' = 'w';
+      this.lastChessTurn = inferredTurn;
+      this.lastChessBoard = fenBoard;
+      this.lastChessPerspective = perspective;
+      this.updateCastlingRightsFromBoard(fenBoard);
+      const castling = this.getCastlingRightsString();
+      log.debug(
+        { fenBoard: fenBoard.slice(0, 30), perspective, inferredTurn, castling },
+        '[LiveAssist] injectConfirmedFen: initial position — turn forced to white'
+      );
+      const whitePerspectiveFen = `${fenBoard} ${inferredTurn} ${castling} - 0 1`;
+      const displayFen = this.buildDisplayFen(whitePerspectiveFen, perspective);
+      this.emit('fen', {
+        fen: whitePerspectiveFen,
+        displayFen,
+        board: fenBoard,
+        turn: inferredTurn,
+        engineSan: this.lastEngineSan,
+        engineLan: this.lastEngineLan,
+        engineFrom: this.lastEngineFrom,
+        engineTo: this.lastEngineTo,
+        engineEval: this.lastEngineEval,
+        engineMate: this.lastEngineMate,
+      });
+      const syntheticText = `<source>\nscreenshot\n</source>\n\n<perspective>\nwhite\n</perspective>\n\n<raw_board>\n${fenBoard}\n</raw_board>`;
+      this.addVisualIndex(syntheticText);
+      return true;
+    }
+
+    // Prefer the turn reported directly by the indexing LLM from UI indicators.
+    // When the LLM successfully identified the last-move highlight, it outputs a
+    // <turn> tag (tier 1) which is the most direct signal.  When that's absent,
+    // fall back to the board-diff heuristic (tier 2).  If the board is unchanged
+    // since last frame, keep the last confirmed turn rather than firing the
+    // perspective seed (tier 3 fix — prevents mid-game same-board re-reads from
+    // wrongly overriding the turn with the player's colour).  Only use the
+    // perspective seed on a true cold start when lastChessTurn is still null (tier 4).
+    //
+    // Tier 1 — <turn> tag from LLM (highlight-based, kept simple and reliable).
+    // Tier 2 — board-diff heuristic (piece count diff between prev and curr board).
+    // Tier 3 — keep last confirmed turn (safe for same-board re-reads mid-game).
+    // Tier 4 — cold-start perspective seed (only when lastChessTurn is still null).
     const inferredTurn: 'w' | 'b' =
-      turnFromGrid ??
       reportedTurn ??
       (this.lastChessBoard && this.lastChessBoard !== fenBoard
         ? this.inferTurnFromBoards(this.lastChessBoard, fenBoard, this.lastChessTurn)
@@ -1364,7 +1571,7 @@ class LiveAssistService extends EventEmitter {
       (perspective === 'black' ? 'b' : 'w');
 
     log.debug(
-      { turnFromGrid, reportedTurn, tier: turnFromGrid != null ? 0 : reportedTurn != null ? 1 : (this.lastChessBoard && this.lastChessBoard !== fenBoard) ? 2 : this.lastChessTurn != null ? 3 : 4 },
+      { reportedTurn, tier: reportedTurn != null ? 1 : (this.lastChessBoard && this.lastChessBoard !== fenBoard) ? 2 : this.lastChessTurn != null ? 3 : 4 },
       '[LiveAssist] injectConfirmedFen: turn tier used'
     );
 
@@ -1379,7 +1586,7 @@ class LiveAssistService extends EventEmitter {
 
     const castling = this.getCastlingRightsString();
     log.debug(
-      { fenBoard: fenBoard.slice(0, 30), perspective, turnFromGrid, reportedTurn, inferredTurn, castling },
+      { fenBoard: fenBoard.slice(0, 30), perspective, reportedTurn, inferredTurn, castling },
       '[LiveAssist] injectConfirmedFen: turn and castling rights updated'
     );
 

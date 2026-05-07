@@ -195,28 +195,43 @@ STEP 2: VISUAL ROW-BY-ROW MAPPING
 Scan the board visually from the top row to the bottom row (8 rows).
 For each row, scan strictly from the left edge to the right edge.
 Use uppercase for White pieces (P, N, B, R, Q, K), lowercase for Black (p, n, b, r, q, k). Use single digits for consecutive empty squares.
+
+PIECE IDENTIFICATION GUIDE — common look-alike pairs:
+- PAWN (P/p): short, stubby piece with a round head and no protruding arms. Smallest piece on the board.
+- BISHOP (B/b): tall, slender piece with a pointed or rounded top and a notch/slit near the tip. Taller than a pawn.
+- KNIGHT (N/n): horse-head shape, often angled or facing sideways. Unique silhouette.
+- ROOK (R/r): flat-topped tower / castle shape with a wide base. Clearly rectangular.
+- QUEEN (Q/q): tall piece with a crown of points at the top. Tallest after the king.
+- KING (K/k): tall piece with a cross or plus sign at the top.
+
+CRITICAL: Do not confuse Pawns (P/p) with Bishops (B/b). Pawns are the shortest pieces and have no pointed tip. Bishops are noticeably taller and have a distinctive pointed top with a collar or notch.
+
 List your visual scan inside <board_mapping> tags. Verify that the sum of pieces and empty squares in every single visual row exactly equals 8.
 
 STEP 3: GENERATE RAW STRING
 Combine the 8 visual rows using the '/' separator and output the raw string inside <raw_board> tags. Do not include anything else.
 
-STEP 4: IDENTIFY THE LAST MOVE SQUARES
-After a move is made, exactly TWO squares will look visually different from the rest of the board — they have a tint, overlay, or background wash compared to their neighboring squares. The exact color of the highlight varies by board theme; do NOT try to identify or name the color. Just find the two squares that appear visually distinct from all other squares.
+STEP 4: DETERMINE WHOSE TURN IT IS
+Use the last-move highlight to determine who just moved, then the OPPOSITE side is to move next.
 
-Using the row-by-row scan you already completed in Step 2:
-- FROM square: the visually distinct square that is EMPTY (the piece has left this square)
-- TO square: the visually distinct square that HAS A PIECE on it (the piece arrived here)
+HOW TO READ THE HIGHLIGHT:
+The last move is shown by TWO highlighted squares (the exact color varies by board theme — ignore the color, just find the two squares that look visually distinct from their neighbors):
+  - The ORIGIN square: where the piece WAS before — this square is highlighted but NOW EMPTY (no piece on it).
+  - The DESTINATION square: where the piece MOVED TO — this square is highlighted and HAS A PIECE on it.
 
-Output the visual grid position of each square as row and column numbers, counted from the TOP-LEFT corner of the board exactly as you scanned it in Step 2 (row 1 = topmost row, col 1 = leftmost column, both going up to 8).
+To determine whose turn it is:
+  1. Find the DESTINATION square (the highlighted square that contains a piece).
+  2. Identify whether that piece is White (uppercase: P N B R Q K) or Black (lowercase: p n b r q k).
+  3. If the piece on the destination square is WHITE → White just moved → it is now BLACK's turn → output "black".
+  4. If the piece on the destination square is BLACK → Black just moved → it is now WHITE's turn → output "white".
 
-<last_move_from>row R, col C</last_move_from>
-<last_move_to>row R, col C</last_move_to>
+CRITICAL: The origin square is EMPTY after the move. Only use the highlighted square that HAS A PIECE to determine whose turn it is.
 
-If you cannot identify two visually distinct squares with confidence, omit BOTH tags entirely. Do NOT guess.
+If you cannot identify the highlighted squares or cannot determine which piece moved, omit the <turn> tag entirely.
 
-Example (White just played e2→e4, white perspective — piece moved from row 7 col 5 to row 5 col 5):
-<last_move_from>row 7, col 5</last_move_from>
-<last_move_to>row 5, col 5</last_move_to>
+Output exactly "white" or "black" inside <turn> tags.
+
+SANITY CHECK before finalising <raw_board>: count your Pawns. A standard game starts with 8 white pawns (P) and 8 black pawns (p). Each side can have at most 2 bishops (B/b). If your pawn count seems low and bishop count seems high, re-examine those squares — you may have confused pawns with bishops.
 
 IMPORTANT: ALWAYS ensure each row strictly sums to 8. ALWAYS scan Top-to-Bottom, Left-to-Right.`,
     liveAssistPrompt:
