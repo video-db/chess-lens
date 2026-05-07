@@ -23,6 +23,9 @@ export function WidgetApp() {
   const [displayFen, setDisplayFen] = useState<string | null>(null);
   const [currentTurn, setCurrentTurn] = useState<'w' | 'b' | null>(null);
   const [engineSan, setEngineSan] = useState<string | undefined>(undefined);
+  const [engineLan, setEngineLan] = useState<string | undefined>(undefined);
+  const [engineFrom, setEngineFrom] = useState<string | undefined>(undefined);
+  const [engineTo, setEngineTo] = useState<string | undefined>(undefined);
   const [engineEval, setEngineEval] = useState<number | undefined>(undefined);
   const [engineMate, setEngineMate] = useState<number | null | undefined>(undefined);
   const [isStopping, setIsStopping] = useState(false);
@@ -67,6 +70,9 @@ export function WidgetApp() {
           setDisplayFen(null);
           setCurrentTurn(null);
           setEngineSan(undefined);
+          setEngineLan(undefined);
+          setEngineFrom(undefined);
+          setEngineTo(undefined);
           setEngineEval(undefined);
           setEngineMate(undefined);
         }
@@ -78,6 +84,9 @@ export function WidgetApp() {
           setDisplayFen(null);
           setCurrentTurn(null);
           setEngineSan(undefined);
+          setEngineLan(undefined);
+          setEngineFrom(undefined);
+          setEngineTo(undefined);
           setEngineEval(undefined);
           setEngineMate(undefined);
         }
@@ -109,6 +118,9 @@ export function WidgetApp() {
       setDisplayFen(data.displayFen);
       setCurrentTurn(data.turn);
       setEngineSan(data.engineSan);
+      setEngineLan(data.engineLan);
+      setEngineFrom(data.engineFrom);
+      setEngineTo(data.engineTo);
       setEngineEval(data.engineEval);
       setEngineMate(data.engineMate);
     });
@@ -221,6 +233,9 @@ export function WidgetApp() {
         displayFen={displayFen}
         currentTurn={currentTurn}
         engineSan={engineSan}
+        engineLan={engineLan}
+        engineFrom={engineFrom}
+        engineTo={engineTo}
         engineEval={engineEval}
         engineMate={engineMate}
         onStop={handleStop}

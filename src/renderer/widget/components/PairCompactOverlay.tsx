@@ -32,11 +32,112 @@ function parseFenBoard(fenBoard: string): string[][] {
   });
 }
 
-function ChessBoard({ fen }: { fen: string }) {
+/**
+ * Convert an algebraic square string (e.g. "b7") to a {col, row} SVG grid index.
+ * col: 0 = file a … 7 = file h
+ * row: 0 = rank 8 (top of board in white perspective) … 7 = rank 1
+ * Returns null when the input is malformed.
+ */
+function squareToGrid(sq: string): { col: number; row: number } | null {
+  if (!sq || sq.length < 2) return null;
+  const col = sq.charCodeAt(0) - 97; // 'a'=0 … 'h'=7
+  const row = 8 - parseInt(sq[1], 10); // '8'→0, '1'→7
+  if (col < 0 || col > 7 || row < 0 || row > 7) return null;
+  return { col, row };
+}
+
+function ChessBoard({
+  fen,
+  moveFrom,
+  moveTo,
+  flipped,
+}: {
+  fen: string;
+  /** Source square of the best move, e.g. "b7" (white-perspective algebraic). */
+  moveFrom?: string;
+  /** Destination square of the best move, e.g. "b8" (white-perspective algebraic). */
+  moveTo?: string;
+  /** True when the board is rendered from Black's point of view (rotated 180°). */
+  flipped?: boolean;
+}) {
   const boardPart = fen.split(' ')[0];
   const board = useMemo(() => parseFenBoard(boardPart), [boardPart]);
   const size = 368; // match Figma board width
   const sq = size / 8;
+
+  // Convert the API's algebraic from/to squares into SVG grid coords,
+  // mirroring for the black-perspective board when needed.
+  const arrow = useMemo(() => {
+    const from = squareToGrid(moveFrom ?? '');
+    const to   = squareToGrid(moveTo ?? '');
+    if (!from || !to) return null;
+
+    return {
+      fromCol: flipped ? 7 - from.col : from.col,
+      fromRow: flipped ? 7 - from.row : from.row,
+      toCol:   flipped ? 7 - to.col   : to.col,
+      toRow:   flipped ? 7 - to.row   : to.row,
+    };
+  }, [moveFrom, moveTo, flipped]);
+
+  // Arrow geometry helpers
+  const arrowColor = 'rgba(0, 145, 6, 0.82)';
+  const arrowWidth = sq * 0.22;
+  const arrowHeadLen = sq * 0.42;
+  const arrowHeadWidth = sq * 0.44;
+
+  let arrowElem: React.ReactNode = null;
+  if (arrow) {
+    const x1 = arrow.fromCol * sq + sq / 2;
+    const y1 = arrow.fromRow * sq + sq / 2;
+    const x2 = arrow.toCol * sq + sq / 2;
+    const y2 = arrow.toRow * sq + sq / 2;
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 1) {
+      const ux = dx / len;
+      const uy = dy / len;
+
+      // Shorten the shaft so it doesn't overlap the arrowhead
+      const shaftEndX = x2 - ux * arrowHeadLen;
+      const shaftEndY = y2 - uy * arrowHeadLen;
+
+      // Push shaft start back slightly from origin centre
+      const shaftStartX = x1 + ux * sq * 0.28;
+      const shaftStartY = y1 + uy * sq * 0.28;
+
+      // Perpendicular unit for arrowhead wings
+      const px = -uy;
+      const py = ux;
+
+      const tipX = x2 - ux * (sq * 0.08); // slight inset at tip
+      const tipY = y2 - uy * (sq * 0.08);
+      const wing1X = shaftEndX + px * arrowHeadWidth / 2;
+      const wing1Y = shaftEndY + py * arrowHeadWidth / 2;
+      const wing2X = shaftEndX - px * arrowHeadWidth / 2;
+      const wing2Y = shaftEndY - py * arrowHeadWidth / 2;
+
+      arrowElem = (
+        <g style={{ pointerEvents: 'none' }}>
+          {/* Shaft */}
+          <line
+            x1={shaftStartX} y1={shaftStartY}
+            x2={shaftEndX}   y2={shaftEndY}
+            stroke={arrowColor}
+            strokeWidth={arrowWidth}
+            strokeLinecap="round"
+          />
+          {/* Arrowhead triangle */}
+          <polygon
+            points={`${tipX},${tipY} ${wing1X},${wing1Y} ${wing2X},${wing2Y}`}
+            fill={arrowColor}
+          />
+        </g>
+      );
+    }
+  }
 
   return (
     <svg
@@ -50,12 +151,24 @@ function ChessBoard({ fen }: { fen: string }) {
           const light = (ri + ci) % 2 === 0;
           const x = ci * sq;
           const y = ri * sq;
+
+          // Highlight from/to squares
+          const isFromSq = arrow && ri === arrow.fromRow && ci === arrow.fromCol;
+          const isToSq   = arrow && ri === arrow.toRow   && ci === arrow.toCol;
+
           return (
             <g key={`${ri}-${ci}`}>
               <rect
                 x={x} y={y} width={sq} height={sq}
                 fill={light ? '#f0d9b5' : '#b58863'}
               />
+              {/* Square highlight overlay */}
+              {(isFromSq || isToSq) && (
+                <rect
+                  x={x} y={y} width={sq} height={sq}
+                  fill="rgba(0, 200, 10, 0.35)"
+                />
+              )}
               {piece && (
                 <text
                   x={x + sq / 2}
@@ -76,6 +189,8 @@ function ChessBoard({ fen }: { fen: string }) {
           );
         })
       )}
+      {/* Arrow drawn on top of all squares and pieces */}
+      {arrowElem}
       {/* File labels */}
       {'abcdefgh'.split('').map((f, i) => (
         <text
@@ -118,6 +233,12 @@ interface PairCompactOverlayProps {
   currentTurn: 'w' | 'b' | null;
   /** Best move SAN from the chess engine (e.g. "b8=Q+"). */
   engineSan?: string;
+  /** Best move LAN (UCI) from the chess engine (e.g. "b7b8q"). Kept for reference. */
+  engineLan?: string;
+  /** Source square of the best move, e.g. "b7". From chess-api.com directly. */
+  engineFrom?: string;
+  /** Destination square of the best move, e.g. "b8". From chess-api.com directly. */
+  engineTo?: string;
   /** Centipawn evaluation from the engine as a float (e.g. -11.62). */
   engineEval?: number;
   /** Mate-in-N from the engine (null = no forced mate). */
@@ -167,12 +288,18 @@ function SendIcon() {
 // ---------------------------------------------------------------------------
 
 interface CoachingChatViewProps {
-  /** Best-move SAN (e.g. "c7c5"). Shown in the BEST MOVE block. */
+  /** Best-move SAN (e.g. "Nf6"). Shown in the BEST MOVE block. */
   engineSan?: string;
+  /** Source square of the best move, e.g. "g8". From chess-api.com directly. */
+  engineFrom?: string;
+  /** Destination square of the best move, e.g. "f6". From chess-api.com directly. */
+  engineTo?: string;
   /** Centipawn eval label already formatted (e.g. "+0.42") or null. */
   engineEvalLabel?: string | null;
   /** FEN string for the board. Null → board is hidden. */
   displayFen?: string | null;
+  /** Whether the board is shown from black's perspective (used to orient the arrow). */
+  boardFlipped?: boolean;
   /** Coaching-tip / visual-analysis text shown above the chat thread. */
   suggestionText?: string;
   /** Initial coach message shown in the chat thread (green-tinted bubble). */
@@ -194,8 +321,11 @@ interface CoachingChatViewProps {
 
 export function CoachingChatView({
   engineSan,
+  engineFrom,
+  engineTo,
   engineEvalLabel,
   displayFen,
+  boardFlipped,
   suggestionText,
   coachGreeting = 'Position loaded. What do you want to know about c7c5?',
   chatMessages = [],
@@ -247,7 +377,7 @@ export function CoachingChatView({
       }}>
 
         {/* Chess board — 368×368 */}
-        {displayFen && <ChessBoard fen={displayFen} />}
+        {displayFen && <ChessBoard fen={displayFen} moveFrom={engineFrom} moveTo={engineTo} flipped={boardFlipped} />}
 
         {/* Best move + suggestion */}
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 16.82 }}>
@@ -622,6 +752,9 @@ export function PairCompactOverlay({
   displayFen,
   currentTurn,
   engineSan,
+  engineLan: _engineLan, // kept in IPC pipeline for reference; arrow uses engineFrom/engineTo
+  engineFrom,
+  engineTo,
   engineEval,
   engineMate,
   onStop,
@@ -636,6 +769,13 @@ export function PairCompactOverlay({
   const [now, setNow] = useState(Date.now());
   const [isExpanded, setIsExpanded] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Detect whether the board is shown from black's perspective.
+  // When flipped, currentFen's board part !== displayFen's board part.
+  const boardFlipped = useMemo(() => {
+    if (!currentFen || !displayFen) return false;
+    return currentFen.split(' ')[0] !== displayFen.split(' ')[0];
+  }, [currentFen, displayFen]);
 
   // ── Chat state ──
   const {
@@ -914,8 +1054,11 @@ export function PairCompactOverlay({
       <div style={{ width: '100%', height: 'auto', display: 'flex', flexDirection: 'column', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
         <CoachingChatView
           engineSan={engineSan}
+          engineFrom={engineFrom}
+          engineTo={engineTo}
           engineEvalLabel={engineEvalLabel}
           displayFen={displayFen ?? currentFen}
+          boardFlipped={boardFlipped}
           suggestionText={chessParagraphText || (compactTopTip ?? undefined) || undefined}
           coachGreeting={coachGreeting}
           chatMessages={chatMessages}
@@ -1250,7 +1393,7 @@ export function PairCompactOverlay({
 
           {/* Chess board � only when FEN is present */}
           {(displayFen ?? currentFen) && (
-            <ChessBoard fen={displayFen ?? currentFen ?? ''} />
+            <ChessBoard fen={displayFen ?? currentFen ?? ''} moveFrom={engineFrom} moveTo={engineTo} flipped={boardFlipped} />
           )}
 
           {/* Suggestions */}

@@ -75,6 +75,11 @@ interface ChessContextData {
   fen: string;
   engineSummary: string;
   engineSan?: string;        // best move SAN directly from the engine response
+  engineLan?: string;        // best move LAN (UCI) e.g. "g8f6" — used for arrow drawing
+  /** Source square of the best move, e.g. "b7". From chess-api.com directly. */
+  engineFrom?: string;
+  /** Destination square of the best move, e.g. "b8". From chess-api.com directly. */
+  engineTo?: string;
   engineEval?: number;       // centipawn eval (as float, e.g. -11.62) from the engine response
   engineMate?: number | null; // mate-in-N (null if no forced mate)
   /** Win chance for White (0–100) AFTER this move was played. */
@@ -135,6 +140,9 @@ class LiveAssistService extends EventEmitter {
   private lastChessPerspective: 'white' | 'black' = 'white';
   // Last engine result — carried on every fen event so the widget always has the current move/eval.
   private lastEngineSan: string | undefined = undefined;
+  private lastEngineLan: string | undefined = undefined;
+  private lastEngineFrom: string | undefined = undefined;
+  private lastEngineTo: string | undefined = undefined;
   private lastEngineEval: number | undefined = undefined;
   private lastEngineMate: number | null | undefined = undefined;
   /** Engine eval of the PREVIOUS position — used to compute centipawn loss per move. */
@@ -631,6 +639,9 @@ class LiveAssistService extends EventEmitter {
     this.lastChessPerspective = 'white';
     this.lastFenForMoveHistory = null;
     this.lastEngineSan = undefined;
+    this.lastEngineLan = undefined;
+    this.lastEngineFrom = undefined;
+    this.lastEngineTo = undefined;
     this.lastEngineEval = undefined;
     this.lastEngineMate = undefined;
     this.lastPositionEval = undefined;
@@ -876,6 +887,9 @@ class LiveAssistService extends EventEmitter {
       fen: resolvedFen.fen,
       engineSummary: engine.summarize(result, topLines),
       engineSan: result.san,
+      engineLan: result.lan,
+      engineFrom: result.from,
+      engineTo: result.to,
       engineEval: currentEval,
       engineMate: result.mate ?? null,
       winChance: currentWinChance,
@@ -1330,6 +1344,9 @@ class LiveAssistService extends EventEmitter {
       board: fenBoard,
       turn: inferredTurn,
       engineSan: this.lastEngineSan,
+      engineLan: this.lastEngineLan,
+      engineFrom: this.lastEngineFrom,
+      engineTo: this.lastEngineTo,
       engineEval: this.lastEngineEval,
       engineMate: this.lastEngineMate,
       playedMoveSan: fenPlayedSan,
@@ -1646,6 +1663,9 @@ class LiveAssistService extends EventEmitter {
         this.lastChessTurn = sideToMove;
         // Store engine result on instance so subsequent fen emits carry it too.
         this.lastEngineSan = chessContext?.engineSan;
+        this.lastEngineLan = chessContext?.engineLan;
+        this.lastEngineFrom = chessContext?.engineFrom;
+        this.lastEngineTo = chessContext?.engineTo;
         this.lastEngineEval = chessContext?.engineEval;
         this.lastEngineMate = chessContext?.engineMate;
         this.pendingChessSignature = null;
@@ -1658,6 +1678,9 @@ class LiveAssistService extends EventEmitter {
           board: this.lastChessBoard,
           turn: sideToMove,
           engineSan: this.lastEngineSan,
+          engineLan: this.lastEngineLan,
+          engineFrom: this.lastEngineFrom,
+          engineTo: this.lastEngineTo,
           engineEval: this.lastEngineEval,
           engineMate: this.lastEngineMate,
         });
@@ -1769,6 +1792,12 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
       this.lastChessTurn = chessContext?.turn ? (chessContext.turn === 'w' ? 'b' : 'w') : this.lastChessTurn;
       // Store engine result on instance so subsequent fen emits carry it too.
       this.lastEngineSan = chessContext?.engineSan;
+      this.lastEngineLan = chessContext?.engineLan;
+      // Store engine result on instance so subsequent fen emits carry it too.
+      this.lastEngineSan = chessContext?.engineSan;
+      this.lastEngineLan = chessContext?.engineLan;
+      this.lastEngineFrom = chessContext?.engineFrom;
+      this.lastEngineTo = chessContext?.engineTo;
       this.lastEngineEval = chessContext?.engineEval;
       this.lastEngineMate = chessContext?.engineMate;
       this.pendingChessSignature = null;
@@ -1781,6 +1810,9 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
         board: this.lastChessBoard,
         turn: this.lastChessTurn,
         engineSan: this.lastEngineSan,
+        engineLan: this.lastEngineLan,
+        engineFrom: this.lastEngineFrom,
+        engineTo: this.lastEngineTo,
         engineEval: this.lastEngineEval,
         engineMate: this.lastEngineMate,
       });

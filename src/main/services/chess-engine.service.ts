@@ -25,6 +25,10 @@ export interface ChessEngineMoveLine {
   centipawns?: string;
   mate?: number | null;
   continuationArr?: string[];
+  /** Source square in algebraic notation, e.g. "b7". Returned directly by chess-api.com. */
+  from?: string;
+  /** Destination square in algebraic notation, e.g. "b8". Returned directly by chess-api.com. */
+  to?: string;
 }
 
 export interface ChessEngineResponse extends ChessEngineMoveLine {

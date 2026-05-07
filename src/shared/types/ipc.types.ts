@@ -206,6 +206,9 @@ export interface LiveAssistEvents {
     board: string | null;
     turn: 'w' | 'b' | null;
     engineSan?: string;
+    engineLan?: string;
+    engineFrom?: string;
+    engineTo?: string;
     engineEval?: number;
     engineMate?: number | null;
     playedMoveSan?: string;
