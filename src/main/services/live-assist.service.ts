@@ -516,12 +516,22 @@ class LiveAssistService extends EventEmitter {
 
     if (!rawBoardMatches.length) return null;
 
+    // The LLM outputs NO_BOARD when no main chess board is visible (e.g. the
+    // chess tab is not in focus and only the overlay mini-board is on screen).
+    // Treat this as a clean miss — return null so the pipeline skips this frame
+    // rather than hallucinating a position from the overlay's rendered board.
+    const rawBoardContent = rawBoardMatches[rawBoardMatches.length - 1]?.[1]?.trim() || '';
+    if (rawBoardContent.toUpperCase() === 'NO_BOARD') {
+      log.debug('[LiveAssist] extractFenFromTaggedChessOutput: LLM reported NO_BOARD — no main chess board visible, skipping frame');
+      return null;
+    }
+
     const perspectiveRaw = perspectiveMatch?.[1]?.toLowerCase() || '';
     const perspective: 'white' | 'black' = perspectiveRaw.includes('black') ? 'black' : 'white';
     if (!perspectiveMatch) {
       log.warn('[LiveAssist] extractFenFromTaggedChessOutput: <perspective> tag missing — defaulting to white. Board may be silently flipped if player is Black.');
     }
-    const rawBoard = rawBoardMatches[rawBoardMatches.length - 1]?.[1]?.replace(/\s+/g, '') || '';
+    const rawBoard = rawBoardContent.replace(/\s+/g, '');
     if (!rawBoard) return null;
     if (!this.validateBoardMath(rawBoard)) return null;
 

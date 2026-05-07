@@ -108,13 +108,6 @@ export function createWidgetWindow(): BrowserWindow {
   // Keep overlay above fullscreen/borderless windows where possible
   widgetWindow.setAlwaysOnTop(true, 'screen-saver', 1);
 
-  // NOTE: setContentProtection is intentionally NOT set so that the overlay
-  // is visible in screen recordings and OBS — required for demo purposes.
-  // The FEN-extraction model (gpt-5.4) receives the full screenshot including
-  // the overlay; the chess board and tips rendered on the overlay do not
-  // interfere with board recognition because the overlay is positioned at the
-  // side of the screen and does not cover the chess board itself.
-
   // Load the widget HTML
   if (isDev) {
     const VITE_DEV_PORT = 51730;
