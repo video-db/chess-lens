@@ -864,8 +864,9 @@ class LiveAssistService extends EventEmitter {
 
   /** Returns the total number of confirmed distinct board positions seen this session (= plies played). */
   getTotalMoveCount(): number {
-    // Subtract 1 to exclude the initial board position itself (which is not a move).
-    return Math.max(0, this.totalMoveCount - 1);
+    // Each increment of totalMoveCount represents one real move (board-position change).
+    // The initial board is handled by the early-return path and does not increment this counter.
+    return this.totalMoveCount;
   }
 
   private isInitialChessBoard(board: string): boolean {
@@ -1533,6 +1534,7 @@ class LiveAssistService extends EventEmitter {
       const inferredTurn: 'w' | 'b' = 'w';
       this.lastChessTurn = inferredTurn;
       this.lastChessBoard = fenBoard;
+      this.lastFenForMoveHistory = fenBoard;  // anchor so the first real move can be diffed
       this.lastChessPerspective = perspective;
       this.updateCastlingRightsFromBoard(fenBoard);
       const castling = this.getCastlingRightsString();
@@ -1617,16 +1619,28 @@ class LiveAssistService extends EventEmitter {
     const justMoved: 'w' | 'b' = inferredTurn === 'w' ? 'b' : 'w';
     let fenPlayedSan: string | undefined;
     let fenPlayedTurn: 'w' | 'b' | undefined;
-    if (this.lastFenForMoveHistory && this.lastFenForMoveHistory !== fenBoard) {
-      // prevFen: previous board position where justMoved was about to play
-      const prevFen = `${this.lastFenForMoveHistory} ${justMoved} - - 0 1`;
+
+    // Determine the baseline board to diff against.
+    // Primary: last accepted board position.
+    // Fallback: when no previous board exists (first confirmed position of the session),
+    // try diffing against the standard initial position — this recovers move 1 when
+    // the vote window fills after the first move has already been played.
+    const diffBase: string | null =
+      (this.lastFenForMoveHistory && this.lastFenForMoveHistory !== fenBoard)
+        ? this.lastFenForMoveHistory
+        : (!this.lastFenForMoveHistory && fenBoard !== INITIAL_CHESS_BOARD)
+          ? INITIAL_CHESS_BOARD
+          : null;
+
+    if (diffBase) {
+      const prevFen = `${diffBase} ${justMoved} - - 0 1`;
       fenPlayedSan = fenDiffToSan(prevFen, whitePerspectiveFen, justMoved);
       if (fenPlayedSan) {
         fenPlayedTurn = justMoved;
       } else {
         // Fallback: turn inference may be wrong — try the other side
         const otherSide: 'w' | 'b' = justMoved === 'w' ? 'b' : 'w';
-        const prevFenAlt = `${this.lastFenForMoveHistory} ${otherSide} - - 0 1`;
+        const prevFenAlt = `${diffBase} ${otherSide} - - 0 1`;
         const altSan = fenDiffToSan(prevFenAlt, whitePerspectiveFen, otherSide);
         if (altSan) {
           fenPlayedSan = altSan;
