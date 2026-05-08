@@ -808,17 +808,20 @@ class LiveAssistService extends EventEmitter {
    *   - If Black-as-mover produces a valid SAN → Black just moved → White to move ('w')
    *
    * This is deterministic and does not depend on lastKnownTurn for the common case.
-   * lastKnownTurn is only used as a last-resort flip when the diff is ambiguous
-   * (both sides produce a SAN, which shouldn't happen in clean positions) or when
-   * neither produces a SAN (boards differ by more than one legal move — OCR noise).
+   * Returns null when the diff is ambiguous (both or neither side produces a SAN),
+   * so the caller can fall through to the LLM-reported turn rather than blind-flipping.
+   * Blind-flipping is wrong when multiple moves were missed (e.g. fast play that
+   * outpaces the screenshot vote window) — every extra skipped move inverts the
+   * expected parity, so the flip produces the wrong side.
    */
   private inferTurnFromBoards(
     prevBoard: string | null,
     currBoard: string,
     lastKnownTurn: 'w' | 'b' | null
-  ): 'w' | 'b' {
+  ): 'w' | 'b' | null {
     if (!prevBoard || prevBoard === currBoard) {
-      return lastKnownTurn ?? 'w';
+      // Board unchanged — no new information; preserve whatever is already known.
+      return lastKnownTurn;
     }
 
     // Build minimal synthetic FENs (turn field doesn't matter for fenDiffToSan
@@ -838,13 +841,16 @@ class LiveAssistService extends EventEmitter {
       return 'w';
     }
 
-    // Ambiguous or neither side produced a SAN — fall back to flip
-    const flipped: 'w' | 'b' = lastKnownTurn === 'w' ? 'b' : 'w';
+    // Ambiguous (both sides produced a SAN — OCR noise / multi-move skip) or
+    // neither side produced a SAN (boards differ by more than one legal move).
+    // Return null so the caller can fall through to the LLM-reported turn tag
+    // instead of blindly flipping — a blind flip is wrong whenever an even
+    // number of moves were missed between frames.
     log.debug(
-      { whiteMoved, blackMoved, lastKnownTurn, flipped },
-      '[TurnDetect] fenDiff ambiguous — flipping from lastKnownTurn'
+      { whiteMoved, blackMoved, lastKnownTurn },
+      '[TurnDetect] fenDiff ambiguous — returning null, caller will use LLM turn tag'
     );
-    return flipped;
+    return null;
   }
 
   private resetChessSessionState(): void {
@@ -970,17 +976,38 @@ class LiveAssistService extends EventEmitter {
       // Screenshot vote has not yet promoted a FEN (websocket-fallback path or
       // very start of a session). Try to read the <turn> tag from the most recent
       // visual index frame — the WebSocket indexing pipeline embeds it there.
-      // This avoids the perspective-seed bug where the engine gets the wrong side
-      // just because the screenshot vote window hasn't filled yet.
+      // IMPORTANT: Only accept a <turn> tag from a frame that also contains the
+      // same board position (matching <raw_board> content). This prevents stale
+      // tags from previous positions — which can linger in the buffer for up to
+      // visualContextWindowMs (45 s) — from poisoning the cold-start turn seed
+      // and causing the engine to analyse from the wrong side's perspective.
       let turnFromVisuals: 'w' | 'b' | null = null;
       if (visuals && visuals.length > 0) {
         for (let i = visuals.length - 1; i >= 0; i--) {
-          const turnMatch = visuals[i].text.match(/<turn>\s*(.*?)\s*<\/turn>/is);
-          if (turnMatch) {
-            turnFromVisuals = turnMatch[1].toLowerCase().includes('black') ? 'b' : 'w';
-            log.debug({ turnFromVisuals, source: 'visual_index_turn_tag' }, '[LiveAssist] applyNextTurnToFen: turn read from visual index <turn> tag');
-            break;
+          const chunkText = visuals[i].text;
+          const turnMatch = chunkText.match(/<turn>\s*(.*?)\s*<\/turn>/is);
+          if (!turnMatch) continue;
+
+          // Verify the board in this chunk matches the board we are resolving the
+          // turn for. Strip whitespace before comparing so minor formatting
+          // differences in the injected synthetic text don't cause false misses.
+          const boardMatch = chunkText.match(/<raw_board>\s*(.*?)\s*<\/raw_board>/is);
+          if (boardMatch) {
+            const chunkBoard = boardMatch[1].trim();
+            if (chunkBoard !== board.trim()) {
+              // This <turn> tag belongs to a different board — skip it to avoid
+              // using a stale tag as the turn seed for the current position.
+              log.debug(
+                { chunkBoard: chunkBoard.slice(0, 30), currentBoard: board.slice(0, 30) },
+                '[LiveAssist] applyNextTurnToFen: skipping stale <turn> tag (board mismatch)'
+              );
+              continue;
+            }
           }
+
+          turnFromVisuals = turnMatch[1].toLowerCase().includes('black') ? 'b' : 'w';
+          log.debug({ turnFromVisuals, source: 'visual_index_turn_tag' }, '[LiveAssist] applyNextTurnToFen: turn read from visual index <turn> tag (board-matched)');
+          break;
         }
       }
       inferredTurn = turnFromVisuals ?? (this.lastChessPerspective === 'black' ? 'b' : 'w');
@@ -1575,34 +1602,70 @@ class LiveAssistService extends EventEmitter {
 
     // Turn resolution priority chain:
     //
-    // Tier 1 — Board-diff (highest priority when board changed).
+    // Tier 1 — Board-diff (highest confidence when the board has changed).
     //   Directly examines which side's pieces moved between the previous
-    //   confirmed board and the new one. Deterministic — does not depend on
-    //   the LLM or accumulated state.  Returns null when the board is unchanged
-    //   (same-board re-read) since there is nothing to diff.
+    //   confirmed board and the new one using fenDiffToSan. Deterministic —
+    //   does not depend on the LLM or accumulated state.
+    //   Returns null in two cases:
+    //     a) Board unchanged (same-board re-read) — nothing to diff.
+    //     b) Diff is AMBIGUOUS — both or neither side produced a valid SAN.
+    //        This happens when moves are skipped (fast play that outpaces the
+    //        screenshot vote window) or on OCR noise affecting multiple pieces.
+    //        A null here means "I can't tell from the board alone" — fall through
+    //        to the LLM-reported turn rather than blindly flipping, which would
+    //        be wrong whenever an even number of moves were missed.
     //
-    // Tier 2 — <turn> tag from LLM.
-    //   Used when the board is unchanged (burst re-read) or as a sanity signal.
-    //   Less reliable than the board diff on its own but useful as a fallback.
+    // Tier 2a — Grid-derived turn (from <last_move_from/to> grid tags).
+    //   deriveTurnFromGridMove() looks at which highlighted square has a piece
+    //   on the CURRENT board and determines whose piece it is. This is the most
+    //   reliable LLM-based signal because it cross-validates the LLM's coordinate
+    //   output against the actual piece placement in the voted FEN.
+    //
+    // Tier 2b — Legacy <turn> tag from LLM.
+    //   Plain text turn declaration from the LLM's <turn> tag. Less reliable than
+    //   grid-derived but still better than a stale lastChessTurn when board changed
+    //   by more than one move.
     //
     // Tier 3 — Keep last confirmed turn.
-    //   Safe for same-board re-reads mid-game — avoids the perspective-seed bug.
+    //   Safe for same-board re-reads mid-game — avoids flipping on burst frames.
     //
     // Tier 4 — Cold-start perspective seed (only when lastChessTurn is null).
     const boardDiffTurn = (this.lastChessBoard && this.lastChessBoard !== fenBoard)
       ? this.inferTurnFromBoards(this.lastChessBoard, fenBoard, this.lastChessTurn)
       : null;
 
+    // Tier 2a: derive turn from grid coordinates if the LLM provided them.
+    // This cross-validates the LLM's highlight detection against the actual FEN
+    // board — more reliable than the plain-text <turn> tag alone.
+    const gridDerivedTurn = (reportedLastMoveFrom && reportedLastMoveTo)
+      ? this.deriveTurnFromGridMove(reportedLastMoveFrom, reportedLastMoveTo, perspective, fenBoard)
+      : null;
+
+    // Combined LLM turn: prefer grid-derived (board-validated), fall back to text tag.
+    const llmTurn = gridDerivedTurn ?? reportedTurn;
+
     const inferredTurn: 'w' | 'b' =
       boardDiffTurn ??
-      reportedTurn ??
+      llmTurn ??
       this.lastChessTurn ??
       (perspective === 'black' ? 'b' : 'w');
 
+    const tierUsed = boardDiffTurn != null ? 1 : gridDerivedTurn != null ? '2a' : reportedTurn != null ? '2b' : this.lastChessTurn != null ? 3 : 4;
     log.debug(
-      { boardDiffTurn, reportedTurn, inferredTurn, tier: boardDiffTurn != null ? 1 : reportedTurn != null ? 2 : this.lastChessTurn != null ? 3 : 4 },
+      { boardDiffTurn, gridDerivedTurn, reportedTurn, llmTurn, lastChessTurn: this.lastChessTurn, inferredTurn, tierUsed },
       '[LiveAssist] injectConfirmedFen: turn tier used'
     );
+
+    // Cross-validation warning: if the board diff produced a confident answer
+    // but it contradicts the LLM's turn signal, log it. The board diff wins
+    // (Tier 1 beats Tier 2) but a persistent contradiction indicates an LLM
+    // prompt issue or a position where the highlight is misleading.
+    if (boardDiffTurn != null && llmTurn != null && boardDiffTurn !== llmTurn) {
+      log.warn(
+        { boardDiffTurn, llmTurn, gridDerivedTurn, reportedTurn, fenBoard: fenBoard.slice(0, 40) },
+        '[TurnDetect] board-diff turn and LLM turn DISAGREE — board-diff wins (Tier 1)'
+      );
+    }
 
     // Update castling rights from this confirmed board before updating other state.
     // This ensures getCastlingRightsString() is accurate when we build the FEN below.

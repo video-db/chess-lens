@@ -279,11 +279,14 @@ class ChessScreenshotService {
       // Prefer the entry that has grid-based last-move data — this is the most
       // reliable turn signal (theme-agnostic, no coordinate labels needed).
       // Fall back to entries with a legacy <turn> tag, then any matching entry.
+      // IMPORTANT: within each category use the LATEST entry (last in buffer order),
+      // not the first. The first matching entry may have been captured before the
+      // move highlight fully settled on screen, so its <turn> tag can be stale.
       const withGrid = matchingEntries.filter(
         (e) => e.reportedLastMoveFrom !== null && e.reportedLastMoveTo !== null
       );
       const withTurn = matchingEntries.filter((e) => e.reportedTurn !== null);
-      return withGrid[0] ?? withTurn[0] ?? matchingEntries[matchingEntries.length - 1] ?? null;
+      return withGrid[withGrid.length - 1] ?? withTurn[withTurn.length - 1] ?? matchingEntries[matchingEntries.length - 1] ?? null;
     }
     return null;
   }

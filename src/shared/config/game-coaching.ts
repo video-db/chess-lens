@@ -227,15 +227,20 @@ The last move is shown by TWO highlighted squares (the exact color varies by boa
 
 To determine whose turn it is:
   1. Find the DESTINATION square (the highlighted square that contains a piece).
-  2. Identify whether that piece is White (uppercase: P N B R Q K) or Black (lowercase: p n b r q k).
-  3. If the piece on the destination square is WHITE → White just moved → it is now BLACK's turn → output "black".
-  4. If the piece on the destination square is BLACK → Black just moved → it is now WHITE's turn → output "white".
+  2. Identify the grid position of BOTH highlighted squares as (row, col) where row 1 = top visual row, row 8 = bottom visual row, col 1 = leftmost column, col 8 = rightmost column.
+  3. Output the ORIGIN square coordinates inside <last_move_from> tags as: row R, col C
+  4. Output the DESTINATION square coordinates inside <last_move_to> tags as: row R, col C
+  5. Identify whether the piece on the DESTINATION square is White (uppercase: P N B R Q K) or Black (lowercase: p n b r q k).
+  6. If the piece on the destination square is WHITE → White just moved → it is now BLACK's turn → output "black".
+  7. If the piece on the destination square is BLACK → Black just moved → it is now WHITE's turn → output "white".
 
 CRITICAL: The origin square is EMPTY after the move. Only use the highlighted square that HAS A PIECE to determine whose turn it is.
 
-If you cannot identify the highlighted squares or cannot determine which piece moved, omit the <turn> tag entirely.
+If you cannot identify the highlighted squares or cannot determine which piece moved, omit the <turn>, <last_move_from>, and <last_move_to> tags entirely.
 
 Output exactly "white" or "black" inside <turn> tags.
+Output the origin grid position inside <last_move_from> tags (e.g. <last_move_from>row 4, col 5</last_move_from>).
+Output the destination grid position inside <last_move_to> tags (e.g. <last_move_to>row 6, col 5</last_move_to>).
 
 SANITY CHECK before finalising <raw_board>: count your Pawns. A standard game starts with 8 white pawns (P) and 8 black pawns (p). Each side can have at most 2 bishops (B/b). If your pawn count seems low and bishop count seems high, re-examine those squares — you may have confused pawns with bishops.
 

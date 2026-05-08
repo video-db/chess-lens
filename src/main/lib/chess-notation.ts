@@ -203,6 +203,18 @@ export function fenDiffToSan(
 
   if (disappeared.length === 0 || appeared.length === 0) return undefined;
 
+  // A single legal move moves exactly one friendly piece: 1 disappeared, 1 appeared.
+  // Castling is the only exception and is already handled above (king + rook both
+  // move, but castling detection fires before we reach here, so we never see it).
+  // If more than one friendly piece disappeared or appeared, the two boards are more
+  // than one move apart (e.g. two consecutive moves were missed between frames, or
+  // OCR noise scrambled multiple pieces). Returning undefined here is critical —
+  // without this guard, fenDiffToSan picks disappeared[0]/appeared[0] and produces
+  // a plausible-looking SAN for the wrong side, causing inferTurnFromBoards to
+  // return a confident but incorrect turn instead of null (which would fall through
+  // to the LLM-reported turn that actually reflects the current screenshot).
+  if (disappeared.length > 1 || appeared.length > 1) return undefined;
+
   // For normal moves: 1 disappeared, 1 appeared
   fromSq = disappeared[0];
   toSq   = appeared[0];
