@@ -11,7 +11,7 @@
 	"license": "MIT",
 	"main": "dist/main/index.js",
 	"scripts": {
-		"dev": "npm run build:main && concurrently -k \"npm run dev:renderer\" \"sleep 2 && electron .\"",
+		"dev": "npm run build:main && concurrently -k \"npm run dev:renderer\" \"node scripts/delay-electron.js\"",
 		"dev:renderer": "vite",
 		"build": "npm run build:renderer && npm run build:main",
 		"build:main": "tsc -p tsconfig.node.json",
