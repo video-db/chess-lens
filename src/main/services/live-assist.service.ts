@@ -169,6 +169,9 @@ class LiveAssistService extends EventEmitter {
   /** True when runCoachingLLM has been fired for currentCycleId and hasn't
    *  finished yet — prevents signatureUnchanged from closing the cycle early. */
   private coachingInFlight = false;
+  /** Set to true by flipTurn() so the next processTranscriptInner run does not
+   *  overwrite lastChessTurn from chessContext — preserving the user override. */
+  private userFlippedTurn = false;
 
   private getTipLengthLimits(): { maxSayWords: number; maxAskWords: number; maxFinalSayCount: number; maxFinalAskCount: number } {
     return { maxSayWords: 20, maxAskWords: 16, maxFinalSayCount: 2, maxFinalAskCount: 2 };
@@ -889,6 +892,7 @@ class LiveAssistService extends EventEmitter {
     this.lastChessTurn = null;
     this.lastChessPerspective = 'white';
     this.lastFenForMoveHistory = null;
+    this.userFlippedTurn = false;
     // NOTE: totalMoveCount is intentionally NOT reset here — it is reset in
     // start() so that stop() → copilot reads the count before a new session zeros it.
     this.lastEngineSan = undefined;
@@ -1401,6 +1405,55 @@ class LiveAssistService extends EventEmitter {
     // Intentionally ignored: live tips are visual/action based, not audio based.
     void text;
     void source;
+  }
+
+  /**
+   * Flip the current side-to-move and immediately re-run the engine and
+   * coaching pipeline against the new turn. Called when the user manually
+   * overrides the detected turn from the overlay button.
+   */
+  flipTurn(): void {
+    if (!this.isRunning || !this.lastChessBoard || this.lastChessTurn === null) {
+      log.warn('[LiveAssist] flipTurn: no active position to flip');
+      return;
+    }
+
+    const flipped: 'w' | 'b' = this.lastChessTurn === 'w' ? 'b' : 'w';
+    log.info(
+      { from: this.lastChessTurn, to: flipped, board: this.lastChessBoard.slice(0, 30) },
+      '[LiveAssist] flipTurn: user-initiated turn override'
+    );
+
+    this.lastChessTurn = flipped;
+    this.userFlippedTurn = true; // prevent processTranscriptInner from overwriting the flip
+
+    // Reset the signature so processTranscriptInner treats this as a new
+    // position and re-runs the engine rather than skipping as a duplicate.
+    this.lastChessSignature = null;
+
+    // Emit an updated fen event immediately so the overlay reflects the
+    // new turn before the engine call completes.
+    // isFlipAck marks this as a position-only acknowledge — the renderer
+    // must not use it to clear the "regenerating" spinner.
+    const castling = this.getCastlingRightsString();
+    const whitePerspFen = `${this.lastChessBoard} ${flipped} ${castling} - 0 1`;
+    const displayFen = this.buildDisplayFen(whitePerspFen, this.lastChessPerspective);
+    this.emit('fen', {
+      fen: whitePerspFen,
+      displayFen,
+      board: this.lastChessBoard,
+      turn: flipped,
+      engineSan: this.lastEngineSan,
+      engineLan: this.lastEngineLan,
+      engineFrom: this.lastEngineFrom,
+      engineTo: this.lastEngineTo,
+      engineEval: this.lastEngineEval,
+      engineMate: this.lastEngineMate,
+      isFlipAck: true,
+    });
+
+    // Re-schedule processing so the engine re-analyses with the flipped turn.
+    this.scheduleProcessing();
   }
 
   /**
@@ -2101,6 +2154,7 @@ class LiveAssistService extends EventEmitter {
           insights: { say_this: [`engine: ${rawSummary}`], ask_this: [] },
           processedAt: Date.now(),
           clearExisting: true,
+          isFlipAck: this.userFlippedTurn,
         });
         if (trackedCycleId !== undefined) pipelineLatency.endStep(trackedCycleId, 'engineTip');
       }
@@ -2181,6 +2235,7 @@ class LiveAssistService extends EventEmitter {
         insights: { say_this: [`engine: ${rawSummary}`], ask_this: [] },
         processedAt: Date.now(),
         clearExisting: true,
+        isFlipAck: this.userFlippedTurn,
       });
       if (trackedCycleId !== undefined) pipelineLatency.endStep(trackedCycleId, 'engineTip');
       log.debug({ chessSignature }, '[LiveAssist] Emitted immediate engine-only tip while coaching LLM runs');
@@ -2237,8 +2292,15 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
     if (this.activeGameId === 'chess' && chessSignature) {
       this.lastChessSignature = chessSignature;
       this.lastChessBoard = chessContext?.board || chessSignature;
-      // chessContext.turn is the side that JUST MOVED — flip to get side to move next.
-      this.lastChessTurn = chessContext?.turn ? (chessContext.turn === 'w' ? 'b' : 'w') : this.lastChessTurn;
+      // When the user has manually flipped the turn, preserve their override —
+      // do NOT re-derive lastChessTurn from chessContext which would undo the flip.
+      // Clear the flag after consuming it so future auto-detected moves work normally.
+      if (this.userFlippedTurn) {
+        this.userFlippedTurn = false;
+      } else {
+        // chessContext.turn is the side that JUST MOVED — flip to get side to move next.
+        this.lastChessTurn = chessContext?.turn ? (chessContext.turn === 'w' ? 'b' : 'w') : this.lastChessTurn;
+      }
       // Store engine result on instance so subsequent fen emits carry it too.
       this.lastEngineSan = chessContext?.engineSan;
       this.lastEngineLan = chessContext?.engineLan;

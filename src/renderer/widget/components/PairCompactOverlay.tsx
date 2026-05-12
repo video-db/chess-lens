@@ -254,6 +254,10 @@ interface PairCompactOverlayProps {
   statusText?: string;
   /** Error message from the recording pipeline startup, shown instead of the connecting spinner. */
   connectingError?: string | null;
+  /** Called when the user clicks the flip-turn button to manually override detected turn. */
+  onFlipTurn?: () => void;
+  /** True while the main process is re-running the engine after a user-initiated turn flip. */
+  isRegenerating?: boolean;
 }
 
 function fmtElapsed(startTime?: number | null, endTime: number = Date.now()): string {
@@ -317,6 +321,10 @@ interface CoachingChatViewProps {
   onStop?: () => void;
   stopDisabled?: boolean;
   elapsed?: string;
+  /** Current side to move ('w' = White, 'b' = Black). Shown next to BEST MOVE. */
+  currentTurn?: 'w' | 'b' | null;
+  /** Called when user clicks the flip-turn button. */
+  onFlipTurn?: () => void;
 }
 
 export function CoachingChatView({
@@ -337,6 +345,8 @@ export function CoachingChatView({
   onStop,
   stopDisabled = false,
   elapsed = '00:00',
+  currentTurn,
+  onFlipTurn,
 }: CoachingChatViewProps) {
   const chatEndRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
@@ -409,6 +419,34 @@ export function CoachingChatView({
                   }}>
                     {engineEvalLabel}
                   </div>
+                )}
+                {onFlipTurn && currentTurn && (
+                  <button
+                    onClick={onFlipTurn}
+                    title={`Switch turn to ${currentTurn === 'w' ? 'Black' : 'White'}`}
+                    style={{
+                      marginLeft: 'auto',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '3px 8px',
+                      background: 'rgba(0,0,0,0.05)',
+                      border: '0.84px solid rgba(0,0,0,0.12)',
+                      borderRadius: 20,
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: '#464646',
+                      lineHeight: '14px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {/* swap icon */}
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M1 5h10M1 5l3-3M1 5l3 3M15 11H5M15 11l-3-3M15 11l-3 3" stroke="#464646" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    {currentTurn === 'w' ? 'White' : 'Black'} to move
+                  </button>
                 )}
               </div>
             </div>
@@ -765,6 +803,8 @@ export function PairCompactOverlay({
   stopDisabled = false,
   statusText,
   connectingError,
+  onFlipTurn,
+  isRegenerating = false,
 }: PairCompactOverlayProps) {
   const [now, setNow] = useState(Date.now());
   const [isExpanded, setIsExpanded] = useState(false);
@@ -1430,22 +1470,64 @@ export function PairCompactOverlay({
               </>
             ) : (
               <>
-                {/* ── Best move block — always above the coaching tip ── */}
-                {engineSan && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10.09 }}>
-                    {/* "BEST MOVE" label — grey */}
-                    <span style={{ fontSize: 12, fontWeight: 500, color: '#969696', lineHeight: '13px', fontFamily: 'Inter, sans-serif' }}>
-                      BEST MOVE
-                    </span>
-                    {/* Move + eval badge */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10.09 }}>
-                      <span style={{ fontSize: 26, fontWeight: 600, color: '#009106', fontFamily: 'Inter, sans-serif', lineHeight: '18px' }}>
-                        {engineSan}
+                {/* ── Best move + flip-turn row ── */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10.09 }}>
+                  {engineSan && (
+                    <>
+                      {/* "BEST MOVE" label — grey */}
+                      <span style={{ fontSize: 12, fontWeight: 500, color: '#969696', lineHeight: '13px', fontFamily: 'Inter, sans-serif' }}>
+                        BEST MOVE
                       </span>
-                      <div style={{ background: 'rgba(0,145,6,0.1)', border: '0.84px solid rgba(0,145,6,0.1)', borderRadius: 30.27, padding: '1px 6px', fontSize: 12, fontWeight: 500, color: '#009106', fontFamily: 'Inter, sans-serif' }}>
-                        {engineEvalLabel ?? 'Best'}
+                      {/* Move + eval badge */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10.09 }}>
+                        <span style={{ fontSize: 26, fontWeight: 600, color: '#009106', fontFamily: 'Inter, sans-serif', lineHeight: '18px' }}>
+                          {engineSan}
+                        </span>
+                        <div style={{ background: 'rgba(0,145,6,0.1)', border: '0.84px solid rgba(0,145,6,0.1)', borderRadius: 30.27, padding: '1px 6px', fontSize: 12, fontWeight: 500, color: '#009106', fontFamily: 'Inter, sans-serif' }}>
+                          {engineEvalLabel ?? 'Best'}
+                        </div>
                       </div>
+                    </>
+                  )}
+                  {/* Flip-turn button — shown whenever turn is known and not already regenerating */}
+                  {onFlipTurn && currentTurn && !isRegenerating && (
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <button
+                        onClick={onFlipTurn}
+                        title={`Switch turn to ${currentTurn === 'w' ? 'Black' : 'White'}`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '3px 8px',
+                          background: 'rgba(0,0,0,0.05)',
+                          border: '0.84px solid rgba(0,0,0,0.12)',
+                          borderRadius: 20,
+                          cursor: 'pointer',
+                          fontSize: 11,
+                          fontWeight: 500,
+                          color: '#464646',
+                          fontFamily: 'Inter, sans-serif',
+                          lineHeight: '14px',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M1 5h10M1 5l3-3M1 5l3 3M15 11H5M15 11l-3-3M15 11l-3 3" stroke="#464646" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        {currentTurn === 'w' ? 'White' : 'Black'} to move
+                      </button>
                     </div>
+                  )}
+                </div>
+
+                {/* ── Regenerating indicator — shown while engine re-runs after turn flip ── */}
+                {isRegenerating && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'rgba(0,145,6,0.06)', border: '0.84px solid rgba(0,145,6,0.15)', borderRadius: 10, boxSizing: 'border-box' }}>
+                    <div style={{ width: 12, height: 12, borderRadius: '50%', background: 'conic-gradient(from 90deg, rgba(0,145,6,1) 0deg, rgba(196,196,196,0) 360deg)', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 500, color: '#009106', lineHeight: '14px', fontFamily: 'Inter, sans-serif' }}>
+                      Switching turn, regenerating tip…
+                    </span>
                   </div>
                 )}
 

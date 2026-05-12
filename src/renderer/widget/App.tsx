@@ -22,6 +22,15 @@ export function WidgetApp() {
   const [currentFen, setCurrentFen] = useState<string | null>(null);
   const [displayFen, setDisplayFen] = useState<string | null>(null);
   const [currentTurn, setCurrentTurn] = useState<'w' | 'b' | null>(null);
+  // Local turn override — lets the user flip the detected turn without an IPC round-trip.
+  // Reset ONLY when the board position (FEN board part) actually changes, not on every fen event.
+  const [turnOverride, setTurnOverride] = useState<'w' | 'b' | null>(null);
+  const lastFenBoardRef = useRef<string | null>(null);
+  // True from the moment the user clicks flip-turn until the engine produces
+  // a new result with engineSan present (meaning the re-analysis completed).
+  const [isTurnFlipping, setIsTurnFlipping] = useState(false);
+  const flipPendingRef = useRef(false); // tracks whether a flip is still awaiting engine result
+  const flipStartedAtRef = useRef<number>(0); // timestamp when the flip was initiated
   const [engineSan, setEngineSan] = useState<string | undefined>(undefined);
   const [engineLan, setEngineLan] = useState<string | undefined>(undefined);
   const [engineFrom, setEngineFrom] = useState<string | undefined>(undefined);
@@ -69,6 +78,11 @@ export function WidgetApp() {
           setCurrentFen(null);
           setDisplayFen(null);
           setCurrentTurn(null);
+          setTurnOverride(null);
+          setIsTurnFlipping(false);
+          flipPendingRef.current = false;
+          flipStartedAtRef.current = 0;
+          lastFenBoardRef.current = null;
           setEngineSan(undefined);
           setEngineLan(undefined);
           setEngineFrom(undefined);
@@ -83,6 +97,11 @@ export function WidgetApp() {
           setCurrentFen(null);
           setDisplayFen(null);
           setCurrentTurn(null);
+          setTurnOverride(null);
+          setIsTurnFlipping(false);
+          flipPendingRef.current = false;
+          flipStartedAtRef.current = 0;
+          lastFenBoardRef.current = null;
           setEngineSan(undefined);
           setEngineLan(undefined);
           setEngineFrom(undefined);
@@ -103,6 +122,18 @@ export function WidgetApp() {
     const unsubLiveAssist = api.onLiveAssist((data) => {
       setSayThis(data.sayThis);
       setAskThis(data.askThis);
+      // Only clear the regenerating spinner when the incoming coaching cards
+      // are genuinely newer than the flip — this filters out syncWidgetState
+      // replays which re-send the same accumulated state every 500ms.
+      if (flipPendingRef.current) {
+        const hasNewTip = data.sayThis.some(
+          (card) => card.timestamp > flipStartedAtRef.current
+        );
+        if (hasNewTip) {
+          flipPendingRef.current = false;
+          setIsTurnFlipping(false);
+        }
+      }
     });
 
     const unsubVisual = api.onVisualAnalysis((data) => {
@@ -117,6 +148,17 @@ export function WidgetApp() {
       setCurrentFen(data.fen);
       setDisplayFen(data.displayFen);
       setCurrentTurn(data.turn);
+      // Only reset the turn override when the board position itself changes.
+      const incomingBoard = data.fen.split(' ')[0] ?? null;
+      if (incomingBoard !== lastFenBoardRef.current) {
+        lastFenBoardRef.current = incomingBoard;
+        setTurnOverride(null);
+        flipPendingRef.current = false;
+        setIsTurnFlipping(false);
+      }
+      // Do NOT clear isTurnFlipping here — wait for the coaching tip (onLiveAssist)
+      // which signals the full regeneration is done. Clearing on fen events makes the
+      // spinner disappear as soon as the fast engine result arrives, before the tip.
       setEngineSan(data.engineSan);
       setEngineLan(data.engineLan);
       setEngineFrom(data.engineFrom);
@@ -221,6 +263,32 @@ export function WidgetApp() {
     }
   }, [nudge]);
 
+  const handleFlipTurn = useCallback(() => {
+    setTurnOverride((prev) => {
+      const base = prev ?? currentTurn;
+      if (base === null) return null;
+      return base === 'w' ? 'b' : 'w';
+    });
+    // Immediately clear stale engine output and coaching tip so the overlay
+    // enters its loading state and the user sees the regenerating indicator
+    // rather than stale content from the previous turn.
+    setEngineSan(undefined);
+    setEngineLan(undefined);
+    setEngineFrom(undefined);
+    setEngineTo(undefined);
+    setEngineEval(undefined);
+    setEngineMate(undefined);
+    setSayThis([]);
+    setAskThis([]);
+    setIsTurnFlipping(true);
+    flipPendingRef.current = true;
+    flipStartedAtRef.current = Date.now();
+    window.widgetAPI?.flipTurn().catch(() => {
+      setIsTurnFlipping(false);
+      flipPendingRef.current = false;
+    });
+  }, [currentTurn]);
+
   return (
     <div ref={rootRef} style={{ width: '100%' }}>
       <PairCompactOverlay
@@ -231,7 +299,7 @@ export function WidgetApp() {
         nudge={nudge}
         currentFen={currentFen}
         displayFen={displayFen}
-        currentTurn={currentTurn}
+        currentTurn={turnOverride ?? currentTurn}
         engineSan={engineSan}
         engineLan={engineLan}
         engineFrom={engineFrom}
@@ -245,6 +313,8 @@ export function WidgetApp() {
         onUnmuteMic={handleUnmuteMic}
         onDismissCard={handleDismissCard}
         onDismissNudge={handleDismissNudge}
+        onFlipTurn={handleFlipTurn}
+        isRegenerating={isTurnFlipping}
         stopDisabled={isStopping}
         statusText={isConnecting || connectingError ? 'Connecting to VideoDB and starting screen capture...' : undefined}
         connectingError={connectingError}

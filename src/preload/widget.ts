@@ -39,13 +39,14 @@ export interface WidgetApi {
   dismissNudge: (id: string) => Promise<void>;
   showMainWindow: () => Promise<void>;
   chat: (question: string, tipContext?: string) => Promise<{ success: boolean; reply?: string; error?: string }>;
+  flipTurn: () => Promise<{ success: boolean }>;
 
   // Events
   onSessionState: (callback: (state: WidgetSessionState) => void) => () => void;
   onLiveAssist: (callback: (data: WidgetLiveAssistData) => void) => () => void;
   onVisualAnalysis: (callback: (data: { description: string }) => void) => () => void;
   onNudge: (callback: (nudge: WidgetNudge | null) => void) => () => void;
-  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null }) => void) => () => void;
+  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => void) => () => void;
 
   // Start-error event: fired when the recording pipeline fails to start
   onStartError: (callback: (data: { message: string }) => void) => () => void;
@@ -72,6 +73,7 @@ const widgetApi: WidgetApi = {
   showMainWindow: () => ipcRenderer.invoke('widget:show-main-window'),
   chat: (question: string, tipContext?: string) =>
     ipcRenderer.invoke('live-assist:chat', question, tipContext),
+  flipTurn: () => ipcRenderer.invoke('live-assist:flip-turn'),
 
   // Events
   onSessionState: (callback: (state: WidgetSessionState) => void) => {
@@ -98,8 +100,8 @@ const widgetApi: WidgetApi = {
     return () => ipcRenderer.removeListener('widget:nudge', listener);
   },
 
-  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null }) => callback(data);
+  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => callback(data);
     ipcRenderer.on('widget:fen', listener);
     return () => ipcRenderer.removeListener('widget:fen', listener);
   },

@@ -35,11 +35,12 @@ export interface WidgetApi {
   dismissNudge: (id: string) => Promise<void>;
   showMainWindow: () => Promise<void>;
   chat: (question: string, tipContext?: string) => Promise<{ success: boolean; reply?: string; error?: string }>;
+  flipTurn: () => Promise<{ success: boolean }>;
   onSessionState: (callback: (state: WidgetSessionState) => void) => () => void;
   onLiveAssist: (callback: (data: WidgetLiveAssistData) => void) => () => void;
   onVisualAnalysis: (callback: (data: { description: string }) => void) => () => void;
   onNudge: (callback: (nudge: WidgetNudge | null) => void) => () => void;
-  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null }) => void) => () => void;
+  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => void) => () => void;
   onStartError: (callback: (data: { message: string }) => void) => () => void;
   requestInitialState: () => Promise<void>;
   reportContentHeight: (height: number) => void;

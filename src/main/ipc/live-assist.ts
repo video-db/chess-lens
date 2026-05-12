@@ -54,12 +54,22 @@ export function setupLiveAssistHandlers(): void {
           sayCount: event.insights.say_this.length,
           askCount: event.insights.ask_this.length,
           clearExisting: !!event.clearExisting,
+          isFlipAck: !!event.isFlipAck,
           moveSan: (event as any).moveSan,
           playedMoveSan: (event as any).playedMoveSan,
           turn: (event as any).turn,
         },
         'Sending insights to renderer'
       );
+
+      // During a user-initiated turn flip, the engine-only placeholder emit is
+      // tagged isFlipAck. Skip forwarding it to both the main window and the
+      // widget so the OLD coaching tip stays visible until the real new tip arrives.
+      if (event.isFlipAck) {
+        logger.debug('[live-assist] Suppressing isFlipAck engine-only insights emit — keeping old tip visible');
+        return;
+      }
+
       sendToRenderer('live-assist:update', event);
       // Also send to floating widget
       updateWidgetLiveAssist({
@@ -82,7 +92,7 @@ export function setupLiveAssistHandlers(): void {
         }
       }
     });
-    liveAssistService.on('fen', (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null }) => {
+    liveAssistService.on('fen', (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => {
       sendToRenderer('live-assist:fen', data);
       updateWidgetFen(data);
     });
@@ -156,6 +166,13 @@ export function setupLiveAssistHandlers(): void {
       logger.warn({ error }, '[live-assist:chat] Failed');
       return { success: false, error };
     }
+  });
+
+  // Flip turn: user-initiated override of the detected side-to-move
+  ipcMain.handle('live-assist:flip-turn', async () => {
+    const liveAssistService = getLiveAssistService();
+    liveAssistService.flipTurn();
+    return { success: true };
   });
 }
 

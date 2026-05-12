@@ -28,4 +28,9 @@ export interface LiveInsightsEvent {
   moveSan?: string;
   /** SAN of the move actually played by the player (e.g. "e4"). */
   playedMoveSan?: string;
+  /** True when this is the immediate engine-only placeholder emitted during a
+   *  user-initiated turn flip. The renderer must NOT wipe existing coaching
+   *  tips on this event — the old tip should stay visible until the real
+   *  coaching tip from the LLM replaces it. */
+  isFlipAck?: boolean;
 }
