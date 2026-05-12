@@ -192,7 +192,7 @@ function ChessBoard({
       {/* Arrow drawn on top of all squares and pieces */}
       {arrowElem}
       {/* File labels */}
-      {'abcdefgh'.split('').map((f, i) => (
+      {(flipped ? 'hgfedcba' : 'abcdefgh').split('').map((f, i) => (
         <text
           key={f}
           x={i * sq + sq / 2}
@@ -204,7 +204,7 @@ function ChessBoard({
         >{f}</text>
       ))}
       {/* Rank labels */}
-      {[8,7,6,5,4,3,2,1].map((r, i) => (
+      {(flipped ? [1,2,3,4,5,6,7,8] : [8,7,6,5,4,3,2,1]).map((r, i) => (
         <text
           key={r}
           x={3}

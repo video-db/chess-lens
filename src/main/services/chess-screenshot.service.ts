@@ -37,6 +37,7 @@ import { pipelineLatency } from '../lib/pipeline-latency';
 import type { VoteMeta } from '../lib/pipeline-latency';
 import { getLiveAssistService } from './live-assist.service';
 import { getLLMService } from './llm.service';
+import { getGameFenPrompt, getGameTurnPrompt } from '../../shared/config/game-coaching';
 
 const log = logger.child({ module: 'chess-screenshot' });
 
@@ -141,19 +142,17 @@ function saveDebugFrame(opts: {
 interface VoteEntry {
   fenBoard: string;
   perspective: 'white' | 'black';
-  /** Whose turn it is as reported by the LLM from the legacy <turn> tag. Null when absent. */
+  /** Whose turn it is as reported by the LLM <turn> tag. Null when absent. */
   reportedTurn: 'w' | 'b' | null;
-  /** Visual grid position (row/col 1-indexed from top-left) of the FROM square of the
-   *  last move, as identified by the LLM from the highlight. Null when not detected. */
-  reportedLastMoveFrom: { row: number; col: number } | null;
-  /** Visual grid position (row/col 1-indexed from top-left) of the TO square of the
-   *  last move, as identified by the LLM from the highlight. Null when not detected. */
-  reportedLastMoveTo: { row: number; col: number } | null;
-  /** Wall-clock time (Date.now()) when this entry was added to the buffer.
-   *  Used as the start anchor for fenStabilization phase latency. */
+  /** Algebraic square of the FROM square of the last move (e.g. "e2").
+   *  Null when the LLM did not report move coordinates. */
+  reportedLastMoveFrom: string | null;
+  /** Algebraic square of the TO square of the last move (e.g. "e4").
+   *  Null when the LLM did not report move coordinates. */
+  reportedLastMoveTo: string | null;
+  /** Wall-clock time (Date.now()) when this entry was added to the buffer. */
   seenAt: number;
-  /** How long the fenExtract LLM call took for this entry, in ms.
-   *  Stored so the confirming cycle can report fenExtract1Ms in its summary. */
+  /** How long the fenExtract LLM call took for this entry, in ms. */
   fenExtractMs: number;
 }
 
@@ -161,6 +160,8 @@ class ChessScreenshotService {
   private timer: NodeJS.Timeout | null = null;
   private isRunning = false;
   private indexingPrompt = '';
+  private fenPrompt = '';
+  private turnPrompt = '';
   private inFlight = false;
 
   // Majority-vote ring buffer
@@ -193,6 +194,11 @@ class ChessScreenshotService {
     }
 
     this.indexingPrompt = indexingPrompt;
+    // Derive the focused FEN-only and turn-only prompts from the base prompt.
+    // The game ID is always 'chess' here; the split is done at startup so we
+    // don't recompute it every capture cycle.
+    this.fenPrompt  = getGameFenPrompt('chess');
+    this.turnPrompt = getGameTurnPrompt('chess');
     this.isRunning = true;
     this.inFlight = false;
     this.fenVoteBuffer = [];
@@ -276,12 +282,10 @@ class ChessScreenshotService {
       const matchingEntries = [...this.fenVoteBuffer]
         .filter((e) => e.fenBoard === bestFen);
 
-      // Prefer the entry that has grid-based last-move data — this is the most
-      // reliable turn signal (theme-agnostic, no coordinate labels needed).
-      // Fall back to entries with a legacy <turn> tag, then any matching entry.
-      // IMPORTANT: within each category use the LATEST entry (last in buffer order),
-      // not the first. The first matching entry may have been captured before the
-      // move highlight fully settled on screen, so its <turn> tag can be stale.
+      // Prefer the entry with grid-based last-move coordinates (most reliable turn signal).
+      // Fall back to entries with a <turn> tag, then any matching entry.
+      // Always use the LATEST entry within each category — earlier entries may have been
+      // captured before the highlight fully settled on screen.
       const withGrid = matchingEntries.filter(
         (e) => e.reportedLastMoveFrom !== null && e.reportedLastMoveTo !== null
       );
@@ -395,11 +399,21 @@ class ChessScreenshotService {
       '[ChessScreenshot] Screenshot captured, sending to gpt-5.4 for FEN extraction'
     );
 
-    // ── Step 3: Raw FEN extraction ─────────────────────────────────────────
+    // ── Step 3: Parallel FEN + turn extraction ────────────────────────────
+    // Two independent vision calls run concurrently:
+    //   FEN call  — extracts <perspective> + <raw_board>; retries once on math errors.
+    //   Turn call — extracts <turn>, <last_move_from>, <last_move_to>.
+    // Results are merged before entering the vote buffer.
     const llm = getLLMService();
     pipelineLatency.startStep(cycleId, 'fenExtract');
     const fenExtractStart = Date.now();
-    const rawResult = await llm.extractFenFromImage(pngBuffer, 'image/png', this.indexingPrompt, 1, cycleId);
+    const rawResult = await llm.extractFenAndTurnFromImage(
+      pngBuffer,
+      'image/png',
+      this.fenPrompt,
+      this.turnPrompt,
+      cycleId,
+    );
     const fenExtractMs = Date.now() - fenExtractStart;
 
     // ── Step 3b: Debug frame save ──────────────────────────────────────────

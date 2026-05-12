@@ -338,11 +338,11 @@ export function ChatPanel({ prefillQuestion, prefillTipContext, prefillSeq, onPr
 
 // ─── Live Win Probability Chart ───────────────────────────────────────────────
 
-interface WinProbChartProps {
+export interface WinProbChartProps {
   points: Array<{ winChance: number; turn: 'w' | 'b' }>;
 }
 
-function WinProbChart({ points }: WinProbChartProps) {
+export function WinProbChart({ points }: WinProbChartProps) {
   const CHART_W = 691;
   const CHART_H = 168;
 
@@ -531,8 +531,8 @@ export function LiveAssistPanel({ onAskAboutTip }: LiveAssistPanelProps = {}) {
       {/* Panels */}
       <div className="flex-1 flex flex-col gap-[20px] min-h-0 overflow-hidden">
 
-        {/* Live Analysis — shows win probability chart or empty state */}
-        <div className="border border-[#efefef] rounded-[12px] overflow-hidden flex flex-col flex-1 min-h-0">
+        {/* Live Analysis — fixed height sized exactly to the chart: header (48) + padding (32) + chart (188) = 268px */}
+        <div className="border border-[#efefef] rounded-[12px] overflow-hidden flex flex-col shrink-0" style={{ height: 268 }}>
           {/* Header */}
           <div className="bg-[#f7f7f7] border-b border-[#efefef] px-[16px] flex items-center gap-[8px] shrink-0"
             style={{ height: 48, boxSizing: 'border-box' }}>

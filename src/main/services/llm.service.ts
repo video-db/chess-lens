@@ -526,11 +526,10 @@ export class LLMService {
     indexingPrompt: string,
     maxRetries = 1,
     cycleId?: number
-  ): Promise<{ fenBoard: string; perspective: 'white' | 'black'; reportedTurn: 'w' | 'b' | null; reportedLastMoveFrom: { row: number; col: number } | null; reportedLastMoveTo: { row: number; col: number } | null } | null> {
+  ): Promise<{ fenBoard: string; perspective: 'white' | 'black'; reportedTurn: 'w' | 'b' | null; reportedLastMoveFrom: string | null; reportedLastMoveTo: string | null } | null> {
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
-    // Mirrors the Python script's message structure exactly
     type VisionMessage = {
       role: 'user' | 'assistant';
       content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
@@ -547,18 +546,14 @@ export class LLMService {
 
     let savedPerspective: 'white' | 'black' = 'white';
     let savedReportedTurn: 'w' | 'b' | null = null;
-    let savedLastMoveFrom: { row: number; col: number } | null = null;
-    let savedLastMoveTo: { row: number; col: number } | null = null;
+    let savedLastMoveFrom: string | null = null;
+    let savedLastMoveTo:   string | null = null;
 
-    /** Parse a <last_move_from> or <last_move_to> tag and return {row, col} or null. */
-    const parseGridTag = (text: string, tag: string): { row: number; col: number } | null => {
-      const re = new RegExp(`<${tag}>\\s*row\\s*(\\d+)\\s*,\\s*col\\s*(\\d+)\\s*</${tag}>`, 'i');
-      const m = text.match(re);
-      if (!m) return null;
-      const row = parseInt(m[1], 10);
-      const col = parseInt(m[2], 10);
-      if (row < 1 || row > 8 || col < 1 || col > 8) return null;
-      return { row, col };
+    /** Parse a <last_move_from> or <last_move_to> algebraic tag → square string or null. */
+    const parseAlgebraicTag = (text: string, tag: string): string | null => {
+      const re = new RegExp(`<${tag}>\\s*([a-h][1-8])\\s*</${tag}>`, 'i');
+      const m  = text.match(re);
+      return m ? m[1].toLowerCase() : null;
     };
 
     log.info({ model: RTSTREAM_VISION_MODEL }, '[VideoDB] extractFenFromImage starting');
@@ -569,7 +564,7 @@ export class LLMService {
           this.client.chat.completions.create({
             model: RTSTREAM_VISION_MODEL,
             messages: messages as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
-            max_tokens: 768,
+            max_tokens: 1024,
             stream: false,
             ...EXTRA_PARAMS,
           } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>,
@@ -579,7 +574,7 @@ export class LLMService {
 
         const rawText = response.choices[0]?.message?.content?.trim() || '';
 
-        // Parse perspective and raw_board tags (same logic as Python extract_tags)
+        // Parse perspective tag
         const perspectiveMatch = rawText.match(/<perspective>\s*(.*?)\s*<\/perspective>/is);
         if (perspectiveMatch) {
           savedPerspective = perspectiveMatch[1].toLowerCase().includes('black') ? 'black' : 'white';
@@ -587,26 +582,23 @@ export class LLMService {
           log.warn({ attempt }, '[VideoDB] <perspective> tag missing in response — defaulting to white. Board may be silently flipped if player is Black.');
         }
 
-        // Parse legacy <turn> tag (kept for safety — new prompt no longer emits it,
-        // but older cached prompt versions may still produce it).
+        // Parse <turn> tag (Tier 2b signal)
         const turnMatch = rawText.match(/<turn>\s*(.*?)\s*<\/turn>/is);
         if (turnMatch) {
           savedReportedTurn = turnMatch[1].toLowerCase().includes('black') ? 'b' : 'w';
-          log.debug({ reportedTurn: savedReportedTurn, attempt }, '[VideoDB] <turn> tag parsed (legacy)');
+          log.debug({ reportedTurn: savedReportedTurn, attempt }, '[VideoDB] <turn> tag parsed');
         }
 
-        // Parse new <last_move_from> / <last_move_to> tags (visual grid row/col).
-        // These are emitted by Step 4 of the updated indexing prompt and give us
-        // the two highlighted squares in a theme-agnostic, coordinate-label-free way.
-        const parsedFrom = parseGridTag(rawText, 'last_move_from');
-        const parsedTo   = parseGridTag(rawText, 'last_move_to');
+        // Parse <last_move_from> / <last_move_to> algebraic tags
+        const parsedFrom = parseAlgebraicTag(rawText, 'last_move_from');
+        const parsedTo   = parseAlgebraicTag(rawText, 'last_move_to');
         if (parsedFrom && parsedTo) {
           savedLastMoveFrom = parsedFrom;
           savedLastMoveTo   = parsedTo;
           log.debug({ from: parsedFrom, to: parsedTo, attempt }, '[VideoDB] <last_move_from/to> tags parsed');
         } else if (parsedFrom || parsedTo) {
           // Only one tag present — unreliable, discard both
-          log.debug({ parsedFrom, parsedTo, attempt }, '[VideoDB] Only one last_move tag found — discarding');
+          log.debug({ parsedFrom, parsedTo, attempt }, '[VideoDB] Only one last_move tag found — discarding both');
         }
 
         const rawBoardMatches = [...rawText.matchAll(/<raw_board>\s*(.*?)\s*<\/raw_board>/gis)];
@@ -649,15 +641,23 @@ export class LLMService {
             fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
           }
           log.info({ fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn, lastMoveFrom: savedLastMoveFrom, lastMoveTo: savedLastMoveTo, attempt }, '[VideoDB] FEN extracted successfully');
-          // cycleId endStep is called by the chess-screenshot service after this returns
           return { fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn, reportedLastMoveFrom: savedLastMoveFrom, reportedLastMoveTo: savedLastMoveTo };
         }
 
-        // Retry with the math error correction message (same as Python)
-        log.warn({ attempt, mathError }, '[VideoDB] FEN math error, retrying');
+        // Retry with an explicit recount instruction so the model corrects the
+        // specific failing rank rather than guessing.
+        log.warn({ attempt, mathError }, '[VideoDB] FEN math error, retrying with recount instruction');
         if (attempt < maxRetries) {
           messages.push({ role: 'assistant', content: rawText });
-          messages.push({ role: 'user', content: `Mathematical error: ${mathError} Please correct <raw_board>.` });
+          messages.push({
+            role: 'user',
+            content:
+              `Your previous <raw_board> had a mathematical FEN error: ${mathError}\n` +
+              `Recount every rank carefully. Each of the 8 ranks must sum to exactly 8 squares ` +
+              `(pieces count as 1, digits count as that many empty squares).\n` +
+              `Correct only <raw_board> and keep <perspective> accurate. ` +
+              `Output ONLY <perspective> and <raw_board>.`,
+          });
         }
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
@@ -727,6 +727,221 @@ Text to analyze:
 "${text}"`;
 
     return this.completeJSON<T>(userPrompt, systemPrompt);
+  }
+
+  /**
+   * Parallel FEN + turn extraction from a single screenshot.
+   *
+   * Fires two independent vision calls simultaneously:
+   *   - FEN call  (fenPrompt):  extracts <perspective> + <raw_board>; retries once on math errors
+   *     with an explicit recount instruction.
+   *   - Turn call (turnPrompt): extracts <perspective> + <last_move_from> + <last_move_to> + <turn>.
+   *
+   * Results are merged:
+   *   - fenBoard + perspective come from the FEN call.
+   *   - reportedTurn + reportedLastMoveFrom/To come from the turn call.
+   *   - If the FEN call fails but the turn call succeeds, perspective falls back
+   *     to the turn call's perspective value.
+   *
+   * Returns null only when the FEN call fails entirely (no usable board).
+   */
+  async extractFenAndTurnFromImage(
+    imageBuffer: Buffer,
+    mimeType: 'image/png' | 'image/jpeg' | 'image/webp',
+    fenPrompt: string,
+    turnPrompt: string,
+    cycleId?: number,
+  ): Promise<{
+    fenBoard: string;
+    perspective: 'white' | 'black';
+    reportedTurn: 'w' | 'b' | null;
+    reportedLastMoveFrom: string | null;
+    reportedLastMoveTo:   string | null;
+  } | null> {
+    const dataUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+
+    type VisionMsg = {
+      role: 'user' | 'assistant';
+      content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+    };
+
+    const parseAlgebraicTag = (text: string, tag: string): string | null => {
+      const re = new RegExp(`<${tag}>\\s*([a-h][1-8])\\s*</${tag}>`, 'i');
+      const m = text.match(re);
+      return m ? m[1].toLowerCase() : null;
+    };
+
+    // ── FEN call with math-error retry ──────────────────────────────────────
+    const fenCall = async (): Promise<{
+      fenBoard: string;
+      perspective: 'white' | 'black';
+    } | null> => {
+      const messages: VisionMsg[] = [{
+        role: 'user',
+        content: [
+          { type: 'text',      text: fenPrompt },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ],
+      }];
+
+      let savedPerspective: 'white' | 'black' = 'white';
+
+      for (let attempt = 0; attempt <= 1; attempt++) {
+        try {
+          const response = await withTimeout(
+            this.client.chat.completions.create({
+              model: RTSTREAM_VISION_MODEL,
+              messages: messages as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
+              max_tokens: 1024,
+              stream: false,
+              ...EXTRA_PARAMS,
+            } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>,
+            VISION_TIMEOUT_MS,
+            'extractFen (parallel)',
+          );
+
+          const rawText = response.choices[0]?.message?.content?.trim() ?? '';
+
+          const perspMatch = rawText.match(/<perspective>\s*(.*?)\s*<\/perspective>/is);
+          if (perspMatch) {
+            savedPerspective = perspMatch[1].toLowerCase().includes('black') ? 'black' : 'white';
+          }
+
+          const rawBoardMatches = [...rawText.matchAll(/<raw_board>\s*(.*?)\s*<\/raw_board>/gis)];
+          if (!rawBoardMatches.length) {
+            log.warn({ attempt }, '[VideoDB] extractFen (parallel): no <raw_board> tag');
+            return null;
+          }
+
+          const rawBoard = rawBoardMatches[rawBoardMatches.length - 1][1]
+            .replace(/\s+/g, '').replace(/\n/g, '');
+
+          const ranks = rawBoard.split('/');
+          let mathError: string | null = null;
+          if (ranks.length !== 8) {
+            mathError = `Board has ${ranks.length} ranks instead of 8.`;
+          } else {
+            for (let i = 0; i < ranks.length; i++) {
+              let sq = 0;
+              for (const ch of ranks[i]) {
+                if (/\d/.test(ch)) sq += parseInt(ch, 10);
+                else if (/[a-zA-Z]/.test(ch)) sq += 1;
+                else { mathError = `Invalid character '${ch}' in rank ${i + 1}.`; break; }
+              }
+              if (mathError) break;
+              if (sq !== 8) {
+                mathError = `Visual Row ${i + 1} ('${ranks[i]}') sums to ${sq} squares instead of 8.`;
+                break;
+              }
+            }
+          }
+
+          if (!mathError) {
+            let fenBoard = rawBoard;
+            if (savedPerspective === 'black') {
+              const rows = rawBoard.split('/');
+              rows.reverse();
+              fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
+            }
+            log.info({ fenBoard, perspective: savedPerspective, attempt }, '[VideoDB] extractFen (parallel): success');
+            return { fenBoard, perspective: savedPerspective };
+          }
+
+          log.warn({ attempt, mathError }, '[VideoDB] extractFen (parallel): math error, retrying with recount');
+          if (attempt < 1) {
+            messages.push({ role: 'assistant', content: rawText });
+            messages.push({
+              role: 'user',
+              content:
+                `Your previous <raw_board> had a mathematical FEN error: ${mathError}\n` +
+                `Recount every rank carefully. Each of the 8 ranks must sum to exactly 8 squares ` +
+                `(pieces count as 1, digits count as that many empty squares).\n` +
+                `Correct only <raw_board> and keep <perspective> accurate. ` +
+                `Output ONLY <perspective> and <raw_board>.`,
+            });
+          }
+        } catch (err) {
+          log.error({ attempt, err }, '[VideoDB] extractFen (parallel): API error');
+          return null;
+        }
+      }
+
+      log.warn('[VideoDB] extractFen (parallel): failed after retries');
+      return null;
+    };
+
+    // ── Turn call (single shot, no retry needed) ─────────────────────────────
+    const turnCall = async (): Promise<{
+      perspective:  'white' | 'black';
+      reportedTurn: 'w' | 'b' | null;
+      reportedLastMoveFrom: string | null;
+      reportedLastMoveTo:   string | null;
+    } | null> => {
+      try {
+        const response = await withTimeout(
+          this.client.chat.completions.create({
+            model: RTSTREAM_VISION_MODEL,
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'text',      text: turnPrompt },
+                { type: 'image_url', image_url: { url: dataUrl } },
+              ],
+            }] as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
+            max_tokens: 512,
+            stream: false,
+            ...EXTRA_PARAMS,
+          } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>,
+          VISION_TIMEOUT_MS,
+          'extractTurn (parallel)',
+        );
+
+        const rawText = response.choices[0]?.message?.content?.trim() ?? '';
+
+        const perspMatch = rawText.match(/<perspective>\s*(.*?)\s*<\/perspective>/is);
+        const perspective: 'white' | 'black' =
+          perspMatch?.[1]?.toLowerCase().includes('black') ? 'black' : 'white';
+
+        const turnMatch = rawText.match(/<turn>\s*(.*?)\s*<\/turn>/is);
+        const reportedTurn: 'w' | 'b' | null = turnMatch
+          ? (turnMatch[1].toLowerCase().includes('black') ? 'b' : 'w')
+          : null;
+
+        const from = parseAlgebraicTag(rawText, 'last_move_from');
+        const to   = parseAlgebraicTag(rawText, 'last_move_to');
+
+        log.debug({ perspective, reportedTurn, from, to }, '[VideoDB] extractTurn (parallel): parsed');
+        return {
+          perspective,
+          reportedTurn,
+          reportedLastMoveFrom: (from && to) ? from : null,
+          reportedLastMoveTo:   (from && to) ? to   : null,
+        };
+      } catch (err) {
+        log.error({ err }, '[VideoDB] extractTurn (parallel): API error');
+        return null;
+      }
+    };
+
+    // ── Run both calls in parallel ───────────────────────────────────────────
+    if (cycleId !== undefined) pipelineLatency.startStep(cycleId, 'fenExtract');
+    const [fenResult, turnResult] = await Promise.all([fenCall(), turnCall()]);
+    if (cycleId !== undefined) {
+      pipelineLatency.endStep(cycleId, 'fenExtract', fenResult ? undefined : 'fen failed');
+    }
+
+    if (!fenResult) {
+      log.warn('[VideoDB] extractFenAndTurnFromImage: FEN call failed — returning null');
+      return null;
+    }
+
+    return {
+      fenBoard:             fenResult.fenBoard,
+      perspective:          fenResult.perspective,
+      reportedTurn:         turnResult?.reportedTurn         ?? null,
+      reportedLastMoveFrom: turnResult?.reportedLastMoveFrom ?? null,
+      reportedLastMoveTo:   turnResult?.reportedLastMoveTo   ?? null,
+    };
   }
 }
 

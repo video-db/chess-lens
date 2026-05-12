@@ -38,18 +38,18 @@ const PROCESS_TRANSCRIPT_TIMEOUT_MS = 10000;
 
 const CHESS_SYSTEM_PROMPT = `You are a chess coach giving real-time guidance during a live game.
 Respond with ONLY a raw JSON object — no markdown, no code fences, no explanation before or after.
-Format: {"say_this":"<1 sentence>","ask_this":"<one short calculation drill>"}
+Format: {"say_this":"<2 sentences>","ask_this":"<one short calculation drill>"}
 Output rules (apply regardless of personality):
 - The context specifies the player's color and whose turn it is. Follow those instructions exactly.
-- When it is the PLAYER's turn: explain the engine's best move for the player with one concrete board-specific reason.
-- When it is the OPPONENT's turn: explain what the opponent's best move threatens or achieves, so the player knows what to defend against.
+- When it is the PLAYER's turn: explain the engine's best move for the player with concrete board-specific reasoning — name the immediate idea and then explain the follow-up benefit or threat it creates.
+- When it is the OPPONENT's turn: explain what the opponent's best move threatens or achieves, then tell the player what they should watch out for or prepare.
 - Use the required move exactly as given. Do NOT invent a different move.
 - The context may include a "Moving piece:" line that tells you which piece is on the from-square. Use it exactly — do NOT contradict it.
 - Only mention a piece being on a specific square if that square is confirmed by the FEN or the "Moving piece:" line. Never hallucinate piece locations.
-- Mention at least one concrete chess detail: piece, square, file, diagonal, pawn break, threat, capture, king-safety issue, or development gain.
-- Write one complete sentence — never cut a sentence short.
+- Mention at least two concrete chess details across your two sentences: piece, square, file, diagonal, pawn break, threat, capture, king-safety issue, or development gain.
+- Write exactly two complete sentences — never cut a sentence short and never write only one sentence.
 - Do NOT use "..." chess move notation (e.g. "...e5"). Write "Black plays e5" or "Black's e5" instead.
-- Keep say_this under 25 words — one tight, concrete sentence only.
+- Keep say_this between 30 and 55 words — two tight, concrete sentences.
 - ask_this: one short follow-up calculation question about the next 1-2 moves, under 20 words.`;
 
 export interface MeetingContext {
@@ -699,45 +699,22 @@ class LiveAssistService extends EventEmitter {
   }
 
   /**
-   * Derive whose turn it is next from the two highlighted squares reported by
-   * the LLM (visual grid row/col, 1-indexed from top-left of the scan).
+   * Validate that an algebraic from/to pair is consistent with the current FEN.
    *
-   * We accept BOTH the from-square and to-square and determine turn from
-   * whichever square has a piece — this makes the result robust against the LLM
-   * swapping the FROM/TO labels, which is a common mistake.
+   * A valid pair must satisfy ALL of the following:
+   *   1. Both squares parse as legal algebraic coordinates ([a-h][1-8]).
+   *   2. Exactly one of the two squares is empty in the FEN (the origin) and
+   *      the other has a piece (the destination). If both have pieces or both
+   *      are empty the LLM picked the wrong pair.
    *
-   * Logic:
-   *   - Convert each grid position to a white-perspective FEN rank/file index
-   *     (accounting for board perspective).
-   *   - Look up the piece on each square in the current white-perspective fenBoard.
-   *   - The highlighted square that HAS a piece is unambiguously the TO square
-   *     (the piece just arrived there). The highlighted square that is EMPTY is
-   *     the FROM square (piece left).
-   *   - Uppercase piece on TO → White just moved → Black to move ('b').
-   *   - Lowercase piece on TO → Black just moved → White to move ('w').
-   *   - If both squares have pieces or both are empty → ambiguous → return null.
-   *
-   * Returns null when either grid position is out of range, the board parse
-   * fails, or the result is ambiguous — safely falls through to the next tier.
+   * Returns true when the pair is usable, false otherwise.
    */
-  private deriveTurnFromGridMove(
-    fromGrid: { row: number; col: number },
-    toGrid: { row: number; col: number },
-    perspective: 'white' | 'black',
-    fenBoard: string,
-  ): 'w' | 'b' | null {
-    const gridToIndices = (grid: { row: number; col: number }): { rankIdx: number; fileIdx: number } | null => {
-      let rankIdx: number;
-      let fileIdx: number;
-      if (perspective === 'white') {
-        rankIdx = grid.row - 1;        // row 1 → rank 8 → array index 0
-        fileIdx = grid.col - 1;        // col 1 → file a → index 0
-      } else {
-        // Black perspective: LLM row 1 = rank 1 (white array index 7), col 1 = file h (index 7)
-        rankIdx = 8 - grid.row;        // row 1 → index 7, row 8 → index 0
-        fileIdx = 7 - (grid.col - 1);  // col 1 → index 7 (file h), col 8 → index 0 (file a)
-      }
-      if (rankIdx < 0 || rankIdx > 7 || fileIdx < 0 || fileIdx > 7) return null;
+  private validateAlgebraicMovePair(from: string, to: string, fenBoard: string): boolean {
+    const algebraicToIndices = (sq: string): { rankIdx: number; fileIdx: number } | null => {
+      if (!sq || sq.length < 2) return null;
+      const fileIdx = sq.charCodeAt(0) - 97;
+      const rankIdx = 8 - parseInt(sq[1], 10);
+      if (fileIdx < 0 || fileIdx > 7 || rankIdx < 0 || rankIdx > 7) return null;
       return { rankIdx, fileIdx };
     };
 
@@ -750,7 +727,7 @@ class LiveAssistService extends EventEmitter {
       for (const ch of rank) {
         if (/\d/.test(ch)) {
           const skip = parseInt(ch, 10);
-          if (fileIdx < col + skip) return ''; // empty square within the run
+          if (fileIdx < col + skip) return '';
           col += skip;
         } else {
           if (col === fileIdx) return ch;
@@ -758,32 +735,85 @@ class LiveAssistService extends EventEmitter {
         }
         if (col > fileIdx) break;
       }
-      return ''; // reached end without finding piece — treat as empty
+      return '';
     };
 
-    const fromIdx = gridToIndices(fromGrid);
-    const toIdx   = gridToIndices(toGrid);
+    const fromIdx = algebraicToIndices(from);
+    const toIdx   = algebraicToIndices(to);
+    if (!fromIdx || !toIdx) return false;
+
+    const fromPiece = getPiece(fromIdx.rankIdx, fromIdx.fileIdx);
+    const toPiece   = getPiece(toIdx.rankIdx,   toIdx.fileIdx);
+    if (fromPiece === null || toPiece === null) return false;
+
+    // Exactly one must be empty (origin) and the other must have a piece (destination).
+    const oneEmpty = (fromPiece === '' && toPiece !== '') || (fromPiece !== '' && toPiece === '');
+    return oneEmpty;
+  }
+
+  /**
+   * Derive whose turn it is next from the two highlighted squares reported by
+   * the LLM as algebraic coordinates (e.g. "e2", "e4").
+   *
+   * Looks up the piece on the destination square in the current FEN:
+   *   - Uppercase (White piece) → White just moved → Black to move ('b').
+   *   - Lowercase (Black piece) → Black just moved → White to move ('w').
+   *
+   * Also accepts swapped FROM/TO labels for robustness.
+   */
+  private deriveTurnFromAlgebraicMove(
+    fromSq: string,
+    toSq: string,
+    fenBoard: string,
+  ): 'w' | 'b' | null {
+    const algebraicToIndices = (sq: string): { rankIdx: number; fileIdx: number } | null => {
+      if (!sq || sq.length < 2) return null;
+      const fileIdx = sq.charCodeAt(0) - 97; // 'a'=0 … 'h'=7
+      const rankIdx = 8 - parseInt(sq[1], 10); // '1'→7, '8'→0
+      if (fileIdx < 0 || fileIdx > 7 || rankIdx < 0 || rankIdx > 7) return null;
+      return { rankIdx, fileIdx };
+    };
+
+    const getPiece = (rankIdx: number, fileIdx: number): string | null => {
+      const ranks = fenBoard.split('/');
+      if (ranks.length !== 8) return null;
+      const rank = ranks[rankIdx];
+      if (!rank) return null;
+      let col = 0;
+      for (const ch of rank) {
+        if (/\d/.test(ch)) {
+          const skip = parseInt(ch, 10);
+          if (fileIdx < col + skip) return '';
+          col += skip;
+        } else {
+          if (col === fileIdx) return ch;
+          col++;
+        }
+        if (col > fileIdx) break;
+      }
+      return '';
+    };
+
+    const fromIdx = algebraicToIndices(fromSq);
+    const toIdx   = algebraicToIndices(toSq);
     if (!fromIdx || !toIdx) return null;
 
     const fromPiece = getPiece(fromIdx.rankIdx, fromIdx.fileIdx);
     const toPiece   = getPiece(toIdx.rankIdx,   toIdx.fileIdx);
+    if (fromPiece === null || toPiece === null) return null;
 
-    if (fromPiece === null || toPiece === null) return null; // parse error
-
-    // Determine which square is the actual TO (has a piece) regardless of label
     let actualToPiece: string;
     if (toPiece !== '' && fromPiece === '') {
       actualToPiece = toPiece;   // LLM labelled correctly
     } else if (fromPiece !== '' && toPiece === '') {
       actualToPiece = fromPiece; // LLM swapped FROM/TO — use the non-empty one
     } else {
-      // Both occupied or both empty — ambiguous, fall through
-      log.debug({ fromPiece, toPiece, fromGrid, toGrid }, '[TurnDetect] deriveTurnFromGridMove: ambiguous highlight squares, falling through');
+      log.debug({ fromPiece, toPiece, fromSq, toSq }, '[TurnDetect] deriveTurnFromAlgebraicMove: ambiguous squares, falling through');
       return null;
     }
 
-    if (/[A-Z]/.test(actualToPiece)) return 'b'; // White piece on TO → White moved → Black to move
-    if (/[a-z]/.test(actualToPiece)) return 'w'; // Black piece on TO → Black moved → White to move
+    if (/[A-Z]/.test(actualToPiece)) return 'b';
+    if (/[a-z]/.test(actualToPiece)) return 'w';
     return null;
   }
 
@@ -1510,7 +1540,7 @@ class LiveAssistService extends EventEmitter {
    * Returns true if the FEN was accepted into the buffer, false if the
    * service is not running.
    */
-  injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white', reportedTurn: 'w' | 'b' | null = null, cycleId?: number, voteMeta?: VoteMeta, reportedLastMoveFrom?: { row: number; col: number } | null, reportedLastMoveTo?: { row: number; col: number } | null): boolean {
+  injectConfirmedFen(fenBoard: string, perspective: 'white' | 'black' = 'white', reportedTurn: 'w' | 'b' | null = null, cycleId?: number, voteMeta?: VoteMeta, reportedLastMoveFrom?: string | null, reportedLastMoveTo?: string | null): boolean {
     if (!this.isRunning) return false;
 
     // Store cycle ID and vote metadata so downstream steps can continue tracking.
@@ -1600,72 +1630,88 @@ class LiveAssistService extends EventEmitter {
       return true;
     }
 
-    // Turn resolution priority chain:
+    // Turn resolution priority chain — designed for single-frame accuracy:
     //
-    // Tier 1 — Board-diff (highest confidence when the board has changed).
-    //   Directly examines which side's pieces moved between the previous
-    //   confirmed board and the new one using fenDiffToSan. Deterministic —
-    //   does not depend on the LLM or accumulated state.
-    //   Returns null in two cases:
-    //     a) Board unchanged (same-board re-read) — nothing to diff.
-    //     b) Diff is AMBIGUOUS — both or neither side produced a valid SAN.
-    //        This happens when moves are skipped (fast play that outpaces the
-    //        screenshot vote window) or on OCR noise affecting multiple pieces.
-    //        A null here means "I can't tell from the board alone" — fall through
-    //        to the LLM-reported turn rather than blindly flipping, which would
-    //        be wrong whenever an even number of moves were missed.
+    // Tier 1 (T2a) — Algebraic-square-derived turn from <last_move_from/to> tags.
+    //   The LLM reports the origin and destination squares as algebraic coordinates.
+    //   We cross-validate: look up the piece at the destination in the extracted FEN.
+    //   Uppercase = White moved = Black to move. Lowercase = vice-versa.
+    //   Works from ANY single frame — no previous frame needed.
+    //   This is the PRIMARY mechanism.
     //
-    // Tier 2a — Grid-derived turn (from <last_move_from/to> grid tags).
-    //   deriveTurnFromGridMove() looks at which highlighted square has a piece
-    //   on the CURRENT board and determines whose piece it is. This is the most
-    //   reliable LLM-based signal because it cross-validates the LLM's coordinate
-    //   output against the actual piece placement in the voted FEN.
+    // Tier 2 (T2b) — <turn> text tag from LLM.
+    //   The LLM's explicit turn declaration.
+    //   Used to cross-validate T2a. When T2a and T2b DISAGREE, T2b wins.
+    //   Used alone when T2a is unavailable.
     //
-    // Tier 2b — Legacy <turn> tag from LLM.
-    //   Plain text turn declaration from the LLM's <turn> tag. Less reliable than
-    //   grid-derived but still better than a stale lastChessTurn when board changed
-    //   by more than one move.
+    // Tier 3 — Board-diff via fenDiffToSan (demoted, tertiary).
+    //   Requires a valid previous frame exactly one move behind.
     //
-    // Tier 3 — Keep last confirmed turn.
-    //   Safe for same-board re-reads mid-game — avoids flipping on burst frames.
-    //
-    // Tier 4 — Cold-start perspective seed (only when lastChessTurn is null).
-    const boardDiffTurn = (this.lastChessBoard && this.lastChessBoard !== fenBoard)
+    // Tier 4 — Keep last confirmed turn.
+    // Tier 5 — Cold-start perspective seed.
+
+    // ── Move-pair validation ──────────────────────────────────────────────────
+    // Reject the algebraic from/to pair when it is inconsistent with the
+    // confirmed FEN — e.g. the LLM identified the wrong highlighted squares
+    // (both occupied, or both empty). Discard early so T2a is cleanly skipped
+    // rather than silently returning null inside deriveTurnFromAlgebraicMove.
+    let validatedMoveFrom = reportedLastMoveFrom ?? null;
+    let validatedMoveTo   = reportedLastMoveTo   ?? null;
+    if (validatedMoveFrom && validatedMoveTo) {
+      if (!this.validateAlgebraicMovePair(validatedMoveFrom, validatedMoveTo, fenBoard)) {
+        log.warn(
+          { from: validatedMoveFrom, to: validatedMoveTo, fenBoard: fenBoard.slice(0, 40) },
+          '[TurnDetect] injectConfirmedFen: move pair failed FEN validation (neither/both squares empty) — discarding T2a signal'
+        );
+        validatedMoveFrom = null;
+        validatedMoveTo   = null;
+      }
+    }
+
+    // T2a: derive from algebraic squares (single-frame, primary)
+    const gridDerivedTurn = (validatedMoveFrom && validatedMoveTo)
+      ? this.deriveTurnFromAlgebraicMove(validatedMoveFrom, validatedMoveTo, fenBoard)
+      : null;
+
+    // Cross-validation: when T2a and T2b disagree, T2b wins.
+    // T2b is the LLM's direct reasoning output; T2a can be wrong when the
+    // model identifies the wrong pair of highlighted squares.
+    const effectiveGridDerivedTurn =
+      (gridDerivedTurn !== null && reportedTurn !== null && gridDerivedTurn !== reportedTurn)
+        ? null  // disagree — discard T2a, fall through to T2b
+        : gridDerivedTurn;
+
+    if (gridDerivedTurn !== null && reportedTurn !== null && gridDerivedTurn !== reportedTurn) {
+      log.warn(
+        { gridDerivedTurn, reportedTurn, fenBoard: fenBoard.slice(0, 40) },
+        '[TurnDetect] T2a (grid) and T2b (<turn> tag) disagree — discarding T2a, using T2b'
+      );
+    }
+
+    // Combined single-frame LLM signal: prefer cross-validated T2a, fall back to T2b
+    const llmTurn = effectiveGridDerivedTurn ?? reportedTurn;
+
+    // T3: board-diff (demoted — requires previous frame, unreliable in production)
+    const boardDiffTurn = (llmTurn === null && this.lastChessBoard && this.lastChessBoard !== fenBoard)
       ? this.inferTurnFromBoards(this.lastChessBoard, fenBoard, this.lastChessTurn)
       : null;
 
-    // Tier 2a: derive turn from grid coordinates if the LLM provided them.
-    // This cross-validates the LLM's highlight detection against the actual FEN
-    // board — more reliable than the plain-text <turn> tag alone.
-    const gridDerivedTurn = (reportedLastMoveFrom && reportedLastMoveTo)
-      ? this.deriveTurnFromGridMove(reportedLastMoveFrom, reportedLastMoveTo, perspective, fenBoard)
-      : null;
-
-    // Combined LLM turn: prefer grid-derived (board-validated), fall back to text tag.
-    const llmTurn = gridDerivedTurn ?? reportedTurn;
-
     const inferredTurn: 'w' | 'b' =
-      boardDiffTurn ??
       llmTurn ??
+      boardDiffTurn ??
       this.lastChessTurn ??
       (perspective === 'black' ? 'b' : 'w');
 
-    const tierUsed = boardDiffTurn != null ? 1 : gridDerivedTurn != null ? '2a' : reportedTurn != null ? '2b' : this.lastChessTurn != null ? 3 : 4;
+    const tierUsed =
+      effectiveGridDerivedTurn != null ? '2a' :
+      reportedTurn != null             ? '2b' :
+      boardDiffTurn != null            ? '3'  :
+      this.lastChessTurn != null       ? '4'  : '5';
+
     log.debug(
-      { boardDiffTurn, gridDerivedTurn, reportedTurn, llmTurn, lastChessTurn: this.lastChessTurn, inferredTurn, tierUsed },
+      { gridDerivedTurn, effectiveGridDerivedTurn, reportedTurn, llmTurn, boardDiffTurn, lastChessTurn: this.lastChessTurn, inferredTurn, tierUsed },
       '[LiveAssist] injectConfirmedFen: turn tier used'
     );
-
-    // Cross-validation warning: if the board diff produced a confident answer
-    // but it contradicts the LLM's turn signal, log it. The board diff wins
-    // (Tier 1 beats Tier 2) but a persistent contradiction indicates an LLM
-    // prompt issue or a position where the highlight is misleading.
-    if (boardDiffTurn != null && llmTurn != null && boardDiffTurn !== llmTurn) {
-      log.warn(
-        { boardDiffTurn, llmTurn, gridDerivedTurn, reportedTurn, fenBoard: fenBoard.slice(0, 40) },
-        '[TurnDetect] board-diff turn and LLM turn DISAGREE — board-diff wins (Tier 1)'
-      );
-    }
 
     // Update castling rights from this confirmed board before updating other state.
     // This ensures getCastlingRightsString() is accurate when we build the FEN below.
@@ -1678,7 +1724,7 @@ class LiveAssistService extends EventEmitter {
 
     const castling = this.getCastlingRightsString();
     log.debug(
-      { fenBoard: fenBoard.slice(0, 30), perspective, reportedTurn, inferredTurn, castling },
+      { fenBoard: fenBoard.slice(0, 30), perspective, reportedTurn, gridDerivedTurn, inferredTurn, castling },
       '[LiveAssist] injectConfirmedFen: turn and castling rights updated'
     );
 
@@ -2107,7 +2153,7 @@ class LiveAssistService extends EventEmitter {
         const oppPieceAnchor = oppPieceDesc
           ? `Moving piece: ${oppPieceDesc} (confirmed from FEN — do NOT contradict this).`
           : '';
-        const threatPrompt = `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nYou are coaching ${playerColorLabel}. It is currently ${opponentColorLabel}'s turn.\n${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n## OPPONENT'S BEST MOVE: ${bestOppMoveSan}\n${oppPieceAnchor}\nThe engine says ${opponentColorLabel}'s best move is ${bestOppMoveSan}.\nExplain to ${playerColorLabel} what this move threatens or achieves, and what ${playerColorLabel} must prepare or watch out for.\nOnly mention piece positions that are confirmed by the FEN. Do not invent piece locations.\nFor say_this: describe the concrete threat or idea behind ${bestOppMoveSan} — what it attacks, pins, opens, or prepares — so ${playerColorLabel} knows what to defend against.\nFor ask_this: ask what ${playerColorLabel}'s best defensive or counter response would be.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
+        const threatPrompt = `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nYou are coaching ${playerColorLabel}. It is currently ${opponentColorLabel}'s turn.\n${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n## OPPONENT'S BEST MOVE: ${bestOppMoveSan}\n${oppPieceAnchor}\nThe engine says ${opponentColorLabel}'s best move is ${bestOppMoveSan}.\nExplain to ${playerColorLabel} what this move threatens or achieves in exactly two sentences (30–55 words total). First sentence: describe the concrete threat or idea behind ${bestOppMoveSan} — what it attacks, pins, opens, or prepares. Second sentence: tell ${playerColorLabel} what they must watch out for or how they should respond.\nOnly mention piece positions that are confirmed by the FEN. Do not invent piece locations.\nFor ask_this: ask what ${playerColorLabel}'s best defensive or counter response would be.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
 
         this.coachingInFlight = true;
         void this.runCoachingLLM(chessContext, chessSignature, threatPrompt, bestOppMoveSan, trackedCycleId);
@@ -2171,7 +2217,7 @@ class LiveAssistService extends EventEmitter {
       : '## TASK\nUse the best move from the engine summary above.';
 
     const userPrompt = `${gameContextSection}${chessSection}${bestMoveInstruction}
-In one sentence (under 25 words), explain the single most important reason ${bestMoveSan ?? 'the engine move'} is best — name the concrete threat, square, or idea it creates or solves.
+In exactly two sentences (30–55 words total), explain why ${bestMoveSan ?? 'the engine move'} is best. First sentence: name the immediate concrete threat, square, or tactical idea it creates. Second sentence: explain the follow-up benefit, positional gain, or what it prevents.
 Only mention piece positions confirmed by the FEN. No generic advice.
 For ask_this, write one short calculation question about the next move or likely response.
 Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
@@ -2348,10 +2394,10 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
 
         const repairPrompt = `${userPrompt}
 
-Previous draft was too generic:
+Previous draft was too generic or too short:
 ${currentSay || '(empty)'}
 
-Rewrite it so say_this is more position-specific. Name the required move, explain the immediate board effect, and mention the exact threat, square, line, or piece activity that improves. Return ONLY raw JSON.`;
+Rewrite it as exactly two sentences (30–55 words total). First sentence: name the required move and explain the immediate board effect — the specific threat, square, or piece activity. Second sentence: explain the follow-up benefit or what it prevents. Return ONLY raw JSON.`;
 
         const repairResponse = await llm.complete(repairPrompt, activeSystemPrompt, 15000, GPT_54_MODEL);
         if (!repairResponse.success || !repairResponse.content) return current;
