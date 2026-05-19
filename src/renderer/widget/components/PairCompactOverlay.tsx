@@ -322,8 +322,10 @@ interface CoachingChatViewProps {
   chatInputValue?: string;
   onChatInputChange?: (v: string) => void;
   onChatSubmit?: (e?: React.FormEvent) => void;
-  /** Close the chat panel (wired to toggleChat in the store). */
+  /** Collapse the whole overlay to the mini-bar (header collapse button). */
   onCollapse?: () => void;
+  /** Close just the chat panel and return to the expanded overlay (footer "Close chat" button). */
+  onCloseChat?: () => void;
   onStop?: () => void;
   stopDisabled?: boolean;
   elapsed?: string;
@@ -348,6 +350,7 @@ export function CoachingChatView({
   onChatInputChange,
   onChatSubmit,
   onCollapse,
+  onCloseChat,
   onStop,
   stopDisabled = false,
   elapsed = '00:00',
@@ -657,9 +660,9 @@ export function CoachingChatView({
 
         {/* CTAs */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6.73, flex: 1 }}>
-          {/* Close chat button */}
+          {/* Close chat button — returns to expanded overlay, does NOT collapse */}
           <button
-            onClick={onCollapse}
+            onClick={onCloseChat}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -745,7 +748,7 @@ function OverlayHeader({ onCollapse }: { onCollapse: () => void }) {
       WebkitAppRegion: 'drag',
     } as React.CSSProperties}>
 
-      {/* Left: drag-grid icon + wordmark — left-aligned, whole left side is drag handle */}
+      {/* Left: drag-grid icon + wordmark */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
         {/* 6-dot drag grid — 2 columns × 3 rows */}
         <svg width="12" height="20" viewBox="0 0 12 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
@@ -757,7 +760,7 @@ function OverlayHeader({ onCollapse }: { onCollapse: () => void }) {
           <circle cx="9" cy="17"  r="1.5" fill="#242424"/>
         </svg>
         {/* Wordmark — left-aligned */}
-        <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div>
           <ChessLensWordmark size={13} variant="default" />
         </div>
       </div>
@@ -1088,6 +1091,19 @@ export function PairCompactOverlay({
     if (isChess) setIsExpanded(true);
   }, [isChess]);
 
+  // Notify the main process whenever collapsed state changes so it can resize
+  // the window to bar-height (collapsed) or let content-height drive it (expanded).
+  // useRef tracks whether this is the initial mount — we skip the first fire
+  // because the window starts expanded by default and the IPC may not be ready.
+  const collapsedInitialMount = useRef(true);
+  useEffect(() => {
+    if (collapsedInitialMount.current) {
+      collapsedInitialMount.current = false;
+      return;
+    }
+    void window.widgetAPI?.setCollapsed(isCollapsed);
+  }, [isCollapsed]);
+
   useEffect(() => {
     if (!sessionState.isRecording || sessionState.isPaused) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -1134,7 +1150,8 @@ export function PairCompactOverlay({
           chatInputValue={chatInput}
           onChatInputChange={setChatInput}
           onChatSubmit={handleChatSubmit}
-          onCollapse={() => toggleChat()}
+          onCollapse={() => { toggleChat(); setIsCollapsed(true); }}
+          onCloseChat={() => toggleChat()}
           onStop={onStop}
           stopDisabled={stopDisabled}
           elapsed={elapsed}
@@ -1365,18 +1382,19 @@ export function PairCompactOverlay({
   if (isCollapsed) {
     return (
       <div style={{ width: '100%', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
-        <div style={{
-          background: '#F7F7F7',
-          borderRadius: 16,
-          height: 50.82,
-          padding: 8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6.73,
-          boxSizing: 'border-box',
-          boxShadow: '0px 4px 24px rgba(0,0,0,0.08)',
-          WebkitAppRegion: 'drag',
-        } as React.CSSProperties}>
+        <div
+          style={{
+            background: '#F7F7F7',
+            borderRadius: 16,
+            height: 50.82,
+            padding: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6.73,
+            boxSizing: 'border-box',
+            boxShadow: '0px 4px 24px rgba(0,0,0,0.08)',
+            WebkitAppRegion: 'drag',
+          } as React.CSSProperties}>
 
           {/* Wordmark + timer */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6.73, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>

@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow, app } from 'electron';
 import { createChildLogger } from '../lib/logger';
 
 const logger = createChildLogger('ipc-widget');
-import { getWidgetWindow, sendToWidget, closeWidgetWindow, resizeWidgetToContent } from '../windows/widget.window';
+import { getWidgetWindow, sendToWidget, closeWidgetWindow, resizeWidgetToContent, setWidgetCollapsed } from '../windows/widget.window';
 
 let mainWindowRef: BrowserWindow | null = null;
 
@@ -234,6 +234,13 @@ export function setupWidgetIpcHandlers(): void {
     }
   });
 
+  // Renderer notifies us when the overlay is collapsed or expanded.
+  // This is the single source of truth — the main process immediately resizes
+  // the window to match so the area outside the bar is fully uncovered.
+  ipcMain.handle('widget:set-collapsed', async (_event, collapsed: boolean) => {
+    setWidgetCollapsed(collapsed);
+  });
+
   // Renderer reports its content height so we can auto-resize the window.
   // Uses ipcMain.on (not handle) — no return value needed.
   ipcMain.on('widget:content-height', (_event, height: number) => {
@@ -255,6 +262,7 @@ export function removeWidgetIpcHandlers(): void {
   ipcMain.removeHandler('widget:show-main-window');
   ipcMain.removeHandler('widget:hide');
   ipcMain.removeHandler('widget:focus');
+  ipcMain.removeHandler('widget:set-collapsed');
   ipcMain.removeAllListeners('widget:content-height');
 }
 

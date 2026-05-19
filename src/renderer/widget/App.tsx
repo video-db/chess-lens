@@ -297,7 +297,10 @@ export function WidgetApp() {
   }, [currentTurn]);
 
   return (
-    <div ref={rootRef} style={{ width: '100%' }}>
+    <div
+      ref={rootRef}
+      style={{ width: '100%' }}
+    >
       <PairCompactOverlay
         sessionState={sessionState}
         sayThis={sayThis}

@@ -40,6 +40,8 @@ export interface WidgetApi {
   showMainWindow: () => Promise<void>;
   chat: (question: string, tipContext?: string) => Promise<{ success: boolean; reply?: string; error?: string }>;
   flipTurn: () => Promise<{ success: boolean }>;
+  /** Notify the main process that the overlay has been collapsed or expanded. */
+  setCollapsed: (collapsed: boolean) => Promise<void>;
 
   // Events
   onSessionState: (callback: (state: WidgetSessionState) => void) => () => void;
@@ -74,6 +76,8 @@ const widgetApi: WidgetApi = {
   chat: (question: string, tipContext?: string) =>
     ipcRenderer.invoke('live-assist:chat', question, tipContext),
   flipTurn: () => ipcRenderer.invoke('live-assist:flip-turn'),
+  setCollapsed: (collapsed: boolean) =>
+    ipcRenderer.invoke('widget:set-collapsed', collapsed),
 
   // Events
   onSessionState: (callback: (state: WidgetSessionState) => void) => {

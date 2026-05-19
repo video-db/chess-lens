@@ -36,6 +36,8 @@ export interface WidgetApi {
   showMainWindow: () => Promise<void>;
   chat: (question: string, tipContext?: string) => Promise<{ success: boolean; reply?: string; error?: string }>;
   flipTurn: () => Promise<{ success: boolean }>;
+  /** Notify the main process that the overlay has been collapsed or expanded. */
+  setCollapsed: (collapsed: boolean) => Promise<void>;
   onSessionState: (callback: (state: WidgetSessionState) => void) => () => void;
   onLiveAssist: (callback: (data: WidgetLiveAssistData) => void) => () => void;
   onVisualAnalysis: (callback: (data: { description: string }) => void) => () => void;

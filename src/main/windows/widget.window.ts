@@ -15,6 +15,21 @@ const WIDGET_MIN_HEIGHT = 300;
 const WIDGET_MARGIN = 20;
 /** Padding added on top of reported content height to avoid a hairline clip. */
 const WIDGET_HEIGHT_PADDING = 40;
+/**
+ * Exact height for the collapsed bar state.
+ * Bar height (50.82px) + bottom padding (10px) + hairline buffer (10px) = ~71px.
+ * Kept below WIDGET_MIN_HEIGHT so the window shrinks all the way down and the
+ * area below the bar is completely uncovered, making underlying apps (Slack etc.)
+ * fully interactive without any click-through hacks.
+ */
+const WIDGET_COLLAPSED_HEIGHT = 71;
+
+/**
+ * Single source of truth for the overlay's collapsed/expanded mode.
+ * Owned by the main process so resize logic and any future window behaviour
+ * can branch on it without relying on renderer state.
+ */
+let widgetCollapsed = false;
 
 interface WidgetPosition {
   x: number;
@@ -71,6 +86,9 @@ export function createWidgetWindow(): BrowserWindow {
     return widgetWindow;
   }
 
+  // Reset collapsed state for new window — renderer will signal if needed.
+  widgetCollapsed = false;
+
   const savedPosition = loadWidgetPosition();
   const position = savedPosition ? validatePosition(savedPosition) : getDefaultPosition();
 
@@ -79,7 +97,7 @@ export function createWidgetWindow(): BrowserWindow {
     height: WIDGET_DEFAULT_HEIGHT,
     minWidth: WIDGET_WIDTH,
     maxWidth: WIDGET_WIDTH,
-    minHeight: WIDGET_MIN_HEIGHT,
+    minHeight: WIDGET_COLLAPSED_HEIGHT,
     x: position.x,
     y: position.y,
     frame: false,
@@ -151,7 +169,9 @@ export function showWidgetWindow(): void {
   if (!widgetWindow || widgetWindow.isDestroyed()) {
     createWidgetWindow();
   } else {
-    // Re-assert overlay flags every time we show
+    // Re-assert overlay flags every time we show.
+    // Reset collapsed state — renderer will signal the correct state on mount.
+    widgetCollapsed = false;
     widgetWindow.setVisibleOnAllWorkspaces(true, {
       visibleOnFullScreen: true,
     });
@@ -196,6 +216,9 @@ export function sendToWidget(channel: string, data: unknown): void {
  * but is always clamped so it never extends below the bottom of the display it
  * currently lives on.
  *
+ * When the overlay is collapsed this call is a no-op — the window is already
+ * at WIDGET_COLLAPSED_HEIGHT and should stay there until expanded.
+ *
  * The x/y position is never changed — the window stays exactly where the user
  * dragged it.  If the required height would push the bottom edge off-screen, the
  * window is repositioned upward just enough to stay visible.
@@ -203,12 +226,48 @@ export function sendToWidget(channel: string, data: unknown): void {
 export function resizeWidgetToContent(contentHeight: number): void {
   if (!widgetWindow || widgetWindow.isDestroyed()) return;
 
+  // While collapsed, ignore content-height reports — the window stays at bar height.
+  if (widgetCollapsed) return;
+
   const targetHeight = Math.max(
     WIDGET_MIN_HEIGHT,
     Math.ceil(contentHeight) + WIDGET_HEIGHT_PADDING
   );
 
-  // Find the display the window currently lives on
+  applyWindowHeight(targetHeight);
+}
+
+/**
+ * Notify the main process that the overlay has been collapsed or expanded.
+ *
+ * Collapsed → immediately shrink the window to bar height so the area below
+ *             the bar is uncovered and underlying apps are fully interactive.
+ *
+ * Expanded  → just clear the collapsed flag.  The renderer's ResizeObserver
+ *             will immediately fire a widget:content-height report which drives
+ *             resizeWidgetToContent and grows the window to the right size.
+ *             This avoids any stale/wrong height guess from the main process.
+ */
+export function setWidgetCollapsed(collapsed: boolean): void {
+  if (!widgetWindow || widgetWindow.isDestroyed()) return;
+  widgetCollapsed = collapsed;
+
+  if (collapsed) {
+    applyWindowHeight(WIDGET_COLLAPSED_HEIGHT);
+  }
+  // On expand: do nothing — let the next content-height IPC report resize the window.
+
+  logger.debug({ collapsed }, 'Widget collapsed state changed');
+}
+
+/**
+ * Internal helper — applies a target height to the window, clamping it to the
+ * display bounds and repositioning upward if needed.  Shared by
+ * resizeWidgetToContent and setWidgetCollapsed so the logic lives in one place.
+ */
+function applyWindowHeight(targetHeight: number): void {
+  if (!widgetWindow || widgetWindow.isDestroyed()) return;
+
   const [winX, winY] = widgetWindow.getPosition();
   const displays = screen.getAllDisplays();
   const currentDisplay =
@@ -221,9 +280,6 @@ export function resizeWidgetToContent(contentHeight: number): void {
   const maxAllowedHeight = displayHeight - WIDGET_MARGIN;
   const clampedHeight = Math.min(targetHeight, maxAllowedHeight);
 
-  // If the bottom edge would go off-screen, shift the window up just enough
-  // to keep it visible. Clamp to at least WIDGET_MARGIN from the top so the
-  // window never disappears behind the menu bar / taskbar.
   const bottomEdge = winY + clampedHeight;
   const screenBottom = displayY + displayHeight - WIDGET_MARGIN;
   const newY = bottomEdge > screenBottom
@@ -237,6 +293,6 @@ export function resizeWidgetToContent(contentHeight: number): void {
   const [currentW, currentH] = widgetWindow.getSize();
   if (currentH !== clampedHeight) {
     widgetWindow.setSize(currentW, clampedHeight);
-    logger.debug({ targetHeight, clampedHeight, winY, newY }, 'Widget resized to content');
+    logger.debug({ targetHeight, clampedHeight, winY, newY }, 'Widget height applied');
   }
 }
