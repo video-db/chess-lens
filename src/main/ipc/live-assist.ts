@@ -92,7 +92,7 @@ export function setupLiveAssistHandlers(): void {
         }
       }
     });
-    liveAssistService.on('fen', (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => {
+    liveAssistService.on('fen', (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => {
       sendToRenderer('live-assist:fen', data);
       updateWidgetFen(data);
     });

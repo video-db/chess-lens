@@ -231,6 +231,12 @@ interface PairCompactOverlayProps {
   /** FEN in the original player perspective (for the overlay board display). */
   displayFen: string | null;
   currentTurn: 'w' | 'b' | null;
+  /**
+   * Authoritative board orientation from the main process.
+   * 'white' = rank 1 at bottom (normal view); 'black' = rank 8 at bottom (flipped).
+   * Drives ChessBoard's `flipped` prop so the mini-board always matches the main page board.
+   */
+  boardOrientation?: 'white' | 'black';
   /** Best move SAN from the chess engine (e.g. "b8=Q+"). */
   engineSan?: string;
   /** Best move LAN (UCI) from the chess engine (e.g. "b7b8q"). Kept for reference. */
@@ -425,7 +431,6 @@ export function CoachingChatView({
                     onClick={onFlipTurn}
                     title={`Switch turn to ${currentTurn === 'w' ? 'Black' : 'White'}`}
                     style={{
-                      marginLeft: 'auto',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 4,
@@ -789,6 +794,7 @@ export function PairCompactOverlay({
   currentFen,
   displayFen,
   currentTurn,
+  boardOrientation,
   engineSan,
   engineLan: _engineLan, // kept in IPC pipeline for reference; arrow uses engineFrom/engineTo
   engineFrom,
@@ -813,12 +819,18 @@ export function PairCompactOverlay({
   const [lastFenAt, setLastFenAt] = useState<number | null>(null);
   const prevFenRef = useRef<string | null>(null);
 
-  // Detect whether the board is shown from black's perspective.
-  // When flipped, currentFen's board part !== displayFen's board part.
+  // Derive whether the board should be rendered from Black's perspective.
+  // Prefer the authoritative `boardOrientation` prop sent by the main process
+  // (derived from the LLM's <perspective> tag on the captured screenshot).
+  // Fall back to the legacy FEN-diff heuristic only when the prop is absent
+  // (e.g. during a session started before this field was introduced).
   const boardFlipped = useMemo(() => {
+    if (boardOrientation !== undefined) return boardOrientation === 'black';
+    // Legacy fallback: when the board is rotated 180° for Black, displayFen's
+    // board part differs from the engine's white-perspective currentFen.
     if (!currentFen || !displayFen) return false;
     return currentFen.split(' ')[0] !== displayFen.split(' ')[0];
-  }, [currentFen, displayFen]);
+  }, [boardOrientation, currentFen, displayFen]);
 
   // Track when the board position last changed so we can show a fallback
   // message if the engine/LLM hasn't responded after a reasonable wait.
@@ -1478,7 +1490,7 @@ export function PairCompactOverlay({
                       <span style={{ fontSize: 12, fontWeight: 500, color: '#969696', lineHeight: '13px', fontFamily: 'Inter, sans-serif' }}>
                         BEST MOVE
                       </span>
-                      {/* Move + eval badge */}
+                      {/* Move + eval badge + flip-turn button — all inline */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10.09 }}>
                         <span style={{ fontSize: 26, fontWeight: 600, color: '#009106', fontFamily: 'Inter, sans-serif', lineHeight: '18px' }}>
                           {engineSan}
@@ -1486,38 +1498,36 @@ export function PairCompactOverlay({
                         <div style={{ background: 'rgba(0,145,6,0.1)', border: '0.84px solid rgba(0,145,6,0.1)', borderRadius: 30.27, padding: '1px 6px', fontSize: 12, fontWeight: 500, color: '#009106', fontFamily: 'Inter, sans-serif' }}>
                           {engineEvalLabel ?? 'Best'}
                         </div>
+                        {/* Flip-turn button — inline beside eval badge, hidden while regenerating */}
+                        {onFlipTurn && currentTurn && !isRegenerating && (
+                          <button
+                            onClick={onFlipTurn}
+                            title={`Switch turn to ${currentTurn === 'w' ? 'Black' : 'White'}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '3px 8px',
+                              background: 'rgba(0,0,0,0.05)',
+                              border: '0.84px solid rgba(0,0,0,0.12)',
+                              borderRadius: 20,
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: '#464646',
+                              fontFamily: 'Inter, sans-serif',
+                              lineHeight: '14px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M1 5h10M1 5l3-3M1 5l3 3M15 11H5M15 11l-3-3M15 11l-3 3" stroke="#464646" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                            {currentTurn === 'w' ? 'White' : 'Black'} to move
+                          </button>
+                        )}
                       </div>
                     </>
-                  )}
-                  {/* Flip-turn button — shown whenever turn is known and not already regenerating */}
-                  {onFlipTurn && currentTurn && !isRegenerating && (
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <button
-                        onClick={onFlipTurn}
-                        title={`Switch turn to ${currentTurn === 'w' ? 'Black' : 'White'}`}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          padding: '3px 8px',
-                          background: 'rgba(0,0,0,0.05)',
-                          border: '0.84px solid rgba(0,0,0,0.12)',
-                          borderRadius: 20,
-                          cursor: 'pointer',
-                          fontSize: 11,
-                          fontWeight: 500,
-                          color: '#464646',
-                          fontFamily: 'Inter, sans-serif',
-                          lineHeight: '14px',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M1 5h10M1 5l3-3M1 5l3 3M15 11H5M15 11l-3-3M15 11l-3 3" stroke="#464646" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                        {currentTurn === 'w' ? 'White' : 'Black'} to move
-                      </button>
-                    </div>
                   )}
                 </div>
 

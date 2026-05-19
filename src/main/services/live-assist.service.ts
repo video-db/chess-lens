@@ -15,7 +15,7 @@ import { getChessEngineService } from './chess-engine.service';
 import { getChessScreenshotService } from './chess-screenshot.service';
 import type { LiveInsights } from '../../shared/types/live-assist.types';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
-import { fenDiffToSan } from '../lib/chess-notation';
+import { fenDiffToSan, getTerminalState } from '../lib/chess-notation';
 import {
   DEFAULT_GAME_ID,
   getGameVisualIndexTiming,
@@ -93,6 +93,13 @@ interface ChessContextData {
   playedMoveUci?: string;
   board?: string;
   turn?: 'w' | 'b';
+  /**
+   * Set when the position is terminal (no legal moves for the side to move).
+   * 'checkmate' — side to move is in check with no escape.
+   * 'stalemate' — side to move has no legal move but is not in check.
+   * Undefined / absent for normal positions.
+   */
+  terminalState?: 'checkmate' | 'stalemate';
 }
 
 interface FenCandidate {
@@ -1136,6 +1143,31 @@ class LiveAssistService extends EventEmitter {
     const resolvedFen = this.applyNextTurnToFen(fen, visuals);
     const latestMove = this.extractLatestChessMove(visuals);
 
+    // ── Terminal-position fast path ──────────────────────────────────────────
+    // Check before calling the engine. chess-api.com returns INVALID_INPUT for
+    // checkmate/stalemate FENs because there is no legal move to extend. Instead
+    // of letting the engine call fail and discarding the position, we detect the
+    // terminal state locally and return a context that lets the LLM generate a
+    // coaching explanation.
+    const terminalState = getTerminalState(resolvedFen.fen);
+    if (terminalState) {
+      log.info(
+        { resolvedFen: resolvedFen.fen, terminalState },
+        '[LiveAssist] Terminal position detected — skipping engine call, routing to coaching LLM'
+      );
+      if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'engineCall', terminalState);
+      return {
+        fen: resolvedFen.fen,
+        engineSummary: '',
+        playedMoveSan: latestMove.san,
+        playedMoveUci: latestMove.uci,
+        board: resolvedFen.fen.split(' ')[0],
+        // turn field = side that JUST moved (opposite of side to move).
+        turn: resolvedFen.turn === 'w' ? 'b' : 'w',
+        terminalState,
+      };
+    }
+
     const engine = getChessEngineService();
     log.info(
       {
@@ -1443,6 +1475,7 @@ class LiveAssistService extends EventEmitter {
       displayFen,
       board: this.lastChessBoard,
       turn: flipped,
+      boardOrientation: this.lastChessPerspective,
       engineSan: this.lastEngineSan,
       engineLan: this.lastEngineLan,
       engineFrom: this.lastEngineFrom,
@@ -1671,6 +1704,7 @@ class LiveAssistService extends EventEmitter {
         displayFen,
         board: fenBoard,
         turn: inferredTurn,
+        boardOrientation: perspective,
         engineSan: this.lastEngineSan,
         engineLan: this.lastEngineLan,
         engineFrom: this.lastEngineFrom,
@@ -1840,6 +1874,7 @@ class LiveAssistService extends EventEmitter {
       displayFen,
       board: fenBoard,
       turn: inferredTurn,
+      boardOrientation: perspective,
       engineSan: this.lastEngineSan,
       engineLan: this.lastEngineLan,
       engineFrom: this.lastEngineFrom,
@@ -2126,7 +2161,61 @@ class LiveAssistService extends EventEmitter {
       return;
     }
 
-    // Determine the player's color from perspective, and the side currently to move.
+    // ── Terminal position branch (checkmate / stalemate) ─────────────────────
+    // The engine cannot analyse these positions (no legal move). Instead we skip
+    // the normal player-turn / opponent-turn routing and fire a dedicated coaching
+    // LLM prompt that explains what happened and why.
+    if (this.activeGameId === 'chess' && chessContext?.terminalState) {
+      const terminal = chessContext.terminalState;
+      const playerColor: 'w' | 'b' = this.lastChessPerspective === 'black' ? 'b' : 'w';
+      const justMoved: 'w' | 'b' = chessContext.turn ?? playerColor;
+      const sideToMove: 'w' | 'b' = justMoved === 'w' ? 'b' : 'w';
+      const sideToMoveLabel = sideToMove === 'w' ? 'White' : 'Black';
+      const justMovedLabel = justMoved === 'w' ? 'White' : 'Black';
+
+      // Update state + clear stale engine data before emitting FEN.
+      if (chessSignature) {
+        this.lastChessSignature = chessSignature;
+        this.lastChessBoard = chessContext.board || chessSignature;
+        this.lastChessTurn = sideToMove;
+        // Clear previous engine move — there is no best move in a terminal position.
+        this.lastEngineSan = undefined;
+        this.lastEngineLan = undefined;
+        this.lastEngineFrom = undefined;
+        this.lastEngineTo = undefined;
+        this.lastEngineEval = undefined;
+        this.lastEngineMate = undefined;
+        this.pendingChessSignature = null;
+        this.pendingChessSignatureCount = 0;
+        const whitePerspFen = chessContext.fen;
+        const dFen = this.buildDisplayFen(whitePerspFen, this.lastChessPerspective);
+        this.emit('fen', {
+          fen: whitePerspFen,
+          displayFen: dFen,
+          board: this.lastChessBoard,
+          turn: sideToMove,
+          engineSan: undefined,
+          engineLan: undefined,
+          engineFrom: undefined,
+          engineTo: undefined,
+          engineEval: undefined,
+          engineMate: undefined,
+        });
+      }
+      this.lastProcessedTimestamp = now;
+
+      // Build a terminal coaching prompt — tailor by checkmate vs stalemate.
+      const gameContextSection = this.meetingContext?.description?.trim()
+        ? `## PLAYER'S GAME GOALS\n${this.meetingContext.description.trim()}\n\n`
+        : '';
+      const terminalPrompt = terminal === 'checkmate'
+        ? `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nThe game has ended. ${sideToMoveLabel} is in checkmate — ${justMovedLabel} delivered the decisive blow.\n\n## TASK\nYou are a chess coach. In exactly two sentences (30–55 words total), explain this checkmate to the player:\n- First sentence: identify the tactical pattern or motif that made the mate possible (back-rank mate, smothered mate, Arabian mate, etc.) and the key piece(s) involved.\n- Second sentence: explain what the losing side could have done differently to prevent it.\nFor ask_this, write one short question that tests the player's understanding of the mating pattern.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`
+        : `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nThe game has ended in stalemate — ${sideToMoveLabel} has no legal move but is not in check.\n\n## TASK\nYou are a chess coach. In exactly two sentences (30–55 words total), explain this stalemate:\n- First sentence: identify which pieces are blocking all of ${sideToMoveLabel}'s moves and why the position became a stalemate.\n- Second sentence: explain what ${justMovedLabel} could have done differently to avoid gifting the stalemate.\nFor ask_this, write one short question that tests the player's understanding of stalemate avoidance.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
+
+      this.coachingInFlight = true;
+      void this.runCoachingLLM(chessContext, chessSignature, terminalPrompt, null, trackedCycleId);
+      return;
+    }
     // lastChessPerspective = which side the player is playing as (board orientation).
     // chessContext.turn   = side that JUST MOVED (flipped in buildChessContext for accuracy tagging).
     // sideToMove          = who is to move NEXT = opposite of chessContext.turn.

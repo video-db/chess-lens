@@ -310,3 +310,131 @@ export function fenDiffToSan(
 
   return san;
 }
+
+// ── Terminal position detection ───────────────────────────────────────────────
+
+/**
+ * Generate all pseudo-legal destination squares for a single piece on `from`.
+ * Does NOT verify whether the move leaves the mover's king in check (handled
+ * by the caller via `isInCheck` on the resulting board).
+ */
+function pseudoLegalTargets(board: Board, from: Square, side: 'w' | 'b'): Square[] {
+  const piece = board.get(from);
+  if (!piece || !ownedBy(piece, side)) return [];
+  const p = piece.toUpperCase();
+  const ff = fileOf(from), fr = rankOf(from);
+  const targets: Square[] = [];
+
+  const addIfOnBoard = (f: number, r: number) => {
+    if (f < 0 || f > 7 || r < 0 || r > 7) return;
+    const s = sq(f, r);
+    const occupant = board.get(s);
+    if (!occupant || !ownedBy(occupant, side)) targets.push(s);
+  };
+
+  if (p === 'P') {
+    const dir = side === 'w' ? 1 : -1;
+    // Single push
+    const fwd = sq(ff, fr + dir);
+    if (!board.has(fwd)) {
+      targets.push(fwd);
+      // Double push from starting rank
+      const startRank = side === 'w' ? 1 : 6;
+      if (fr === startRank) {
+        const dbl = sq(ff, fr + 2 * dir);
+        if (!board.has(dbl)) targets.push(dbl);
+      }
+    }
+    // Captures
+    for (const df of [-1, 1]) {
+      const cf = ff + df, cr = fr + dir;
+      if (cf < 0 || cf > 7 || cr < 0 || cr > 7) continue;
+      const cs = sq(cf, cr);
+      const cap = board.get(cs);
+      if (cap && !ownedBy(cap, side)) targets.push(cs);
+    }
+    return targets;
+  }
+
+  if (p === 'N') {
+    for (const [df, dr] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
+      addIfOnBoard(ff + df, fr + dr);
+    }
+    return targets;
+  }
+
+  if (p === 'K') {
+    for (let df = -1; df <= 1; df++)
+      for (let dr = -1; dr <= 1; dr++)
+        if (df !== 0 || dr !== 0) addIfOnBoard(ff + df, fr + dr);
+    return targets;
+  }
+
+  const sliderDirs: [number,number][] = (({
+    R: [[-1,0],[1,0],[0,-1],[0,1]],
+    B: [[-1,-1],[-1,1],[1,-1],[1,1]],
+    Q: [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]],
+  } as Record<string, [number,number][]>)[p]) ?? [];
+
+  for (const [df, dr] of sliderDirs) {
+    let f = ff + df, r = fr + dr;
+    while (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
+      const s = sq(f, r);
+      const occ = board.get(s);
+      if (occ) {
+        if (!ownedBy(occ, side)) targets.push(s);
+        break;
+      }
+      targets.push(s);
+      f += df; r += dr;
+    }
+  }
+  return targets;
+}
+
+/** Apply a move on a copy of the board — used to check legality (leaves king in check). */
+function applyMove(board: Board, from: Square, to: Square): Board {
+  const next = new Map(board);
+  const piece = next.get(from);
+  if (piece) {
+    next.delete(from);
+    next.set(to, piece);
+  }
+  return next;
+}
+
+/**
+ * Returns whether `side` has at least one legal move in `board`.
+ * A move is legal if it is pseudo-legal AND does not leave the side's own king in check.
+ */
+function hasLegalMove(board: Board, side: 'w' | 'b'): boolean {
+  for (const [from, piece] of board) {
+    if (!ownedBy(piece, side)) continue;
+    const dests = pseudoLegalTargets(board, from, side);
+    for (const to of dests) {
+      const after = applyMove(board, from, to);
+      if (!isInCheck(after, side)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Determine whether a FEN represents a terminal game state.
+ *
+ * Returns:
+ *  - `'checkmate'`  — side to move is in check and has no legal move
+ *  - `'stalemate'`  — side to move is NOT in check but has no legal move
+ *  - `null`         — position is not terminal (normal play continues)
+ */
+export function getTerminalState(fen: string): 'checkmate' | 'stalemate' | null {
+  const parts = fen.trim().split(/\s+/);
+  if (parts.length < 2) return null;
+  const side = parts[1] as 'w' | 'b';
+  if (side !== 'w' && side !== 'b') return null;
+
+  const board = parseFenBoard(fen);
+  if (hasLegalMove(board, side)) return null;
+
+  return isInCheck(board, side) ? 'checkmate' : 'stalemate';
+}

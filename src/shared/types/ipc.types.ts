@@ -205,6 +205,7 @@ export interface LiveAssistEvents {
     displayFen: string;
     board: string | null;
     turn: 'w' | 'b' | null;
+    boardOrientation?: 'white' | 'black';
     engineSan?: string;
     engineLan?: string;
     engineFrom?: string;

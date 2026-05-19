@@ -238,6 +238,48 @@ class ChessScreenshotService {
     log.info('[ChessScreenshot] Screenshot loop stopped');
   }
 
+  // ─── Temporal consistency ─────────────────────────────────────────────────
+  //
+  // A single chess move changes at most 4 squares (castling: king + rook, both
+  // origin and destination). If a newly voted FEN differs from the last confirmed
+  // FEN by more than MAX_SQUARE_DELTA squares it almost certainly represents a
+  // visual hallucination or a mid-animation snapshot rather than a real move.
+  // We reject it so the vote buffer resets and the pipeline waits for a stable frame.
+  //
+  // The threshold is set to 6 to give a small margin above the theoretical max (4)
+  // while still catching runaway piece-cluster hallucinations (which typically
+  // produce 8–20 square changes in the benchmark failure cases).
+
+  private static readonly MAX_SQUARE_DELTA = 6;
+
+  /**
+   * Count the number of squares that differ between two FEN board strings.
+   * Both boards must already be in white-perspective (8 ranks, rank-sum = 8).
+   * Returns Infinity if either string fails basic validation so the caller
+   * can treat a malformed FEN as an unconditional reject.
+   */
+  private static squareDelta(fenA: string, fenB: string): number {
+    const expand = (fen: string): string => {
+      const squares: string[] = [];
+      for (const rank of fen.split('/')) {
+        for (const ch of rank) {
+          if (/\d/.test(ch)) {
+            for (let i = 0; i < parseInt(ch, 10); i++) squares.push('.');
+          } else {
+            squares.push(ch);
+          }
+        }
+      }
+      return squares.join('');
+    };
+    const a = expand(fenA);
+    const b = expand(fenB);
+    if (a.length !== 64 || b.length !== 64) return Infinity;
+    let diff = 0;
+    for (let i = 0; i < 64; i++) if (a[i] !== b[i]) diff++;
+    return diff;
+  }
+
   // ─── Vote helpers ─────────────────────────────────────────────────────────
 
   private pushToVoteBuffer(entry: VoteEntry): void {
@@ -498,6 +540,26 @@ class ChessScreenshotService {
       pipelineLatency.endCycle(cycleId, 'fenUnchanged');
       log.debug({ votedFen: votedEntry.fenBoard }, '[ChessScreenshot] Voted FEN unchanged — no push needed');
       return;
+    }
+
+    // ── Temporal consistency gate ─────────────────────────────────────────────
+    // A real chess move changes at most 4 squares. If the new FEN differs from
+    // the last confirmed FEN by more than MAX_SQUARE_DELTA squares, it is almost
+    // certainly a hallucination or mid-animation snapshot. Reject it, clear the
+    // vote buffer, and wait for a stable frame.
+    if (this.lastConfirmedFen !== null && !isInitialBoard) {
+      const delta = ChessScreenshotService.squareDelta(votedEntry.fenBoard, this.lastConfirmedFen);
+      if (delta > ChessScreenshotService.MAX_SQUARE_DELTA) {
+        log.warn(
+          { delta, max: ChessScreenshotService.MAX_SQUARE_DELTA, votedFen: votedEntry.fenBoard, prevFen: this.lastConfirmedFen },
+          '[ChessScreenshot] Temporal consistency REJECT — voted FEN diffs by too many squares, likely hallucination'
+        );
+        // Purge the vote buffer so these bad frames don’t influence the next vote.
+        this.fenVoteBuffer = [];
+        this.fenVoteMeta.clear();
+        pipelineLatency.endCycle(cycleId, 'temporalReject');
+        return;
+      }
     }
 
     log.info(

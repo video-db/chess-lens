@@ -22,6 +22,8 @@ export function WidgetApp() {
   const [currentFen, setCurrentFen] = useState<string | null>(null);
   const [displayFen, setDisplayFen] = useState<string | null>(null);
   const [currentTurn, setCurrentTurn] = useState<'w' | 'b' | null>(null);
+  /** Authoritative board orientation received from the main process ('white' = rank 1 at bottom). */
+  const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
   // Local turn override — lets the user flip the detected turn without an IPC round-trip.
   // Reset ONLY when the board position (FEN board part) actually changes, not on every fen event.
   const [turnOverride, setTurnOverride] = useState<'w' | 'b' | null>(null);
@@ -78,6 +80,7 @@ export function WidgetApp() {
           setCurrentFen(null);
           setDisplayFen(null);
           setCurrentTurn(null);
+          setBoardOrientation('white');
           setTurnOverride(null);
           setIsTurnFlipping(false);
           flipPendingRef.current = false;
@@ -97,6 +100,7 @@ export function WidgetApp() {
           setCurrentFen(null);
           setDisplayFen(null);
           setCurrentTurn(null);
+          setBoardOrientation('white');
           setTurnOverride(null);
           setIsTurnFlipping(false);
           flipPendingRef.current = false;
@@ -148,6 +152,9 @@ export function WidgetApp() {
       setCurrentFen(data.fen);
       setDisplayFen(data.displayFen);
       setCurrentTurn(data.turn);
+      if (data.boardOrientation) {
+        setBoardOrientation(data.boardOrientation);
+      }
       // Only reset the turn override when the board position itself changes.
       const incomingBoard = data.fen.split(' ')[0] ?? null;
       if (incomingBoard !== lastFenBoardRef.current) {
@@ -300,6 +307,7 @@ export function WidgetApp() {
         currentFen={currentFen}
         displayFen={displayFen}
         currentTurn={turnOverride ?? currentTurn}
+        boardOrientation={boardOrientation}
         engineSan={engineSan}
         engineLan={engineLan}
         engineFrom={engineFrom}

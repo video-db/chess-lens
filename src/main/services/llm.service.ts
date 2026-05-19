@@ -621,8 +621,8 @@ export class LLMService {
             let squares = 0;
             for (const ch of ranks[i]) {
               if (/\d/.test(ch)) squares += parseInt(ch, 10);
-              else if (/[a-zA-Z]/.test(ch)) squares += 1;
-              else { mathError = `Invalid character '${ch}' in rank ${i + 1}.`; break; }
+              else if (/[pnbrqkPNBRQK]/.test(ch)) squares += 1;
+              else { mathError = `Invalid character '${ch}' in rank ${i + 1} (not a legal FEN piece letter).`; break; }
             }
             if (mathError) break;
             if (squares !== 8) {
@@ -653,8 +653,9 @@ export class LLMService {
             role: 'user',
             content:
               `Your previous <raw_board> had a mathematical FEN error: ${mathError}\n` +
-              `Recount every rank carefully. Each of the 8 ranks must sum to exactly 8 squares ` +
-              `(pieces count as 1, digits count as that many empty squares).\n` +
+              `Recount ALL 8 ranks from scratch, one by one.\n` +
+              `For each rank: count every piece letter as 1 square and every digit as that many empty squares. The total must equal exactly 8.\n` +
+              `Fix the specific failing rank first, then verify every other rank before outputting.\n` +
               `Correct only <raw_board> and keep <perspective> accurate. ` +
               `Output ONLY <perspective> and <raw_board>.`,
           });
@@ -825,8 +826,8 @@ Text to analyze:
               let sq = 0;
               for (const ch of ranks[i]) {
                 if (/\d/.test(ch)) sq += parseInt(ch, 10);
-                else if (/[a-zA-Z]/.test(ch)) sq += 1;
-                else { mathError = `Invalid character '${ch}' in rank ${i + 1}.`; break; }
+                else if (/[pnbrqkPNBRQK]/.test(ch)) sq += 1;
+                else { mathError = `Invalid character '${ch}' in rank ${i + 1} (not a legal FEN piece letter).`; break; }
               }
               if (mathError) break;
               if (sq !== 8) {
@@ -854,8 +855,9 @@ Text to analyze:
               role: 'user',
               content:
                 `Your previous <raw_board> had a mathematical FEN error: ${mathError}\n` +
-                `Recount every rank carefully. Each of the 8 ranks must sum to exactly 8 squares ` +
-                `(pieces count as 1, digits count as that many empty squares).\n` +
+                `Recount ALL 8 ranks from scratch, one by one.\n` +
+                `For each rank: count every piece letter as 1 square and every digit as that many empty squares. The total must equal exactly 8.\n` +
+                `Fix the specific failing rank first, then verify every other rank before outputting.\n` +
                 `Correct only <raw_board> and keep <perspective> accurate. ` +
                 `Output ONLY <perspective> and <raw_board>.`,
             });
@@ -870,62 +872,157 @@ Text to analyze:
       return null;
     };
 
-    // ── Turn call (single shot, no retry needed) ─────────────────────────────
-    const turnCall = async (): Promise<{
+    // ── Turn call — with move-pair validation + one retry ───────────────────
+    //
+    // After parsing <last_move_from> and <last_move_to> we cross-check them
+    // against the FEN board produced by the parallel FEN call:
+    //   - The FROM square must be empty (the piece left it).
+    //   - The TO square must have a piece (the piece arrived there).
+    // If the pair fails this check we retry once with an explicit correction
+    // prompt so the model can self-correct origin/destination confusion.
+    //
+    // getPieceAt returns '' for empty, a piece letter for occupied, or null on
+    // parse error — mirroring deriveTurnFromAlgebraicMove in live-assist.service.
+    const getPieceAt = (board: string, sq: string): string | null => {
+      const fileIdx = sq.charCodeAt(0) - 97;            // 'a'=0 … 'h'=7
+      const rankIdx = 8 - parseInt(sq[1] ?? '0', 10);   // '1'→7, '8'→0
+      if (fileIdx < 0 || fileIdx > 7 || rankIdx < 0 || rankIdx > 7) return null;
+      const ranks = board.split('/');
+      if (ranks.length !== 8) return null;
+      const rank = ranks[rankIdx];
+      if (!rank) return null;
+      let col = 0;
+      for (const ch of rank) {
+        if (/\d/.test(ch)) {
+          const skip = parseInt(ch, 10);
+          if (fileIdx < col + skip) return '';
+          col += skip;
+        } else {
+          if (col === fileIdx) return ch;
+          col += 1;
+        }
+        if (col > fileIdx) break;
+      }
+      return '';
+    };
+
+    const isMovePairValid = (board: string, from: string, to: string): boolean => {
+      const fp = getPieceAt(board, from);
+      const tp = getPieceAt(board, to);
+      if (fp === null || tp === null) return false;
+      // FROM must be empty, TO must be occupied — or they are swapped (also acceptable)
+      return (fp === '' && tp !== '') || (fp !== '' && tp === '');
+    };
+
+    const turnCall = async (fenBoardForValidation: string | null): Promise<{
       perspective:  'white' | 'black';
       reportedTurn: 'w' | 'b' | null;
       reportedLastMoveFrom: string | null;
       reportedLastMoveTo:   string | null;
     } | null> => {
-      try {
-        const response = await withTimeout(
-          this.client.chat.completions.create({
-            model: RTSTREAM_VISION_MODEL,
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'text',      text: turnPrompt },
-                { type: 'image_url', image_url: { url: dataUrl } },
-              ],
-            }] as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
-            max_tokens: 512,
-            stream: false,
-            ...EXTRA_PARAMS,
-          } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>,
-          VISION_TIMEOUT_MS,
-          'extractTurn (parallel)',
-        );
+      type TurnMsg = {
+        role: 'user' | 'assistant';
+        content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+      };
+      const messages: TurnMsg[] = [{
+        role: 'user',
+        content: [
+          { type: 'text',      text: turnPrompt },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ],
+      }];
 
-        const rawText = response.choices[0]?.message?.content?.trim() ?? '';
-
+      const parseTurn = (rawText: string) => {
         const perspMatch = rawText.match(/<perspective>\s*(.*?)\s*<\/perspective>/is);
         const perspective: 'white' | 'black' =
           perspMatch?.[1]?.toLowerCase().includes('black') ? 'black' : 'white';
-
         const turnMatch = rawText.match(/<turn>\s*(.*?)\s*<\/turn>/is);
         const reportedTurn: 'w' | 'b' | null = turnMatch
           ? (turnMatch[1].toLowerCase().includes('black') ? 'b' : 'w')
           : null;
-
         const from = parseAlgebraicTag(rawText, 'last_move_from');
         const to   = parseAlgebraicTag(rawText, 'last_move_to');
+        return { perspective, reportedTurn, from, to };
+      };
 
-        log.debug({ perspective, reportedTurn, from, to }, '[VideoDB] extractTurn (parallel): parsed');
-        return {
-          perspective,
-          reportedTurn,
-          reportedLastMoveFrom: (from && to) ? from : null,
-          reportedLastMoveTo:   (from && to) ? to   : null,
-        };
-      } catch (err) {
-        log.error({ err }, '[VideoDB] extractTurn (parallel): API error');
-        return null;
+      for (let attempt = 0; attempt <= 1; attempt++) {
+        try {
+          const response = await withTimeout(
+            this.client.chat.completions.create({
+              model: RTSTREAM_VISION_MODEL,
+              messages: messages as Parameters<typeof this.client.chat.completions.create>[0]['messages'],
+              max_tokens: 512,
+              stream: false,
+              ...EXTRA_PARAMS,
+            } as Parameters<typeof this.client.chat.completions.create>[0]) as Promise<OpenAI.Chat.ChatCompletion>,
+            VISION_TIMEOUT_MS,
+            'extractTurn (parallel)',
+          );
+
+          const rawText = response.choices[0]?.message?.content?.trim() ?? '';
+          const { perspective, reportedTurn, from, to } = parseTurn(rawText);
+
+          // Validate move pair against the FEN when both squares are present
+          const pairPresent = from !== null && to !== null;
+          const pairValid   = pairPresent && fenBoardForValidation !== null
+            ? isMovePairValid(fenBoardForValidation, from!, to!)
+            : pairPresent; // no FEN available — accept as-is
+
+          if (pairPresent && !pairValid && attempt === 0) {
+            // Squares don't match the board — one retry with a correction prompt
+            const fromPiece = fenBoardForValidation ? getPieceAt(fenBoardForValidation, from!) : null;
+            const toPiece   = fenBoardForValidation ? getPieceAt(fenBoardForValidation, to!)   : null;
+            const diagnosis = fenBoardForValidation
+              ? `Square ${from} has "${fromPiece ?? '?'}" and square ${to} has "${toPiece ?? '?'}" on the board. ` +
+                `The ORIGIN square must be EMPTY and the DESTINATION square must have a piece.`
+              : `The square pair does not match the board.`;
+            log.warn(
+              { from, to, fromPiece, toPiece, attempt },
+              '[VideoDB] extractTurn (parallel): move pair failed FEN validation — retrying',
+            );
+            messages.push({ role: 'assistant', content: rawText });
+            messages.push({
+              role: 'user',
+              content:
+                `Your previous <last_move_from>/${to} pair is incorrect. ${diagnosis}\n` +
+                `Re-examine the two highlighted squares carefully:\n` +
+                `  - The ORIGIN (<last_move_from>) is the highlighted square that is NOW EMPTY — no piece on it.\n` +
+                `  - The DESTINATION (<last_move_to>) is the highlighted square that HAS A PIECE on it.\n` +
+                `If you cannot clearly identify both squares, omit <last_move_from>, <last_move_to>, and <turn>.\n` +
+                `Output ONLY <perspective>, <last_move_from>, <last_move_to>, and <turn>.`,
+            });
+            continue;
+          }
+
+          const acceptPair = pairPresent && pairValid;
+          log.debug(
+            { perspective, reportedTurn, from, to, pairValid: acceptPair, attempt },
+            '[VideoDB] extractTurn (parallel): parsed',
+          );
+          return {
+            perspective,
+            reportedTurn,
+            reportedLastMoveFrom: acceptPair ? from : null,
+            reportedLastMoveTo:   acceptPair ? to   : null,
+          };
+        } catch (err) {
+          log.error({ err }, '[VideoDB] extractTurn (parallel): API error');
+          return null;
+        }
       }
+
+      // Exhausted retries — return whatever the last turn tag said, but drop bad squares
+      log.warn('[VideoDB] extractTurn (parallel): move pair still invalid after retry — dropping squares');
+      return { perspective: 'white', reportedTurn: null, reportedLastMoveFrom: null, reportedLastMoveTo: null };
     };
 
-    // ── Run both calls in parallel ───────────────────────────────────────────
+    // ── Run FEN + turn calls in parallel ────────────────────────────────────
+    // Both fire simultaneously. After both resolve we validate the turn move
+    // pair against the FEN board. If the pair is invalid (origin not empty or
+    // destination empty) we fire a single correction-only turn call with the
+    // FEN context, which is now available.
     if (cycleId !== undefined) pipelineLatency.startStep(cycleId, 'fenExtract');
-    const [fenResult, turnResult] = await Promise.all([fenCall(), turnCall()]);
+    const [fenResult, turnResult] = await Promise.all([fenCall(), turnCall(null)]);
     if (cycleId !== undefined) {
       pipelineLatency.endStep(cycleId, 'fenExtract', fenResult ? undefined : 'fen failed');
     }
@@ -935,12 +1032,30 @@ Text to analyze:
       return null;
     }
 
+    // If the turn call produced a square pair, validate it against the FEN.
+    // If invalid, fire one more turn call with the FEN board available for
+    // context in the correction prompt.
+    let resolvedTurn = turnResult;
+    if (
+      turnResult?.reportedLastMoveFrom !== null &&
+      turnResult?.reportedLastMoveTo   !== null &&
+      turnResult?.reportedLastMoveFrom !== undefined &&
+      turnResult?.reportedLastMoveTo   !== undefined &&
+      !isMovePairValid(fenResult.fenBoard, turnResult.reportedLastMoveFrom, turnResult.reportedLastMoveTo)
+    ) {
+      log.warn(
+        { from: turnResult.reportedLastMoveFrom, to: turnResult.reportedLastMoveTo },
+        '[VideoDB] extractFenAndTurnFromImage: move pair failed post-merge FEN validation — retrying turn call with FEN context',
+      );
+      resolvedTurn = await turnCall(fenResult.fenBoard);
+    }
+
     return {
       fenBoard:             fenResult.fenBoard,
       perspective:          fenResult.perspective,
-      reportedTurn:         turnResult?.reportedTurn         ?? null,
-      reportedLastMoveFrom: turnResult?.reportedLastMoveFrom ?? null,
-      reportedLastMoveTo:   turnResult?.reportedLastMoveTo   ?? null,
+      reportedTurn:         resolvedTurn?.reportedTurn         ?? null,
+      reportedLastMoveFrom: resolvedTurn?.reportedLastMoveFrom ?? null,
+      reportedLastMoveTo:   resolvedTurn?.reportedLastMoveTo   ?? null,
     };
   }
 }

@@ -29,7 +29,7 @@ let widgetVisualAnalysis = {
 
 let widgetNudge: { id: string; message: string; type: 'info' | 'warning' | 'action'; timestamp: number } | null = null;
 
-let widgetFen: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean } | null = null;
+let widgetFen: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean } | null = null;
 
 const NON_ACTIONABLE_PATTERN = /no actionable gameplay moment(?: in this frame)?\.?/i;
 
@@ -335,7 +335,7 @@ export function sendWidgetStartError(message: string): void {
   sendToWidget('widget:start-error', { message });
 }
 
-export function updateWidgetFen(data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }): void {
+export function updateWidgetFen(data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }): void {
   widgetFen = data;
   sendToWidget('widget:fen', widgetFen);
   logger.debug({ fen: data.fen, turn: data.turn }, 'Sent FEN to widget for board verification');
