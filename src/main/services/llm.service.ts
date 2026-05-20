@@ -758,6 +758,9 @@ Text to analyze:
     reportedTurn: 'w' | 'b' | null;
     reportedLastMoveFrom: string | null;
     reportedLastMoveTo:   string | null;
+    /** True when neither the FEN call nor the turn call needed a retry.
+     *  Used by ChessScreenshotService as one signal in the confidence gate. */
+    noRetryNeeded: boolean;
   } | null> {
     const dataUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
 
@@ -773,9 +776,77 @@ Text to analyze:
     };
 
     // ── FEN call with math-error retry ──────────────────────────────────────
+    //
+    // Attempt 0: send the vision prompt.
+    // Attempt 1: if math fails, send a recount correction prompt.
+    // After both attempts: if math still fails, run a local auto-correction pass
+    //   that fixes over-counted digit runs without an extra LLM round-trip.
+    //   Only digit characters are adjusted — piece positions are never guessed.
+
+    /** Try to repair a single rank string that sums to `actual` instead of 8.
+     *  Strategy: find digit runs that are over-counted and reduce the first one
+     *  that would bring the sum to exactly 8. Returns the corrected rank string,
+     *  or null when no safe single-digit fix is possible. */
+    const tryRepairRank = (rank: string, actual: number): string | null => {
+      const excess = actual - 8;
+      if (excess <= 0) return null; // only handles over-count
+      // Try reducing each digit character by `excess` (if that keeps it ≥ 1)
+      for (let i = 0; i < rank.length; i++) {
+        const ch = rank[i];
+        if (!ch || !/\d/.test(ch)) continue;
+        const val = parseInt(ch, 10);
+        const newVal = val - excess;
+        if (newVal >= 1) {
+          return rank.slice(0, i) + String(newVal) + rank.slice(i + 1);
+        }
+        if (newVal === 0) {
+          // Remove the digit entirely
+          return rank.slice(0, i) + rank.slice(i + 1);
+        }
+      }
+      return null;
+    };
+
+    /** Validate and optionally auto-correct a rawBoard string.
+     *  Returns { board, autoFixed } or null when unfixable. */
+    const validateAndRepairBoard = (rawBoard: string): { board: string; autoFixed: boolean } | null => {
+      const ranks = rawBoard.split('/');
+      if (ranks.length !== 8) return null;
+      const repairedRanks: string[] = [];
+      let anyFixed = false;
+      for (let i = 0; i < ranks.length; i++) {
+        const rank = ranks[i]!;
+        let sq = 0;
+        let invalid = false;
+        for (const ch of rank) {
+          if (/\d/.test(ch)) sq += parseInt(ch, 10);
+          else if (/[pnbrqkPNBRQK]/.test(ch)) sq += 1;
+          else { invalid = true; break; }
+        }
+        if (invalid) return null; // invalid piece character — cannot fix safely
+        if (sq === 8) {
+          repairedRanks.push(rank);
+        } else {
+          const fixed = tryRepairRank(rank, sq);
+          if (!fixed) return null; // cannot fix this rank safely
+          // Verify the fix actually gives 8
+          let fixedSq = 0;
+          for (const ch of fixed) {
+            if (/\d/.test(ch)) fixedSq += parseInt(ch, 10);
+            else if (/[pnbrqkPNBRQK]/.test(ch)) fixedSq += 1;
+          }
+          if (fixedSq !== 8) return null;
+          repairedRanks.push(fixed);
+          anyFixed = true;
+        }
+      }
+      return { board: repairedRanks.join('/'), autoFixed: anyFixed };
+    };
+
     const fenCall = async (): Promise<{
       fenBoard: string;
       perspective: 'white' | 'black';
+      retried: boolean;
     } | null> => {
       const messages: VisionMsg[] = [{
         role: 'user',
@@ -845,7 +916,7 @@ Text to analyze:
               fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
             }
             log.info({ fenBoard, perspective: savedPerspective, attempt }, '[VideoDB] extractFen (parallel): success');
-            return { fenBoard, perspective: savedPerspective };
+            return { fenBoard, perspective: savedPerspective, retried: attempt > 0 };
           }
 
           log.warn({ attempt, mathError }, '[VideoDB] extractFen (parallel): math error, retrying with recount');
@@ -869,6 +940,35 @@ Text to analyze:
       }
 
       log.warn('[VideoDB] extractFen (parallel): failed after retries');
+
+      // ── Local auto-correction fallback ─────────────────────────────────
+      // Both LLM attempts failed the math check. Try to fix over-counted digit
+      // runs locally without another round-trip. Only digit counts are adjusted —
+      // piece characters are never moved or invented.
+      // Pull the last raw_board that was seen (from the last response in messages).
+      const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
+      const lastRawText = typeof lastAssistantMsg?.content === 'string' ? lastAssistantMsg.content : '';
+      const lastBoardMatches = [...lastRawText.matchAll(/<raw_board>\s*(.*?)\s*<\/raw_board>/gis)];
+      if (lastBoardMatches.length) {
+        const lastRawBoard = (lastBoardMatches[lastBoardMatches.length - 1]![1] ?? '')
+          .replace(/\s+/g, '').replace(/\n/g, '');
+        const repaired = validateAndRepairBoard(lastRawBoard);
+        if (repaired) {
+          let fenBoard = repaired.board;
+          if (savedPerspective === 'black') {
+            const rows = fenBoard.split('/');
+            rows.reverse();
+            fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
+          }
+          log.info(
+            { fenBoard, perspective: savedPerspective, autoFixed: repaired.autoFixed },
+            '[VideoDB] extractFen (parallel): local auto-correction succeeded'
+          );
+          return { fenBoard, perspective: savedPerspective, retried: true };
+        }
+        log.warn('[VideoDB] extractFen (parallel): local auto-correction also failed — dropping frame');
+      }
+
       return null;
     };
 
@@ -919,6 +1019,7 @@ Text to analyze:
       reportedTurn: 'w' | 'b' | null;
       reportedLastMoveFrom: string | null;
       reportedLastMoveTo:   string | null;
+      retried: boolean;
     } | null> => {
       type TurnMsg = {
         role: 'user' | 'assistant';
@@ -1004,6 +1105,7 @@ Text to analyze:
             reportedTurn,
             reportedLastMoveFrom: acceptPair ? from : null,
             reportedLastMoveTo:   acceptPair ? to   : null,
+            retried: attempt > 0,
           };
         } catch (err) {
           log.error({ err }, '[VideoDB] extractTurn (parallel): API error');
@@ -1013,7 +1115,7 @@ Text to analyze:
 
       // Exhausted retries — return whatever the last turn tag said, but drop bad squares
       log.warn('[VideoDB] extractTurn (parallel): move pair still invalid after retry — dropping squares');
-      return { perspective: 'white', reportedTurn: null, reportedLastMoveFrom: null, reportedLastMoveTo: null };
+      return { perspective: 'white', reportedTurn: null, reportedLastMoveFrom: null, reportedLastMoveTo: null, retried: true };
     };
 
     // ── Run FEN + turn calls in parallel ────────────────────────────────────
@@ -1036,6 +1138,7 @@ Text to analyze:
     // If invalid, fire one more turn call with the FEN board available for
     // context in the correction prompt.
     let resolvedTurn = turnResult;
+    let postMergeRetried = false;
     if (
       turnResult?.reportedLastMoveFrom !== null &&
       turnResult?.reportedLastMoveTo   !== null &&
@@ -1048,7 +1151,13 @@ Text to analyze:
         '[VideoDB] extractFenAndTurnFromImage: move pair failed post-merge FEN validation — retrying turn call with FEN context',
       );
       resolvedTurn = await turnCall(fenResult.fenBoard);
+      postMergeRetried = true;
     }
+
+    const noRetryNeeded =
+      !fenResult.retried &&
+      !(turnResult?.retried ?? false) &&
+      !postMergeRetried;
 
     return {
       fenBoard:             fenResult.fenBoard,
@@ -1056,6 +1165,7 @@ Text to analyze:
       reportedTurn:         resolvedTurn?.reportedTurn         ?? null,
       reportedLastMoveFrom: resolvedTurn?.reportedLastMoveFrom ?? null,
       reportedLastMoveTo:   resolvedTurn?.reportedLastMoveTo   ?? null,
+      noRetryNeeded,
     };
   }
 }

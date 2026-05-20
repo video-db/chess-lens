@@ -43,6 +43,9 @@ interface CycleSummary {
   totalMs?: number;
   phases?: PhaseRecord;
   steps: StepRecord;
+  promotionPath?: 'fast' | 'slow' | 'unknown';
+  fenRetried?: boolean;
+  turnTimedOut?: boolean;
 }
 
 // ─── Percentile helpers ───────────────────────────────────────────────────────
@@ -133,12 +136,15 @@ function parsePinoPrettyBlock(block: string): CycleSummary | null {
       return m ? m[1] : undefined;
     };
     return {
-      cycleId: extractNum('cycleId') ?? 0,
-      reason:  extractStr('reason')  ?? '',
-      e2eMs:   extractNum('e2eMs'),
-      totalMs: extractNum('totalMs'),
-      phases:  extract('phases')  as PhaseRecord | undefined,
-      steps:   (extract('steps') ?? {}) as StepRecord,
+      cycleId:       extractNum('cycleId') ?? 0,
+      reason:        extractStr('reason')  ?? '',
+      e2eMs:         extractNum('e2eMs'),
+      totalMs:       extractNum('totalMs'),
+      phases:        extract('phases')  as PhaseRecord | undefined,
+      steps:         (extract('steps') ?? {}) as StepRecord,
+      promotionPath: extractStr('promotionPath') as 'fast' | 'slow' | 'unknown' | undefined,
+      fenRetried:    jsonBody.includes('"fenRetried": true')  || jsonBody.includes('fenRetried: true'),
+      turnTimedOut:  jsonBody.includes('"turnTimedOut": true') || jsonBody.includes('turnTimedOut: true'),
     };
   }
 }
@@ -172,52 +178,6 @@ function parseLine(line: string): CycleSummary | null {
  *   - Single-line pino JSON (production)
  *   - Multi-line pino-pretty blocks (dev / --stdin)
  */
-async function processLineStream(
-  lines: AsyncIterable<string>,
-  acc: Accumulator,
-): Promise<number> {
-  let count = 0;
-  let inBlock = false;
-  let blockLines: string[] = [];
-
-  const flushBlock = () => {
-    if (blockLines.length === 0) return;
-    const cycle = parsePinoPrettyBlock(blockLines.join('\n'));
-    if (cycle) { processCycle(cycle, acc); count++; }
-    blockLines = [];
-    inBlock = false;
-  };
-
-  for await (const rawLine of lines) {
-    const line = rawLine;
-    const stripped = stripAnsi(line).trim();
-
-    // Detect start of a new pino-pretty log entry (timestamp pattern)
-    const isNewEntry = /^\[[\d\-: .+]+\]/.test(stripped);
-
-    if (isNewEntry) {
-      if (inBlock) flushBlock();
-      if (stripped.includes(SUMMARY_MSG)) {
-        inBlock = true;
-        blockLines = [line];
-      } else {
-        // Single-line production JSON check
-        const cycle = parseLine(line);
-        if (cycle) { processCycle(cycle, acc); count++; }
-      }
-    } else if (inBlock) {
-      blockLines.push(line);
-    } else {
-      // Not in a block — try single-line parse anyway
-      const cycle = parseLine(line);
-      if (cycle) { processCycle(cycle, acc); count++; }
-    }
-  }
-
-  if (inBlock) flushBlock();
-  return count;
-}
-
 function extractStepMs(raw: number | string | undefined): number | null {
   if (raw === undefined || raw === null) return null;
   if (typeof raw === 'number') return raw;
@@ -232,7 +192,16 @@ interface Accumulator {
   [key: string]: number[];
 }
 
-function processCycle(cycle: CycleSummary, acc: Accumulator): void {
+interface Counters {
+  fast: number;
+  slow: number;
+  unknown: number;
+  fenRetried: number;
+  turnTimedOut: number;
+  total: number;
+}
+
+function processCycle(cycle: CycleSummary, acc: Accumulator, counters: Counters): void {
   const add = (key: string, val: number | null | undefined) => {
     if (val == null || !Number.isFinite(val)) return;
     if (!acc[key]) acc[key] = [];
@@ -248,6 +217,19 @@ function processCycle(cycle: CycleSummary, acc: Accumulator): void {
   for (const [step, raw] of Object.entries(cycle.steps ?? {})) {
     add(`step.${step}`, extractStepMs(raw as number | string));
   }
+
+  // Per-path e2e breakdowns
+  const path = cycle.promotionPath ?? 'unknown';
+  add(`e2e.${path}`, cycle.e2eMs);
+  add(`phase.fenStabilization.${path}`, cycle.phases?.fenStabilizationMs);
+
+  // Counters
+  counters.total++;
+  if (path === 'fast')        counters.fast++;
+  else if (path === 'slow')   counters.slow++;
+  else                        counters.unknown++;
+  if (cycle.fenRetried)   counters.fenRetried++;
+  if (cycle.turnTimedOut) counters.turnTimedOut++;
 }
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
@@ -291,17 +273,33 @@ function row(label: string, values: number[]): string {
   ].join('  ');
 }
 
-function print(acc: Accumulator, cycleCount: number): void {
+function print(acc: Accumulator, counters: Counters): void {
+  const cycleCount = counters.total;
   console.log('');
   console.log(`  Chess-Lens Pipeline Latency Analysis  (${cycleCount} completed coaching cycles)`);
   console.log('  All times in milliseconds');
   console.log('');
+
+  // ── Promotion path summary ────────────────────────────────────────────────
+  const pct = (n: number) => cycleCount > 0 ? `${Math.round((n / cycleCount) * 100)}%` : '–';
+  console.log(`  Promotion path:  fast=${counters.fast} (${pct(counters.fast)})  slow=${counters.slow} (${pct(counters.slow)})  unknown=${counters.unknown}`);
+  console.log(`  FEN retried:     ${counters.fenRetried}/${cycleCount} (${pct(counters.fenRetried)})`);
+  console.log(`  Turn timed out:  ${counters.turnTimedOut}/${cycleCount} (${pct(counters.turnTimedOut)})`);
+  console.log('');
+
   console.log('  ' + header());
   console.log('  ' + separator());
 
-  // End-to-end first
-  const e2eRow = row('e2e (FEN→coachingTip)', acc['e2e'] ?? []);
+  // End-to-end (all cycles)
+  const e2eRow = row('e2e (all cycles)', acc['e2e'] ?? []);
   if (e2eRow) console.log('  ' + e2eRow);
+
+  // Per-path e2e breakdown
+  const e2eFastRow = row('  e2e fast-path', acc['e2e.fast'] ?? []);
+  if (e2eFastRow) console.log('  ' + e2eFastRow);
+  const e2eSlowRow = row('  e2e slow-path', acc['e2e.slow'] ?? []);
+  if (e2eSlowRow) console.log('  ' + e2eSlowRow);
+
   const totalRow = row('totalMs (cycle window)', acc['totalMs'] ?? []);
   if (totalRow) console.log('  ' + totalRow);
 
@@ -310,9 +308,11 @@ function print(acc: Accumulator, cycleCount: number): void {
   console.log('  ' + separator());
 
   const phases = [
-    ['phase.fenStabilization', 'fenStabilization'],
-    ['phase.engineAnalysis',   'engineAnalysis'],
-    ['phase.tipGeneration',    'tipGeneration'],
+    ['phase.fenStabilization',       'fenStabilization (all)'],
+    ['phase.fenStabilization.fast',  '  fenStabilization fast'],
+    ['phase.fenStabilization.slow',  '  fenStabilization slow'],
+    ['phase.engineAnalysis',         'engineAnalysis'],
+    ['phase.tipGeneration',          'tipGeneration'],
   ] as const;
   for (const [key, label] of phases) {
     const r = row(label, acc[key] ?? []);
@@ -352,7 +352,7 @@ function print(acc: Accumulator, cycleCount: number): void {
   console.log('  ' + separator());
   console.log('');
 
-  // Dominant stage callout
+  // Dominant stage callout — exclude per-path e2e keys, only compare real steps
   const stageKeys = stepOrder.filter(k => (acc[k] ?? []).length > 0);
   if (stageKeys.length > 0) {
     const dominant = stageKeys.reduce((best, k) => {
@@ -397,20 +397,68 @@ function autoDetectLogs(): string[] {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-// kept for compatibility; delegates to processLineStream
-async function processLines(lines: AsyncIterable<string>, acc: Accumulator): Promise<number> {
-  return processLineStream(lines, acc);
+function makeCounters(): Counters {
+  return { fast: 0, slow: 0, unknown: 0, fenRetried: 0, turnTimedOut: 0, total: 0 };
+}
+
+async function processLineStream(
+  lines: AsyncIterable<string>,
+  acc: Accumulator,
+  counters: Counters,
+): Promise<number> {
+  let count = 0;
+  let inBlock = false;
+  let blockLines: string[] = [];
+
+  const flushBlock = () => {
+    if (blockLines.length === 0) return;
+    const cycle = parsePinoPrettyBlock(blockLines.join('\n'));
+    if (cycle) { processCycle(cycle, acc, counters); count++; }
+    blockLines = [];
+    inBlock = false;
+  };
+
+  for await (const rawLine of lines) {
+    const line = rawLine;
+    const stripped = stripAnsi(line).trim();
+
+    const isNewEntry = /^\[[\d\-: .+]+\]/.test(stripped);
+
+    if (isNewEntry) {
+      if (inBlock) flushBlock();
+      if (stripped.includes(SUMMARY_MSG)) {
+        inBlock = true;
+        blockLines = [line];
+      } else {
+        const cycle = parseLine(line);
+        if (cycle) { processCycle(cycle, acc, counters); count++; }
+      }
+    } else if (inBlock) {
+      blockLines.push(line);
+    } else {
+      const cycle = parseLine(line);
+      if (cycle) { processCycle(cycle, acc, counters); count++; }
+    }
+  }
+
+  if (inBlock) flushBlock();
+  return count;
+}
+
+// kept for compatibility
+async function processLines(lines: AsyncIterable<string>, acc: Accumulator, counters: Counters): Promise<number> {
+  return processLineStream(lines, acc, counters);
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const acc: Accumulator = {};
-  let totalCycles = 0;
+  const counters = makeCounters();
 
   if (args.includes('--stdin')) {
     console.log('  Reading from stdin … (press Ctrl+C to stop and print results)');
     const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-    totalCycles += await processLines(rl, acc);
+    await processLines(rl, acc, counters);
   } else {
     let files: string[] = args.filter(a => !a.startsWith('--'));
 
@@ -447,11 +495,11 @@ async function main(): Promise<void> {
         input: fs.createReadStream(file, { encoding: 'utf8' }),
         crlfDelay: Infinity,
       });
-      totalCycles += await processLines(rl, acc);
+      await processLines(rl, acc, counters);
     }
   }
 
-  if (totalCycles === 0) {
+  if (counters.total === 0) {
     console.error([
       '',
       '  No [PipelineLatency] Cycle summary lines found.',
@@ -465,7 +513,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  print(acc, totalCycles);
+  print(acc, counters);
 }
 
 main().catch(err => {

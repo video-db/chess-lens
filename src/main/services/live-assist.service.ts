@@ -1713,7 +1713,7 @@ class LiveAssistService extends EventEmitter {
         engineMate: this.lastEngineMate,
       });
       const syntheticText = `<source>\nscreenshot\n</source>\n\n<perspective>\nwhite\n</perspective>\n\n<raw_board>\n${fenBoard}\n</raw_board>`;
-      this.addVisualIndex(syntheticText);
+      this.addVisualIndexRaw(syntheticText);
       return true;
     }
 
@@ -1889,8 +1889,10 @@ class LiveAssistService extends EventEmitter {
     // The <source>screenshot</source> tag marks this as coming from the
     // validated screenshot path so extractLatestFen can prefer it over
     // RTStream board_mapping items which may be noisy or incorrectly normalised.
+    // We bypass the addVisualIndex actionability filter here — the raw XML tags
+    // must be stored verbatim so extractLatestFen can parse <raw_board> later.
     const syntheticText = `<source>\nscreenshot\n</source>\n\n<perspective>\nwhite\n</perspective>\n\n<raw_board>\n${fenBoard}\n</raw_board>`;
-    this.addVisualIndex(syntheticText);
+    this.addVisualIndexRaw(syntheticText);
     return true;
   }
 
@@ -1930,8 +1932,6 @@ class LiveAssistService extends EventEmitter {
       '[LiveAssist] Visual feed item received'
     );
 
-    const low = actionableText.toLowerCase();
-
     this.visualIndexBuffer.push({
       text: actionableText,
       timestamp: now,
@@ -1946,6 +1946,51 @@ class LiveAssistService extends EventEmitter {
     this.visualIndexBuffer = this.visualIndexBuffer.filter(v => v.timestamp > cutoff);
 
     log.debug({ bufferSizeAfter: this.visualIndexBuffer.length }, '[LiveAssist] Visual feed buffered');
+  }
+
+  /**
+   * Like addVisualIndex but stores the raw text verbatim without applying the
+   * actionability filter or sanitization.
+   *
+   * Used exclusively by injectConfirmedFen() for screenshot-path synthetic XML
+   * text whose <source>, <perspective>, and <raw_board> tags must be preserved
+   * exactly so that extractLatestFen() can parse them later.  The normal
+   * addVisualIndex() path strips XML tags via sanitizeInsightText(), which
+   * destroys the structure extractLatestFen() relies on.
+   */
+  private addVisualIndexRaw(text: string): void {
+    if (!this.isRunning) return;
+
+    const now = Date.now();
+
+    // Dedup: skip if identical text was just added within the duplicate window.
+    const isLikelyDuplicate =
+      this.lastVisualText === text &&
+      (now - this.lastVisualTextAt) <= VISUAL_DUPLICATE_WINDOW_MS;
+
+    if (isLikelyDuplicate) {
+      log.debug('[LiveAssist] addVisualIndexRaw: skipping duplicate screenshot injection');
+      // Still schedule processing so the cycle is not silently dropped when the
+      // board hasn't changed but a new cycle needs to be evaluated.
+      this.scheduleProcessing();
+      return;
+    }
+
+    this.lastVisualText = text;
+    this.lastVisualTextAt = now;
+
+    this.visualIndexBuffer.push({ text, timestamp: now });
+
+    log.debug(
+      { preview: text.substring(0, 120), bufferSizeBefore: this.visualIndexBuffer.length },
+      '[LiveAssist] addVisualIndexRaw: screenshot-path FEN injected'
+    );
+
+    this.scheduleProcessing();
+
+    const timingProfile = getGameVisualIndexTiming(this.activeGameId);
+    const cutoff = now - timingProfile.visualContextWindowMs;
+    this.visualIndexBuffer = this.visualIndexBuffer.filter(v => v.timestamp > cutoff);
   }
 
   /**

@@ -4,26 +4,26 @@
  * Tracks wall-clock latency for each stage of the chess coaching pipeline
  * and logs a structured summary only when a full coaching cycle completes.
  *
- * Pipeline stages (in order):
- *   1. screenshot   — desktopCapturer.getSources() + toPNG() encode
- *   2. fenExtract   — gpt-5.4 vision call (vote read 1, in a prior cycle)
- *   3. fenExtract   — gpt-5.4 vision call (vote read 2, confirming cycle)
- *   4. voteConfirm  — majority-vote buffer produces a confirmed FEN
- *   5. engineCall   — chess-api.com depth-12 analysis
- *   6. engineTip    — format + emit engine-only overlay tip
- *   7. coachingLLM  — VideoDB `pro` model coaching call (background)
- *   8. coachingTip  — parse + emit final coaching tip
+ * ─── Pipeline paths ──────────────────────────────────────────────────────────
  *
- * ─── Phase model ─────────────────────────────────────────────────────────────
+ *  FAST PATH (high-confidence single read):
+ *   screenshot → fenExtract → voteConfirm(≈0ms) → engineCall → engineTip
+ *                                                             → coachingLLM → coachingTip
  *
- *   fenStabilizationMs  = fenExtract1 + screenshot2 + fenExtract2 + voteConfirm
- *   engineAnalysisMs    = engineCall  + engineTip
- *   tipGenerationMs     = coachingLLM + coachingTip
- *   e2eMs               = fenStabilizationMs + engineAnalysisMs + tipGenerationMs
+ *   fenStabilizationMs  = fenExtract (single read, wall-clock from seenAt to voteConfirm end)
  *
- * Only the final successful coaching cycle is emitted (`reason = 'coachingTip'`).
- * Earlier abandoned cycles (voteInconclusive, fenNull, fenUnchanged, etc.) are
- * tracked internally but intentionally not logged to keep output focused.
+ *  SLOW PATH (majority-vote two reads):
+ *   [cycle N]  screenshot → fenExtract (read 1) → voteInconclusive
+ *   [cycle N+1] screenshot → fenExtract (read 2) → voteConfirm → engineCall → engineTip
+ *                                                              → coachingLLM → coachingTip
+ *
+ *   fenStabilizationMs  = fenExtract1 + scheduler gap + screenshot2 + fenExtract2 + voteConfirm
+ *
+ * ─── Promotion metadata ──────────────────────────────────────────────────────
+ *
+ *  promotionPath   — 'fast' (single-read fast-path) | 'slow' (majority-vote)
+ *  fenRetried      — true when the FEN vision call needed a math-error recount
+ *  turnTimedOut    — true when the turn vision call timed out or returned null
  *
  * ─── Usage ───────────────────────────────────────────────────────────────────
  *
@@ -32,12 +32,12 @@
  *   tracker.startStep(cycleId, 'screenshot')
  *   tracker.endStep(cycleId, 'screenshot')
  *
- * After vote read 1 completes and the FEN enters the buffer, call:
+ * After FEN promotion call:
  *   tracker.setVoteMeta(cycleId, { seenAt, fenExtract1Ms })
- * on the *confirming* cycle (passed in via injectConfirmedFen).
+ *   tracker.setPromotionMeta(cycleId, { promotionPath, fenRetried, turnTimedOut })
  *
- * When all expected steps in a cycle have ended (or when endCycle() is called
- * explicitly), a summary log line is emitted at INFO level.
+ * When the coaching tip is emitted:
+ *   tracker.endCycle(cycleId, 'coachingTip')
  */
 
 import { logger } from './logger';
@@ -45,13 +45,13 @@ import { logger } from './logger';
 const log = logger.child({ module: 'pipeline-latency' });
 
 export type PipelineStep =
-  | 'screenshot'    // Stage 1: desktopCapturer capture + PNG encode (vote read 2 cycle)
-  | 'fenExtract'    // Stage 2: gpt-5.4 vision LLM call (vote read 2)
-  | 'voteConfirm'   // Stage 3: majority-vote confirmation
-  | 'engineCall'    // Stage 4/5a: chess-api.com engine analysis
-  | 'engineTip'     // Stage 5a: format + emit engine-only tip
-  | 'coachingLLM'   // Stage 5b/6: VideoDB `pro` coaching call (background)
-  | 'coachingTip';  // Stage 7: parse + emit final coaching tip
+  | 'screenshot'    // desktopCapturer capture + PNG encode
+  | 'fenExtract'    // gpt-5.4 vision LLM call (current cycle's read)
+  | 'voteConfirm'   // majority-vote confirmation (≈0ms on fast path)
+  | 'engineCall'    // chess-api.com engine analysis
+  | 'engineTip'     // format + emit engine-only tip
+  | 'coachingLLM'   // coaching LLM call (background)
+  | 'coachingTip';  // parse + emit final coaching tip
 
 /** Ordered list used to compute step latencies in the summary. */
 const STEP_ORDER: PipelineStep[] = [
@@ -79,21 +79,38 @@ interface StepTiming {
 
 /**
  * Metadata about vote read 1 — stored on the confirming cycle so the
- * fenStabilization phase can be computed from both reads together.
+ * fenStabilization phase can be computed correctly for both paths.
+ *
+ * Fast path:  seenAt = start of the single read, fenExtract1Ms = that read's duration.
+ * Slow path:  seenAt = start of read 1 in a prior cycle, fenExtract1Ms = that read's duration.
  */
 export interface VoteMeta {
-  /** Date.now() when the FEN was first extracted (start of vote read 1). */
+  /** Date.now() when the FEN was first extracted (start of vote read 1 or fast-path read). */
   seenAt: number;
-  /** Wall-clock duration of the vote read 1 fenExtract LLM call, in ms. */
+  /** Wall-clock duration of the FEN extraction LLM call, in ms. */
   fenExtract1Ms: number;
+}
+
+/**
+ * Metadata about how the FEN was promoted into live-assist.
+ */
+export interface PromotionMeta {
+  /** 'fast' = single-read fast-path promotion; 'slow' = majority-vote two-read path. */
+  promotionPath: 'fast' | 'slow';
+  /** True when the FEN call needed a math-error recount retry (attempt > 0). */
+  fenRetried: boolean;
+  /** True when the turn call timed out or returned null. */
+  turnTimedOut: boolean;
 }
 
 interface CycleRecord {
   cycleId: number;
   createdAt: number;
   steps: Partial<Record<PipelineStep, StepTiming>>;
-  /** Metadata from vote read 1 — set by setVoteMeta() after injectConfirmedFen. */
+  /** Metadata from the FEN extraction — set by setVoteMeta(). */
   voteMeta?: VoteMeta;
+  /** Metadata about how the FEN was promoted — set by setPromotionMeta(). */
+  promotionMeta?: PromotionMeta;
   /** True once the summary has been logged (avoid double-logging). */
   logged: boolean;
   /** The reason string from the first endCycle call that closed this cycle. */
@@ -141,7 +158,7 @@ class PipelineLatencyTracker {
     const cycle = this.cycles.get(cycleId);
     if (!cycle) return;
     const s = cycle.steps[step];
-    if (!s) return; // endStep called without startStep — ignore
+    if (!s) return;
     const endAt = Date.now();
     s.endAt = endAt;
     s.elapsedMs = endAt - s.startAt;
@@ -149,11 +166,8 @@ class PipelineLatencyTracker {
   }
 
   /**
-   * Attach vote-read-1 metadata to the confirming cycle.
-   * Call this from live-assist after injectConfirmedFen stores the cycleId.
-   *
-   * @param cycleId  The confirming cycle (vote read 2).
-   * @param meta     seenAt + fenExtract1Ms from the vote-read-1 cycle.
+   * Attach FEN extraction metadata to the cycle.
+   * Call from chess-screenshot.service after FEN is promoted into live-assist.
    */
   setVoteMeta(cycleId: number, meta: VoteMeta): void {
     const cycle = this.cycles.get(cycleId);
@@ -162,8 +176,17 @@ class PipelineLatencyTracker {
   }
 
   /**
+   * Attach promotion-path metadata to the cycle.
+   * Call from chess-screenshot.service when a FEN is promoted (fast or slow path).
+   */
+  setPromotionMeta(cycleId: number, meta: PromotionMeta): void {
+    const cycle = this.cycles.get(cycleId);
+    if (!cycle) return;
+    cycle.promotionMeta = meta;
+  }
+
+  /**
    * Explicitly close a cycle and emit the latency summary.
-   *
    * @param reason  Short human-readable label (e.g. 'coachingTip', 'fenNull').
    */
   endCycle(cycleId: number, reason: string): void {
@@ -200,47 +223,50 @@ class PipelineLatencyTracker {
     }
 
     const vm = cycle.voteMeta;
+    const pm = cycle.promotionMeta;
 
     // ── Phase computation (only when vote meta is available) ────────────────
     let phases: Record<string, number> | undefined;
     let e2eMs: number | undefined;
 
     if (vm !== undefined && lastEnd !== undefined) {
-      // fenStabilization: from first extraction start to vote confirmed
-      //   = fenExtract1 duration
-      //   + gap between read-1 end and read-2 screenshot start (scheduler delay)
-      //   + screenshot2 + fenExtract2 + voteConfirm of this cycle
-      const screenshot2Ms  = (cycle.steps.screenshot?.elapsedMs  ?? 0);
-      const fenExtract2Ms  = (cycle.steps.fenExtract?.elapsedMs  ?? 0);
-      const voteConfirmMs  = (cycle.steps.voteConfirm?.elapsedMs ?? 0);
+      const screenshot2Ms = (cycle.steps.screenshot?.elapsedMs ?? 0);
+      const fenExtract2Ms = (cycle.steps.fenExtract?.elapsedMs  ?? 0);
+      const voteConfirmMs = (cycle.steps.voteConfirm?.elapsedMs ?? 0);
 
-      // Wall-clock time from first extraction start to vote confirmed end.
+      // fenStabilization:
+      //   fast path: wall-clock from seenAt (start of the single read) to voteConfirm end
+      //   slow path: wall-clock from read-1 seenAt to vote-confirmed end
+      // Both paths store seenAt correctly so the formula is the same.
       const voteConfirmEnd = cycle.steps.voteConfirm?.endAt ?? cycle.steps.fenExtract?.endAt;
       const fenStabilizationMs = voteConfirmEnd !== undefined
         ? voteConfirmEnd - vm.seenAt
         : vm.fenExtract1Ms + screenshot2Ms + fenExtract2Ms + voteConfirmMs;
 
-      // engineAnalysis: engineCall + engineTip
       const engineAnalysisMs = PHASE_STEPS.engine.reduce(
         (sum, step) => sum + (cycle.steps[step]?.elapsedMs ?? 0), 0
       );
 
-      // tipGeneration: coachingLLM + coachingTip
       const tipGenerationMs = PHASE_STEPS.tip.reduce(
         (sum, step) => sum + (cycle.steps[step]?.elapsedMs ?? 0), 0
       );
 
       e2eMs = lastEnd - vm.seenAt;
 
-      // Only include phases that actually ran (non-zero)
       phases = {};
       phases.fenStabilizationMs = fenStabilizationMs;
       if (engineAnalysisMs > 0) phases.engineAnalysisMs = engineAnalysisMs;
       if (tipGenerationMs  > 0) phases.tipGenerationMs  = tipGenerationMs;
 
-      // Expose read-1 and read-2 fenExtract durations explicitly in steps
-      stepLatencies['fenExtract1'] = vm.fenExtract1Ms;
-      stepLatencies['fenExtract2'] = fenExtract2Ms;
+      // On slow path: expose both reads separately for easy comparison.
+      // On fast path: expose only fenExtract1 (the single read); fenExtract2 = 0.
+      if (pm?.promotionPath === 'fast') {
+        stepLatencies['fenExtract1'] = vm.fenExtract1Ms;
+        stepLatencies['fenExtract2'] = 0; // fast path — second read skipped
+      } else {
+        stepLatencies['fenExtract1'] = vm.fenExtract1Ms;
+        stepLatencies['fenExtract2'] = fenExtract2Ms;
+      }
       delete stepLatencies['fenExtract']; // replaced by the two named entries
     }
 
@@ -256,9 +282,13 @@ class PipelineLatencyTracker {
       {
         cycleId: cycle.cycleId,
         reason,
-        ...(e2eMs   !== undefined ? { e2eMs }   : {}),
-        ...(totalMs !== undefined ? { totalMs }  : {}),
-        ...(phases  !== undefined ? { phases }   : {}),
+        ...(e2eMs     !== undefined ? { e2eMs }     : {}),
+        ...(totalMs   !== undefined ? { totalMs }    : {}),
+        ...(phases    !== undefined ? { phases }     : {}),
+        // Promotion metadata — always included when available
+        promotionPath:  pm?.promotionPath  ?? 'unknown',
+        fenRetried:     pm?.fenRetried     ?? false,
+        turnTimedOut:   pm?.turnTimedOut   ?? false,
         steps: stepLatencies,
       },
       '[PipelineLatency] Cycle summary'
