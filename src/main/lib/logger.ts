@@ -14,8 +14,8 @@ function getLogsDir(): string {
 
     return logsDir;
   } catch {
-    // App not ready yet, use temp
-    return '/tmp';
+    // App not ready yet, fall back to OS temp dir
+    return process.env.TEMP || process.env.TMP || '/tmp';
   }
 }
 
@@ -28,62 +28,81 @@ function getLogFilePath(): string {
 const isElectron = Boolean(app?.isPackaged);
 const isDev = process.env.NODE_ENV === 'development' || !isElectron;
 
-// Create file stream for logging in production
+// ─── File stream (always open, dev and prod) ─────────────────────────────────
+//
+// Lazily opened on first write so that `app.getPath('userData')` is
+// guaranteed to be available (the app is fully initialised by then).
+
 let fileStream: fs.WriteStream | null = null;
 
 function getFileStream(): fs.WriteStream {
   if (!fileStream) {
     const logPath = getLogFilePath();
     fileStream = fs.createWriteStream(logPath, { flags: 'a' });
-
-    // Log the log file location at startup
     console.log(`[Logger] Writing logs to: ${logPath}`);
   }
   return fileStream;
 }
 
-// Custom destination that writes to both console and file
-const multiStream = {
-  write(msg: string) {
-    // Always write to stdout
-    process.stdout.write(msg);
-
-    // In production, also write to file
-    if (!isDev) {
-      try {
-        getFileStream().write(msg);
-      } catch (e) {
-        // Ignore file write errors
-      }
+// Destination object for the file — pino writes newline-delimited JSON here.
+const fileDestination = {
+  write(msg: string): void {
+    try {
+      getFileStream().write(msg);
+    } catch {
+      // Ignore file write errors — never crash the app over logging
     }
   },
 };
 
-export const logger = pino(
-  {
-    level: isDev ? 'debug' : 'info',
-    transport: isDev
-      ? {
-          target: 'pino-pretty',
-          options: {
-            colorize: true,
-            translateTime: 'SYS:standard',
-            ignore: 'pid,hostname',
-            // Increase object depth so nested fields like phases/steps are
-            // not truncated in the terminal output. Default is 4.
-            objectPrintDepth: 10,
-            // Print each key on its own line for readability.
-            singleLine: false,
-          },
-        }
-      : undefined,
-    base: {
-      pid: process.pid,
+// ─── Logger construction ─────────────────────────────────────────────────────
+//
+// In dev:   pino-pretty → terminal (colourised, readable)
+//           + raw JSON  → app-YYYY-MM-DD.log  (machine-readable, analysable)
+//
+// In prod:  raw JSON    → both stdout and app-YYYY-MM-DD.log
+
+let logger: pino.Logger;
+
+if (isDev) {
+  // pino.transport() creates a worker-thread pretty-printer that writes to
+  // stdout.  We simultaneously write raw JSON to the log file via a sync
+  // destination so the latency analyser can parse it later.
+  const prettyTransport = pino.transport({
+    target: 'pino-pretty',
+    options: {
+      colorize: true,
+      translateTime: 'SYS:standard',
+      ignore: 'pid,hostname',
+      objectPrintDepth: 10,
+      singleLine: false,
     },
-  },
-  // In production, use our multi-stream; in dev, let pino-pretty handle it
-  isDev ? undefined : multiStream
-);
+  });
+
+  // multistream: pretty to terminal, JSON to file
+  logger = pino(
+    { level: 'debug', base: { pid: process.pid } },
+    pino.multistream([
+      { stream: prettyTransport, level: 'debug' },
+      { stream: fileDestination, level: 'debug' },
+    ]),
+  );
+} else {
+  // Production: write JSON to both stdout and the log file
+  const prodStream = {
+    write(msg: string): void {
+      process.stdout.write(msg);
+      fileDestination.write(msg);
+    },
+  };
+
+  logger = pino(
+    { level: 'info', base: { pid: process.pid } },
+    prodStream,
+  );
+}
+
+export { logger };
 
 export function createChildLogger(name: string) {
   return logger.child({ module: name });

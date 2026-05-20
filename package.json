@@ -30,6 +30,7 @@
 		"tools:recover-session": "ts-node ./tools/recoverSession.ts",
 		"tools:check-model": "tsx ./tools/checkModelAvailability.ts",
 		"tools:simulate-pipeline-latency": "tsx ./tools/simulatePipelineLatency.ts",
+		"tools:analyze-latency": "tsx ./tools/analyzeLatencyLogs.ts",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build"
 	},
