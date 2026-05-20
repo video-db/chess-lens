@@ -170,20 +170,52 @@ function ChessBoard({
                 />
               )}
               {piece && (
-                <text
-                  x={x + sq / 2}
-                  y={y + sq / 2 + 1}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fontSize={sq * 0.72}
-                  style={{ userSelect: 'none' }}
-                  fill={piece === piece.toUpperCase() ? '#fff' : '#111'}
-                  stroke={piece === piece.toUpperCase() ? '#555' : '#ddd'}
-                  strokeWidth={0.4}
-                  paintOrder="stroke"
-                >
-                  {PIECE_UNICODE[piece] ?? piece}
-                </text>
+                piece === piece.toUpperCase() ? (
+                  /* White piece: dark outline layer first, solid white fill on top */
+                  <>
+                    <text
+                      x={x + sq / 2}
+                      y={y + sq / 2 + 1}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize={sq * 0.72}
+                      style={{ userSelect: 'none' }}
+                      fill="#ffffff"
+                      stroke="#444444"
+                      strokeWidth={2.2}
+                      paintOrder="stroke fill"
+                    >
+                      {PIECE_UNICODE[piece] ?? piece}
+                    </text>
+                    <text
+                      x={x + sq / 2}
+                      y={y + sq / 2 + 1}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize={sq * 0.72}
+                      style={{ userSelect: 'none' }}
+                      fill="#ffffff"
+                    >
+                      {PIECE_UNICODE[piece] ?? piece}
+                    </text>
+                  </>
+                ) : (
+                  /* Black piece: solid dark fill with a light outline */
+                  <text
+                    x={x + sq / 2}
+                    y={y + sq / 2 + 1}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize={sq * 0.72}
+                    style={{ userSelect: 'none' }}
+                    fill="#111111"
+                    stroke="#dddddd"
+                    strokeWidth={0.4}
+                    paintOrder="stroke fill"
+                  >
+                    {PIECE_UNICODE[piece] ?? piece}
+                  </text>
+                )
               )}
             </g>
           );
