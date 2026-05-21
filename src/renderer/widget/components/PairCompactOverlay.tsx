@@ -1428,6 +1428,16 @@ export function PairCompactOverlay({
             WebkitAppRegion: 'drag',
           } as React.CSSProperties}>
 
+          {/* 6-dot drag grid — same symbol as expanded OverlayHeader */}
+          <svg width="12" height="20" viewBox="0 0 12 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+            <circle cx="3" cy="3"   r="1.5" fill="#242424"/>
+            <circle cx="9" cy="3"   r="1.5" fill="#242424"/>
+            <circle cx="3" cy="10"  r="1.5" fill="#242424"/>
+            <circle cx="9" cy="10"  r="1.5" fill="#242424"/>
+            <circle cx="3" cy="17"  r="1.5" fill="#242424"/>
+            <circle cx="9" cy="17"  r="1.5" fill="#242424"/>
+          </svg>
+
           {/* Wordmark + timer */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6.73, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             {/* Wordmark — matches Figma collapsed bar icon (26×29 wordmark image) */}
