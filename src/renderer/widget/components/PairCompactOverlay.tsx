@@ -1041,7 +1041,7 @@ export function PairCompactOverlay({
     [isChess, recentAskThis]
   );
 
-  const chessParagraphText = chessParagraphCard ? compact(chessParagraphCard.text, 300) : '';
+  const chessParagraphText = chessParagraphCard ? chessParagraphCard.text : '';
   const chessDrillText = chessDrillCard ? compact(chessDrillCard.text, 220) : '';
   // Strip the "engine: " prefix before displaying. No length cap — show full summary.
   const chessEngineText = chessEngineCard

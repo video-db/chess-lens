@@ -118,6 +118,16 @@ export function createWidgetWindow(): BrowserWindow {
     },
   });
 
+  // Exclude the overlay from screen captures so desktopCapturer screenshots
+  // never include the mini-board, preventing the VLM from hallucinating FENs
+  // from the overlay when no real chess board is on screen.
+  // macOS : NSWindowSharingNone  — window fully invisible to all capture APIs.
+  // Win 10 2004+ : SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) — window
+  //               completely absent from any desktopCapturer/screen-share frame.
+  // Win 10 <2004 : WDA_MONITOR — window shows as a black rectangle (no pieces
+  //               visible, so VLM still cannot read a false FEN from it).
+  widgetWindow.setContentProtection(true);
+
   // Critical: Visible on fullscreen apps (macOS)
   widgetWindow.setVisibleOnAllWorkspaces(true, {
     visibleOnFullScreen: true,

@@ -49,7 +49,7 @@ Output rules (apply regardless of personality):
 - Mention at least two concrete chess details across your two sentences: piece, square, file, diagonal, pawn break, threat, capture, king-safety issue, or development gain.
 - Write exactly two complete sentences — never cut a sentence short and never write only one sentence.
 - Do NOT use "..." chess move notation (e.g. "...e5"). Write "Black plays e5" or "Black's e5" instead.
-- Keep say_this between 30 and 55 words — two tight, concrete sentences.
+- Keep say_this between 40 and 60 words — two complete, concrete sentences. Never truncate a sentence.
 - ask_this: one short follow-up calculation question about the next 1-2 moves, under 20 words.`;
 
 export interface MeetingContext {
@@ -2341,7 +2341,7 @@ class LiveAssistService extends EventEmitter {
         const oppPieceAnchor = oppPieceDesc
           ? `Moving piece: ${oppPieceDesc} (confirmed from FEN — do NOT contradict this).`
           : '';
-        const threatPrompt = `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nYou are coaching ${playerColorLabel}. It is currently ${opponentColorLabel}'s turn.\n${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n## OPPONENT'S BEST MOVE: ${bestOppMoveSan}\n${oppPieceAnchor}\nThe engine says ${opponentColorLabel}'s best move is ${bestOppMoveSan}.\nExplain to ${playerColorLabel} what this move threatens or achieves in exactly two sentences (30–55 words total). First sentence: describe the concrete threat or idea behind ${bestOppMoveSan} — what it attacks, pins, opens, or prepares. Second sentence: tell ${playerColorLabel} what they must watch out for or how they should respond.\nOnly mention piece positions that are confirmed by the FEN. Do not invent piece locations.\nFor ask_this: ask what ${playerColorLabel}'s best defensive or counter response would be.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
+        const threatPrompt = `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nYou are coaching ${playerColorLabel}. It is currently ${opponentColorLabel}'s turn.\n${chessContext.engineSummary ? `Engine summary:\n${chessContext.engineSummary}\n` : ''}\n---\n\n## OPPONENT'S BEST MOVE: ${bestOppMoveSan}\n${oppPieceAnchor}\nThe engine says ${opponentColorLabel}'s best move is ${bestOppMoveSan}.\nExplain to ${playerColorLabel} what this move threatens or achieves in exactly two sentences (40–60 words total). First sentence: describe the concrete threat or idea behind ${bestOppMoveSan} — what it attacks, pins, opens, or prepares. Second sentence: tell ${playerColorLabel} what they must watch out for or how they should respond.\nOnly mention piece positions that are confirmed by the FEN. Do not invent piece locations.\nFor ask_this: ask what ${playerColorLabel}'s best defensive or counter response would be.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
 
         this.coachingInFlight = true;
         void this.runCoachingLLM(chessContext, chessSignature, threatPrompt, bestOppMoveSan, trackedCycleId);
@@ -2406,7 +2406,7 @@ class LiveAssistService extends EventEmitter {
       : '## TASK\nUse the best move from the engine summary above.';
 
     const userPrompt = `${gameContextSection}${chessSection}${bestMoveInstruction}
-In exactly two sentences (30–55 words total), explain why ${bestMoveSan ?? 'the engine move'} is best. First sentence: name the immediate concrete threat, square, or tactical idea it creates. Second sentence: explain the follow-up benefit, positional gain, or what it prevents.
+In exactly two sentences (40–60 words total), explain why ${bestMoveSan ?? 'the engine move'} is best. First sentence: name the immediate concrete threat, square, or tactical idea it creates. Second sentence: explain the follow-up benefit, positional gain, or what it prevents.
 Only mention piece positions confirmed by the FEN. No generic advice.
 For ask_this, write one short calculation question about the next move or likely response.
 Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
@@ -2593,7 +2593,7 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
 Previous draft was too generic or too short:
 ${currentSay || '(empty)'}
 
-Rewrite it as exactly two sentences (30–55 words total). First sentence: name the required move and explain the immediate board effect — the specific threat, square, or piece activity. Second sentence: explain the follow-up benefit or what it prevents. Return ONLY raw JSON.`;
+Rewrite it as exactly two sentences (40–60 words total). First sentence: name the required move and explain the immediate board effect — the specific threat, square, or piece activity. Second sentence: explain the follow-up benefit or what it prevents. Return ONLY raw JSON.`;
 
         const repairResponse = await llm.complete(repairPrompt, activeSystemPrompt, 15000, GPT_54_MODEL);
         if (!repairResponse.success || !repairResponse.content) return current;
@@ -2639,9 +2639,18 @@ Rewrite it as exactly two sentences (30–55 words total). First sentence: name 
 
       // Build the full coaching output — paragraph tip + engine line + drill
       const paragraph = sayThisList.find(Boolean) || '';
-      const maxParagraphChars = 1500; // 150-word cap ≈ ~900 chars; 1500 is a safe ceiling
-      const trimmedParagraph = paragraph.length > maxParagraphChars
-        ? paragraph.slice(0, maxParagraphChars).trim() : paragraph;
+      // No hard char cap — the prompt constrains length to 40-60 words.
+      // A sentence-completing safety valve: if the paragraph is unreasonably long
+      // (> 600 chars, well above 60 words) trim to the last sentence boundary within
+      // that limit so we never chop mid-sentence.
+      const PARAGRAPH_SAFETY_CHARS = 600;
+      const trimmedParagraph = paragraph.length > PARAGRAPH_SAFETY_CHARS
+        ? (() => {
+            const safe = paragraph.slice(0, PARAGRAPH_SAFETY_CHARS);
+            const lastDot = safe.lastIndexOf('.');
+            return lastDot > 0 ? safe.slice(0, lastDot + 1) : safe;
+          })()
+        : paragraph;
       if (trimmedParagraph) {
         const looksLikeFullFen = /[prnbqkPRNBQK1-8\/]+\s+[wb]\s+(?:-|[KQkq]{1,4})\s+(?:-|[a-h][36])\s+\d+\s+\d+/.test(trimmedParagraph);
         const looksLikeBoardOnly = /^[prnbqkPRNBQK1-8]+(?:\/[prnbqkPRNBQK1-8]+){7}$/.test(trimmedParagraph);
