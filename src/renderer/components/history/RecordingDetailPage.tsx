@@ -232,12 +232,12 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
             <div className="flex items-start justify-between gap-4">
               <div className="flex flex-col gap-[4px]" style={{ flex: 1 }}>
                 <span className="text-[11px] font-semibold text-text-body" style={{ textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.5 }}>White</span>
-                <span className="text-[13px] font-medium text-black">{recording.whiteOpening ?? '—'}</span>
+                <span className="text-[13px] font-medium text-black">{recording.whiteOpening ?? 'Unknown'}</span>
               </div>
               <div style={{ width: 1, background: 'rgba(0,0,0,0.08)', alignSelf: 'stretch', flexShrink: 0 }} />
               <div className="flex flex-col gap-[4px]" style={{ flex: 1 }}>
                 <span className="text-[11px] font-semibold text-text-body" style={{ textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.5 }}>Black</span>
-                <span className="text-[13px] font-medium text-black">{recording.blackOpening ?? '—'}</span>
+                <span className="text-[13px] font-medium text-black">{recording.blackOpening ?? 'Unknown'}</span>
               </div>
             </div>
           </div>

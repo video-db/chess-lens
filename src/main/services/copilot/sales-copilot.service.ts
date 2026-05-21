@@ -399,7 +399,12 @@ export class MeetingCopilotService extends EventEmitter {
     const firstFen = getLiveAssistService().getFirstFen();
     const earlyMoveSequence = getLiveAssistService().getEarlyMoveSequence();
     log.info(
-      { recordingId, firstFen: firstFen ? firstFen.slice(0, 60) : null, earlyMoveCount: earlyMoveSequence.length },
+      {
+        recordingId,
+        firstFen: firstFen ? firstFen.slice(0, 60) : null,
+        earlyMoveCount: earlyMoveSequence.length,
+        earlyMoves: earlyMoveSequence.map(e => ({ san: e.san ?? '?', fen: e.fen.slice(0, 40) })),
+      },
       'endCall: opening detection inputs from live-assist'
     );
     const meetingContext: MeetingContext = {

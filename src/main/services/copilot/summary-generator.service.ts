@@ -313,7 +313,7 @@ ${gameLog}`;
   async generateOpeningLabels(
     earlyMoveSequence: Array<{ fen: string; san?: string }>,
     firstFen?: string
-  ): Promise<{ white: string; black: string } | null> {
+  ): Promise<{ white: string | null; black: string | null } | null> {
     const systemPrompt = `You are a chess opening expert. Given either an early move sequence or a board position (FEN), identify the most likely opening for White and the most likely defense for Black.
 
 The game may have been recorded from the very beginning or joined mid-way through.
@@ -354,9 +354,15 @@ Rules:
       ? { moveCount: earlyMoveSequence.length, firstFen: earlyMoveSequence[0]?.fen?.slice(0, 40) }
       : { firstFen: firstFen?.slice(0, 40) };
 
+    log.info({ ...logCtx, userPrompt }, 'generateOpeningLabels: sending prompt to model');
+
     try {
       const result = await this.callVideoDB(fullPrompt, 'json', 'openingLabels');
-      if (!result) return null;
+      if (!result) {
+        log.warn({ ...logCtx }, 'generateOpeningLabels: model returned empty result');
+        return null;
+      }
+      log.info({ ...logCtx, rawResult: result.slice(0, 200) }, 'generateOpeningLabels: raw model response');
 
       let cleaned = result.trim()
         .replace(/^```(?:json)?\s*/i, '')
@@ -370,7 +376,12 @@ Rules:
       const white = typeof parsed.white === 'string' && parsed.white.trim() ? parsed.white.trim() : null;
       const black = typeof parsed.black === 'string' && parsed.black.trim() ? parsed.black.trim() : null;
 
-      if (white && black) {
+      // Accept the result if at least one side was identified.
+      // A missing side stays null — the UI will render it as "Unknown".
+      // We also accept the model's own "Unknown" label verbatim so that a
+      // mid-game join that is identifiable for one side but not the other is
+      // never silently dropped.
+      if (white !== null || black !== null) {
         log.info({ ...logCtx, white, black }, 'Opening labels generated');
         return { white, black };
       }

@@ -191,7 +191,7 @@ class LiveAssistService extends EventEmitter {
    * provisional model).  The snapshot sent to the renderer is built from this
    * list, giving a one-ply display lag that eliminates phantom moves.
    */
-  private canonicalMoveHistory: Array<{ board: string; san?: string; turn?: 'w' | 'b' }> = [];
+  private canonicalMoveHistory: Array<{ board: string; fen?: string; san?: string; turn?: 'w' | 'b' }> = [];
   /**
    * Provisional buffer — holds the most-recently-seen board before it has been
    * validated by a subsequent board.  Every new board lands here first; it is
@@ -199,7 +199,7 @@ class LiveAssistService extends EventEmitter {
    * If the next board cannot connect from this entry (e.g. it connects from the
    * previous committed tail instead), this entry is silently discarded.
    */
-  private pendingCanonicalEntry: { board: string; san?: string; turn?: 'w' | 'b' } | null = null;
+  private pendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b' } | null = null;
   /**
    * Previous pending entry — saved when REPLACE fires so that the following
    * board can check if it connects through the replaced (possibly real) entry.
@@ -207,7 +207,7 @@ class LiveAssistService extends EventEmitter {
    * P dropped, H is now pending).  Next real board B connects P→B but not H→B.
    * We recover P by checking prevPending→B.  P gets committed, H is discarded.
    */
-  private prevPendingCanonicalEntry: { board: string; san?: string; turn?: 'w' | 'b' } | null = null;
+  private prevPendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b' } | null = null;
   /** The first board FEN confirmed during the current session — used for opening detection. */
   private firstSeenFen: string | null = null;
   /**
@@ -1072,7 +1072,8 @@ class LiveAssistService extends EventEmitter {
    */
   private updateCanonicalHistory(
     board: string,
-  ): { history: Array<{ board: string; san?: string; turn?: 'w' | 'b' }>; resolvedSan?: string; resolvedTurn?: 'w' | 'b' } {
+    fen?: string,
+  ): { history: Array<{ board: string; fen?: string; san?: string; turn?: 'w' | 'b' }>; resolvedSan?: string; resolvedTurn?: 'w' | 'b' } {
     const committed  = this.canonicalMoveHistory;
     const pending    = this.pendingCanonicalEntry;
     const prevPending = this.prevPendingCanonicalEntry;
@@ -1108,7 +1109,7 @@ class LiveAssistService extends EventEmitter {
         { committed: pending!.board.slice(0, 24), san: pending!.san, newPending: board.slice(0, 24) },
         '[CanonicalHistory] Confirmed — committed pending entry'
       );
-      const newEntry = { board, san: fromPending.san, turn: fromPending.turn };
+      const newEntry = { board, fen, san: fromPending.san, turn: fromPending.turn };
       // Clear prevPending on normal confirmation — it was already committed.
       this.prevPendingCanonicalEntry = null;
       this.pendingCanonicalEntry = newEntry;
@@ -1133,7 +1134,7 @@ class LiveAssistService extends EventEmitter {
         },
         '[CanonicalHistory] PrevRecover — committed prev-pending, discarded hallucination'
       );
-      const newEntry = { board, san: fromPrevPending.san, turn: fromPrevPending.turn };
+      const newEntry = { board, fen, san: fromPrevPending.san, turn: fromPrevPending.turn };
       this.prevPendingCanonicalEntry = null;
       this.pendingCanonicalEntry = newEntry;
       return { history: committed, resolvedSan: prevPending!.san, resolvedTurn: prevPending!.turn };
@@ -1175,7 +1176,7 @@ class LiveAssistService extends EventEmitter {
           '[CanonicalHistory] Replaced hallucinated pending entry'
         );
       }
-      const newEntry = { board, san: connectsToCommitted.san, turn: connectsToCommitted.turn };
+      const newEntry = { board, fen, san: connectsToCommitted.san, turn: connectsToCommitted.turn };
       // Save discarded pending as prevPending so PREVRECOVER can use it on the next board
       this.prevPendingCanonicalEntry = pending;
       this.pendingCanonicalEntry = newEntry;
@@ -1188,7 +1189,7 @@ class LiveAssistService extends EventEmitter {
       '[CanonicalHistory] Discard — unconnected board replaces pending without committing it'
     );
     this.prevPendingCanonicalEntry = pending;
-    this.pendingCanonicalEntry = { board, san: undefined, turn: undefined };
+    this.pendingCanonicalEntry = { board, fen, san: undefined, turn: undefined };
     return { history: committed };
   }
 
@@ -1314,18 +1315,24 @@ class LiveAssistService extends EventEmitter {
   /**
    * Returns the stabilised early-move sequence for opening detection.
    *
-   * Each entry is a confirmed position (survived the stability window or
-   * gap-filled from a verified before/after pair).  Hallucinated frames that
-   * reverted are excluded.  Up to OPENING_HISTORY_MAX_PLIES entries.
+   * Derived directly from canonicalMoveHistory — the two-stage confirmed
+   * move history that the renderer uses for the move table.  Every entry here
+   * has already survived the hallucination-filtering state machine (CONFIRM /
+   * REPLACE / PREVRECOVER / REVERT), so it is the most reliable source
+   * available.  The separate committedPositionHistory buffer required
+   * POSITION_STABILITY_FRAMES consecutive identical frames to commit a position,
+   * which is almost never satisfied in practice (the player moves before 3
+   * identical pipeline frames accumulate), leaving that array empty even after a
+   * full game.
    *
-   * Each element is an object:
-   *   { fen: string, san?: string }
-   * where `san` is the move that led to the position (if determinable).
+   * Returns up to OPENING_HISTORY_MAX_PLIES entries, each with the full FEN and
+   * SAN of the move that led to that position (when determinable).
    */
   getEarlyMoveSequence(): Array<{ fen: string; san?: string }> {
-    return this.committedPositionHistory
-      .filter(e => e.status === 'confirmed')
-      .map(e => ({ fen: e.fen, san: e.san }));
+    return this.canonicalMoveHistory
+      .slice(0, OPENING_HISTORY_MAX_PLIES)
+      .filter(e => !!e.fen)
+      .map(e => ({ fen: e.fen as string, san: e.san }));
   }
 
   /**
@@ -2397,7 +2404,7 @@ class LiveAssistService extends EventEmitter {
     // and derive the SAN via the guarded tryInferSanForHistory.
     // SAN derivation lives entirely inside updateCanonicalHistory so there is
     // exactly one code path and one source of truth.
-    const canonicalResult = this.updateCanonicalHistory(fenBoard);
+    const canonicalResult = this.updateCanonicalHistory(fenBoard, whitePerspectiveFen);
     const finalPlayedSan  = canonicalResult.resolvedSan;
     const finalPlayedTurn = canonicalResult.resolvedTurn;
     const moveHistorySnapshot = this.getCanonicalMoveHistorySnapshot();
