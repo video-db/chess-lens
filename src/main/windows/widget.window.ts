@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from 'electron';
+import { BrowserWindow, screen, app } from 'electron';
 import path from 'path';
 import { createChildLogger } from '../lib/logger';
 import { loadAppConfig, saveAppConfig } from '../lib/config';
@@ -7,7 +7,7 @@ import { syncWidgetState } from '../ipc/widget';
 const logger = createChildLogger('widget-window');
 
 let widgetWindow: BrowserWindow | null = null;
-const isDev = process.env.NODE_ENV !== 'production' && !require('electron').app.isPackaged;
+const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
 
 const WIDGET_WIDTH = 400;
 const WIDGET_DEFAULT_HEIGHT = 800;
@@ -121,11 +121,15 @@ export function createWidgetWindow(): BrowserWindow {
   // Exclude the overlay from screen captures so desktopCapturer screenshots
   // never include the mini-board, preventing the VLM from hallucinating FENs
   // from the overlay when no real chess board is on screen.
-  // macOS : NSWindowSharingNone  — window fully invisible to all capture APIs.
-  // Win 10 2004+ : SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) — window
+  // macOS       : NSWindowSharingNone — window fully invisible to all capture APIs.
+  // Win 10 2004+: SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) — window
   //               completely absent from any desktopCapturer/screen-share frame.
-  // Win 10 <2004 : WDA_MONITOR — window shows as a black rectangle (no pieces
-  //               visible, so VLM still cannot read a false FEN from it).
+  //               This is the correct behavior and works as expected on Electron 39+.
+  // NOTE: Electron 36.3.2–38.x had a regression (issue #47834) where
+  //       setContentProtection(true) incorrectly fell back to WDA_MONITOR on
+  //       certain Windows 10/11 builds, causing the overlay to appear as a black
+  //       rectangle in screen shares instead of being fully transparent. Fixed in
+  //       Electron 39.0.0. This project targets Electron 39+ for that reason.
   widgetWindow.setContentProtection(true);
 
   // Critical: Visible on fullscreen apps (macOS)
