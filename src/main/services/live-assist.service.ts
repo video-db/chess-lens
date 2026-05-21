@@ -198,8 +198,13 @@ class LiveAssistService extends EventEmitter {
    * moved to canonicalMoveHistory only when the next board confirms it is real.
    * If the next board cannot connect from this entry (e.g. it connects from the
    * previous committed tail instead), this entry is silently discarded.
+   *
+   * `suspect` is set to true when this entry was placed by REPLACE after a
+   * same-color CONFIRM was blocked (i.e. the board was the second consecutive
+   * move by the same side).  A suspect pending must also pass an extra
+   * opponentCountsOK check against committedTail before it can be committed.
    */
-  private pendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b' } | null = null;
+  private pendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b'; suspect?: boolean } | null = null;
   /**
    * Previous pending entry — saved when REPLACE fires so that the following
    * board can check if it connects through the replaced (possibly real) entry.
@@ -207,7 +212,7 @@ class LiveAssistService extends EventEmitter {
    * P dropped, H is now pending).  Next real board B connects P→B but not H→B.
    * We recover P by checking prevPending→B.  P gets committed, H is discarded.
    */
-  private prevPendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b' } | null = null;
+  private prevPendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b'; suspect?: boolean } | null = null;
   /** The first board FEN confirmed during the current session — used for opening detection. */
   private firstSeenFen: string | null = null;
   /**
@@ -1104,16 +1109,45 @@ class LiveAssistService extends EventEmitter {
     // ── CONFIRM ──────────────────────────────────────────────────────────────
     const fromPending = pending ? this.tryInferSanForHistory(pending.board, board) : null;
     if (fromPending) {
-      committed.push(pending!);
+      // If the pending entry was marked suspect (set when a same-color consecutive
+      // move was inferred from CONFIRM — indicating the new pending board may have
+      // wrong piece positions), require TWO extra checks before committing it:
+      //
+      //  A. The non-moving side in `board` must be consistent with committedTail
+      //     (opponentCountsOK).  Catches the original two-hallucination chain.
+      //
+      //  B. The confirming `board` must NOT be the same board as committedTail.
+      //     The rook-bounce pattern is: real_board → HALL_rook_moved → real_board.
+      //     The second real_board equals committedTail, so the "confirming" step
+      //     is actually a revert/re-read disguised as a new move.  Rejecting when
+      //     board === committedTail.board catches all such bounces without needing
+      //     to inspect piece positions.
+      const suspectOK = !pending!.suspect || !committedTail
+        || (board !== committedTail.board
+            && this.opponentCountsOK(committedTail.board, board, fromPending.turn));
+      if (suspectOK) {
+        committed.push(pending!);
+        log.debug(
+          { committed: pending!.board.slice(0, 24), san: pending!.san, newPending: board.slice(0, 24) },
+          '[CanonicalHistory] Confirmed — committed pending entry'
+        );
+        // Mark the new pending as suspect if BOTH the pending move and the new ply
+        // are the same color — this happens when a black frame was skipped and white
+        // moved again, OR when a hallucination is masquerading as a white move.
+        // The next CONFIRM will apply the committedTail guard to catch the latter.
+        const newSuspect = !!pending!.turn && fromPending.turn === pending!.turn;
+        const newEntry = { board, fen, san: fromPending.san, turn: fromPending.turn, suspect: newSuspect || undefined };
+        this.prevPendingCanonicalEntry = null;
+        this.pendingCanonicalEntry = newEntry;
+        return { history: committed, resolvedSan: pending!.san, resolvedTurn: pending!.turn };
+      }
       log.debug(
-        { committed: pending!.board.slice(0, 24), san: pending!.san, newPending: board.slice(0, 24) },
-        '[CanonicalHistory] Confirmed — committed pending entry'
+        { suspect: pending!.board.slice(0, 24), san: pending!.san },
+        '[CanonicalHistory] Suspect pending failed committedTail check — routing to REPLACE'
       );
-      const newEntry = { board, fen, san: fromPending.san, turn: fromPending.turn };
-      // Clear prevPending on normal confirmation — it was already committed.
-      this.prevPendingCanonicalEntry = null;
-      this.pendingCanonicalEntry = newEntry;
-      return { history: committed, resolvedSan: pending!.san, resolvedTurn: pending!.turn };
+      // Suspect pending failed: fall through to REPLACE/DISCARD with committedTail as anchor.
+      // Propagate the suspect flag so any board placed by DISCARD below is also treated
+      // as suspect on its first CONFIRM attempt.
     }
 
     // PREVRECOVER: real_move → hallucination → real_move pattern.
@@ -1176,8 +1210,10 @@ class LiveAssistService extends EventEmitter {
           '[CanonicalHistory] Replaced hallucinated pending entry'
         );
       }
-      const newEntry = { board, fen, san: connectsToCommitted.san, turn: connectsToCommitted.turn };
-      // Save discarded pending as prevPending so PREVRECOVER can use it on the next board
+      // Mark this pending as suspect if this board's turn matches the committed tail's turn
+      // (same-color consecutive move from the committed anchor).
+      const suspect = !!committedTail?.turn && connectsToCommitted.turn === committedTail.turn;
+      const newEntry = { board, fen, san: connectsToCommitted.san, turn: connectsToCommitted.turn, suspect: suspect || undefined };
       this.prevPendingCanonicalEntry = pending;
       this.pendingCanonicalEntry = newEntry;
       return { history: this.canonicalMoveHistory };
@@ -1189,7 +1225,11 @@ class LiveAssistService extends EventEmitter {
       '[CanonicalHistory] Discard — unconnected board replaces pending without committing it'
     );
     this.prevPendingCanonicalEntry = pending;
-    this.pendingCanonicalEntry = { board, fen, san: undefined, turn: undefined };
+    // Propagate suspect flag: if the board that just failed a suspect check triggered
+    // a DISCARD, mark the new pending as suspect too so the chain of hallucinated
+    // boards cannot escape via DISCARD → CONFIRM.
+    const discardSuspect = !!(pending?.suspect) || undefined;
+    this.pendingCanonicalEntry = { board, fen, san: undefined, turn: undefined, suspect: discardSuspect };
     return { history: committed };
   }
 

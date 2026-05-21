@@ -469,4 +469,94 @@ describe('updateCanonicalHistory', () => {
     // And no phantom rebase produced a wrong 'Rb1' SAN
     expect(result.resolvedSan).not.toBe('Rb1');
   });
+
+  // ── 15. Two-hallucination chain — the Ra1 / Rb1 general bug ─────────────────
+  //
+  // Regression for: consecutive OCR frames that share the same wrong piece
+  // position chain-confirm each other, committing a phantom rook move.
+  //
+  // Sequence (reproduces the user-reported Ra1 hallucination):
+  //   NF3  (real, committed as pending)
+  //   HALL_NF3_RB1  — rook misread on b1 (knight correctly on f3)
+  //   HALL_BB7_RB1  — next frame: bishop correctly on b7, rook STILL on b1
+  //   BB7  (real board)
+  //   BC4  (real board, confirms BB7)
+  //
+  // Without the fix, HALL_NF3_RB1→HALL_BB7_RB1 is accepted as Bb7 (black),
+  // HALL_NF3_RB1(Rb1) gets committed, then HALL_BB7_RB1→BB7 = Ra1 gets
+  // committed, polluting the snapshot with Rb1 and Ra1.
+  //
+  // With the fix, the CONFIRM guard checks the non-moving side (white) in
+  // HALL_BB7_RB1 against committedTail (NF3, rook on a1) and rejects the
+  // confirm, so neither phantom rook move ever enters committed history.
+  it('scenario 15 — two consecutive hallucinated boards sharing wrong rook position never produce Rb1/Ra1', () => {
+    // Boards for the real game sequence: e4 e6 Nc3 b6 Nf3 Bb7 Bc4
+    const NF3          = 'rnbqkbnr/p1pp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R';
+    const BB7          = 'rn1qkbnr/pbpp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R';
+    const BC4          = 'rn1qkbnr/pbpp1ppp/1p2p3/8/2B1P3/2N2N2/PPPP1PPP/R1BQK2R';
+    // Hallucinated boards: rook misread on b1 instead of a1
+    const HALL_NF3_RB1 = 'rnbqkbnr/p1pp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/1RBQKB1R';
+    const HALL_BB7_RB1 = 'rn1qkbnr/pbpp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/1RBQKB1R';
+
+    updateCanonicalHistory(history, START);
+    updateCanonicalHistory(history, AFT_E4);
+    updateCanonicalHistory(history, AFT_E6);
+    updateCanonicalHistory(history, AFT_NC3);
+    updateCanonicalHistory(history, AFT_B6);
+    updateCanonicalHistory(history, NF3);
+    // Two consecutive hallucinated frames — both have rook on b1
+    updateCanonicalHistory(history, HALL_NF3_RB1);
+    updateCanonicalHistory(history, HALL_BB7_RB1);
+    // Real boards resume
+    updateCanonicalHistory(history, BB7);
+    updateCanonicalHistory(history, BC4);
+    // Feed one more board to flush BC4 from pending into committed
+    const D6 = 'rn1qkbnr/pbp2ppp/1p1pp3/8/2B1P3/2N2N2/PPPP1PPP/R1BQK2R';
+    updateCanonicalHistory(history, D6);
+
+    const snap = getSnapshot(history);
+    const allSans = snap.flatMap(r => [r.white, r.black]).filter(Boolean) as string[];
+
+    // No rook moves should appear — neither Rb1 nor Ra1
+    expect(allSans.filter(s => s.startsWith('R'))).toHaveLength(0);
+    // The real moves must be present
+    expect(allSans).toContain('Nf3');
+    expect(allSans).toContain('Bb7');
+    expect(allSans).toContain('Bc4');
+  });
+
+  // ── 16. Rook-bounce on the Bc4 position (second user-reported Ra1 variant) ──
+  //
+  // Sequence: BB7 → BC4 (pending) → HALL_BC4_RB1 (rook on b1) → BC4 (real, re-read).
+  // Without the bounce-guard, HALL_BC4_RB1(Rb1,w,suspect) gets confirmed by the
+  // re-read BC4, producing Ra1 committed.  With the guard (board !== committedTail.board),
+  // the re-read BC4 is recognised as a bounce and HALL_BC4_RB1 is discarded.
+  it('scenario 16 — rook bounce on Bc4 position does not produce Ra1', () => {
+    const NF3          = 'rnbqkbnr/p1pp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R';
+    const BB7          = 'rn1qkbnr/pbpp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R';
+    const BC4          = 'rn1qkbnr/pbpp1ppp/1p2p3/8/2B1P3/2N2N2/PPPP1PPP/R1BQK2R';
+    const HALL_BC4_RB1 = 'rn1qkbnr/pbpp1ppp/1p2p3/8/2B1P3/2N2N2/PPPP1PPP/1RBQK2R';
+    const D6           = 'rn1qkbnr/pbp2ppp/1p1pp3/8/2B1P3/2N2N2/PPPP1PPP/R1BQK2R';
+
+    updateCanonicalHistory(history, START);
+    updateCanonicalHistory(history, AFT_E4);
+    updateCanonicalHistory(history, AFT_E6);
+    updateCanonicalHistory(history, AFT_NC3);
+    updateCanonicalHistory(history, AFT_B6);
+    updateCanonicalHistory(history, NF3);          // Nf3 pending
+    updateCanonicalHistory(history, BB7);          // Bb7 confirms Nf3, Bb7 pending
+    updateCanonicalHistory(history, BC4);          // Bc4 confirms Bb7, Bc4 pending
+    updateCanonicalHistory(history, HALL_BC4_RB1); // Rb1(w,suspect) pending
+    updateCanonicalHistory(history, BC4);          // bounce — should be rejected
+    updateCanonicalHistory(history, D6);           // d6 confirms Bc4
+
+    const snap = getSnapshot(history);
+    const allSans = snap.flatMap(r => [r.white, r.black]).filter(Boolean) as string[];
+
+    // No phantom rook moves
+    expect(allSans.filter(s => s.startsWith('R'))).toHaveLength(0);
+    // Real moves present
+    expect(allSans).toContain('Bb7');
+    expect(allSans).toContain('Bc4');
+  });
 });

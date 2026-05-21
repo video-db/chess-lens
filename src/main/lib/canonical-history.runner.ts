@@ -50,7 +50,7 @@ function describe(name: string, fn: () => void) {
 // ─── state machine (copy of service logic) ────────────────────────────────
 
 const CANONICAL_LOOKBACK_DEPTH = 3;
-type HistoryEntry = { board: string; san?: string; turn?: 'w' | 'b' };
+type HistoryEntry = { board: string; san?: string; turn?: 'w' | 'b'; suspect?: boolean };
 
 /** Parse board-only FEN into a square→piece map. */
 function parseBoardOnly(board: string): Map<string, string> {
@@ -157,12 +157,28 @@ function updateCanonicalHistory(
   // CONFIRM
   const fromPending = pending ? tryInferSanForHistory(pending.board, board) : null;
   if (fromPending) {
-    committed.push(pending!);
-    const resolvedSan  = pending!.san;
-    const resolvedTurn = pending!.turn;
-    state.prevPending = null; // clear: prev was already committed
-    state.pending = { board, san: fromPending.san, turn: fromPending.turn };
-    return { resolvedSan, resolvedTurn };
+    // If the pending entry was marked suspect (set when a same-color consecutive
+    // move was inferred in CONFIRM — indicating the new pending may have wrong
+    // piece positions), require TWO extra checks:
+    //  A. opponentCountsOK — non-moving side consistent with committedTail.
+    //  B. board !== committedTail.board — rook-bounce guard: the confirming board
+    //     must not be the same as the committed tail (a bounce back to the real
+    //     position after an OCR misread is a revert, not a new move).
+    const suspectOK = !pending!.suspect || !committedTail
+      || (board !== committedTail.board
+          && opponentCountsOK(committedTail.board, board, fromPending.turn));
+    if (suspectOK) {
+      committed.push(pending!);
+      const resolvedSan  = pending!.san;
+      const resolvedTurn = pending!.turn;
+      state.prevPending = null;
+      // Mark the new pending as suspect if both moves are the same color.
+      const newSuspect = !!pending!.turn && fromPending.turn === pending!.turn;
+      state.pending = { board, san: fromPending.san, turn: fromPending.turn, suspect: newSuspect || undefined };
+      return { resolvedSan, resolvedTurn };
+    }
+    // Suspect pending failed — fall through to REPLACE/DISCARD.
+    // Propagate the suspect flag so any board placed by DISCARD is also suspect.
   }
 
   // PREVRECOVER: real_move → hallucination → real_move
@@ -200,15 +216,19 @@ function updateCanonicalHistory(
 
   if (connectsToCommitted) {
     // REPLACE
+    const suspect = !!committedTail?.turn && connectsToCommitted.turn === committedTail.turn;
     if (lookbackIdx !== -1) committed.splice(lookbackIdx + 1);
-    state.prevPending = pending; // save discarded pending for PREVRECOVER
-    state.pending = { board, san: connectsToCommitted.san, turn: connectsToCommitted.turn };
+    state.prevPending = pending;
+    state.pending = { board, san: connectsToCommitted.san, turn: connectsToCommitted.turn, suspect: suspect || undefined };
     return {};
   }
 
   // DISCARD
   state.prevPending = pending;
-  state.pending = { board, san: undefined, turn: undefined };
+  // Propagate suspect flag from a failed suspect CONFIRM so the chain cannot
+  // escape via DISCARD → CONFIRM.
+  const discardSuspect = !!(pending?.suspect) || undefined;
+  state.pending = { board, san: undefined, turn: undefined, suspect: discardSuspect };
   return {};
 }
 
@@ -616,6 +636,69 @@ describe('regression — first-move and captures', () => {
     updateCanonicalHistory(s, AFT_QXD5); // CONFIRM exd5; pending=Qxd5
     expect(s.pending?.san).toBeTruthy();
     expect(s.pending?.turn).toBe('b');
+  });
+
+  it('scenario 15 — two consecutive hallucinated boards sharing wrong rook position never produce Rb1/Ra1', () => {
+    // Regression for the general two-hallucination chain bug.
+    // OCR produces two frames in a row that both have the rook on b1 instead of a1.
+    // The black-move transition between them looks valid (Bb7 inferred), but the
+    // committedTail guard must catch that the non-moving side (white) disagrees
+    // with the last committed board — and block the phantom commit.
+    const NF3          = 'rnbqkbnr/p1pp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R';
+    const BB7          = 'rn1qkbnr/pbpp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R';
+    const BC4          = 'rn1qkbnr/pbpp1ppp/1p2p3/8/2B1P3/2N2N2/PPPP1PPP/R1BQK2R';
+    const HALL_NF3_RB1 = 'rnbqkbnr/p1pp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/1RBQKB1R';
+    const HALL_BB7_RB1 = 'rn1qkbnr/pbpp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/1RBQKB1R';
+
+    const s = newState();
+    feedBoards(s, START, AFT_E4, AFT_E6, AFT_NC3, AFT_B6, NF3);
+    // Two consecutive hallucinated frames — both have rook on b1
+    updateCanonicalHistory(s, HALL_NF3_RB1);
+    updateCanonicalHistory(s, HALL_BB7_RB1);
+    // Real boards resume
+    updateCanonicalHistory(s, BB7);
+    updateCanonicalHistory(s, BC4);
+    // Feed one more board to flush BC4 from pending into committed
+    const D6 = 'rn1qkbnr/pbp2ppp/1p1pp3/8/2B1P3/2N2N2/PPPP1PPP/R1BQK2R';
+    updateCanonicalHistory(s, D6);
+
+    const snap = getSnapshot(s.committed);
+    const allSans = snap.flatMap(r => [r.white, r.black]).filter(Boolean) as string[];
+
+    // No rook moves should appear — neither Rb1 nor Ra1
+    const rookMoves = allSans.filter(s => s.startsWith('R'));
+    expect(rookMoves).toHaveLength(0);
+    // The real moves must be present
+    expect(allSans.includes('Nf3')).toBe(true);
+    expect(allSans.includes('Bb7')).toBe(true);
+    expect(allSans.includes('Bc4')).toBe(true);
+  });
+
+  it('scenario 16 — rook bounce on Bc4 position does not produce Ra1', () => {
+    // Sequence: BB7 → BC4 (pending, Bc4 w) → HALL_BC4_RB1 (rook on b1, suspect) → BC4 (re-read bounce).
+    // Without the bounce guard, BC4 re-read confirms HALL_BC4_RB1 as Ra1.
+    // With the guard (board !== committedTail.board), BC4 re-read is rejected.
+    const NF3          = 'rnbqkbnr/p1pp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R';
+    const BB7_board    = 'rn1qkbnr/pbpp1ppp/1p2p3/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R';
+    const BC4_board    = 'rn1qkbnr/pbpp1ppp/1p2p3/8/2B1P3/2N2N2/PPPP1PPP/R1BQK2R';
+    const HALL_BC4_RB1 = 'rn1qkbnr/pbpp1ppp/1p2p3/8/2B1P3/2N2N2/PPPP1PPP/1RBQK2R';
+    const D6           = 'rn1qkbnr/pbp2ppp/1p1pp3/8/2B1P3/2N2N2/PPPP1PPP/R1BQK2R';
+
+    const s = newState();
+    // Feed through NF3 and BB7_board so NF3→BB7_board infers Bb7(b)
+    feedBoards(s, START, AFT_E4, AFT_E6, AFT_NC3, AFT_B6, NF3, BB7_board, BC4_board);
+    updateCanonicalHistory(s, HALL_BC4_RB1); // Rb1(w,suspect) pending
+    updateCanonicalHistory(s, BC4_board);    // bounce — should be rejected
+    updateCanonicalHistory(s, D6);           // real d6 confirms Bc4
+
+    const snap = getSnapshot(s.committed);
+    const allSans = snap.flatMap(r => [r.white, r.black]).filter(Boolean) as string[];
+
+    // No phantom rook moves
+    expect(allSans.filter(s => s.startsWith('R'))).toHaveLength(0);
+    // Real moves present
+    expect(allSans.includes('Bb7')).toBe(true);
+    expect(allSans.includes('Bc4')).toBe(true);
   });
 });
 
