@@ -529,7 +529,7 @@ export function LiveAssistPanel({ onAskAboutTip }: LiveAssistPanelProps = {}) {
     <div className="flex flex-col h-full gap-[20px] pt-[8px]">
 
       {/* Panels */}
-      <div className="flex-1 flex flex-col gap-[20px] min-h-0 overflow-hidden">
+      <div className="flex-1 flex flex-col gap-[20px] min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
 
         {/* Live Analysis — fixed height sized exactly to the chart: header (48) + padding (32) + chart (188) = 268px */}
         <div className="border border-[#efefef] rounded-[12px] overflow-hidden flex flex-col shrink-0" style={{ height: 268 }}>
@@ -584,7 +584,7 @@ export function LiveAssistPanel({ onAskAboutTip }: LiveAssistPanelProps = {}) {
         </div>
 
         {/* Coaching Tips — Figma row design: MOVE N + SAN + divider + tip text */}
-        <div className="border border-[#efefef] rounded-[12px] overflow-hidden flex flex-col flex-1 min-h-0">
+        <div className="border border-[#efefef] rounded-[12px] overflow-hidden flex flex-col min-h-0" style={{ flex: 2, minHeight: 220 }}>
           {/* Header */}
           <div className="bg-[#f7f7f7] border-b border-[#efefef] px-[16px] flex items-center gap-[8px] shrink-0"
             style={{ height: 48, boxSizing: 'border-box' }}>
@@ -643,7 +643,7 @@ export function LiveAssistPanel({ onAskAboutTip }: LiveAssistPanelProps = {}) {
         </div>
 
         {/* Move History — Figma 3-column table: Move No. | White | Black */}
-        <div className="border border-[#efefef] rounded-[12px] overflow-hidden flex flex-col flex-1 min-h-0">
+        <div className="border border-[#efefef] rounded-[12px] overflow-hidden flex flex-col min-h-0" style={{ flex: 3, minHeight: 300 }}>
           {/* Header */}
           <div className="bg-[#f7f7f7] border-b border-[#efefef] px-[16px] flex items-center gap-[8px] shrink-0"
             style={{ height: 44, boxSizing: 'border-box' }}>
