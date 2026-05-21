@@ -314,6 +314,9 @@ function ensureRecordingColumns(): void {
   addColumnIfMissing('result', "ALTER TABLE recordings ADD COLUMN result TEXT CHECK(result IN ('win', 'loss', 'draw'))");
   // Total moves (half-moves / plies) played — set at session end.
   addColumnIfMissing('move_count', "ALTER TABLE recordings ADD COLUMN move_count INTEGER");
+  // Opening names derived by LLM from the first observed FEN of the session.
+  addColumnIfMissing('white_opening', "ALTER TABLE recordings ADD COLUMN white_opening TEXT");
+  addColumnIfMissing('black_opening', "ALTER TABLE recordings ADD COLUMN black_opening TEXT");
 }
 
 function ensureNudgesHistorySchema(): void {

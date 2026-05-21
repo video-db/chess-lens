@@ -226,11 +226,20 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
 
           {/* Opening row */}
           <div
-            className="flex items-center justify-between"
-            style={{ background: '#F7F7F7', border: '1px solid #EFEFEF', borderRadius: 12, padding: '16px', gap: 30 }}
+            style={{ background: '#F7F7F7', border: '1px solid #EFEFEF', borderRadius: 12, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}
           >
             <span className="text-[14px] font-semibold text-black" style={{ textTransform: 'capitalize' }}>Opening</span>
-            <span className="text-[14px] font-semibold text-text-body text-right">—</span>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col gap-[4px]" style={{ flex: 1 }}>
+                <span className="text-[11px] font-semibold text-text-body" style={{ textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.5 }}>White</span>
+                <span className="text-[13px] font-medium text-black">{recording.whiteOpening ?? '—'}</span>
+              </div>
+              <div style={{ width: 1, background: 'rgba(0,0,0,0.08)', alignSelf: 'stretch', flexShrink: 0 }} />
+              <div className="flex flex-col gap-[4px]" style={{ flex: 1 }}>
+                <span className="text-[11px] font-semibold text-text-body" style={{ textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.5 }}>Black</span>
+                <span className="text-[13px] font-medium text-black">{recording.blackOpening ?? '—'}</span>
+              </div>
+            </div>
           </div>
 
           {/* Win Probability chart */}

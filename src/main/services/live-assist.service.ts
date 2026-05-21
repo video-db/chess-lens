@@ -15,7 +15,7 @@ import { getChessEngineService } from './chess-engine.service';
 import { getChessScreenshotService } from './chess-screenshot.service';
 import type { LiveInsights } from '../../shared/types/live-assist.types';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
-import { fenDiffToSan, getTerminalState } from '../lib/chess-notation';
+import { fenDiffToSan, getTerminalState, parseBoardOnlyFen } from '../lib/chess-notation';
 import {
   DEFAULT_GAME_ID,
   getGameVisualIndexTiming,
@@ -65,6 +65,45 @@ interface TranscriptChunk {
   text: string;
   source: 'mic' | 'system_audio';
   timestamp: number;
+}
+
+// ─── Position history for robust opening detection ────────────────────────────
+//
+// FEN extraction can hallucinate a plausible-but-wrong board position for one
+// or two frames before snapping back to the true position.  To avoid poisoning
+// the opening sequence with these transients we maintain a small rolling buffer
+// of recently confirmed positions and only "commit" an entry once it has
+// survived a short stability window (POSITION_STABILITY_FRAMES consecutive
+// identical positions) OR been corroborated by the following confirmed entry.
+//
+// State machine per entry:
+//   provisional → confirmed  (survived stability window)
+//   provisional → reverted   (contradicted by a return to a prior board)
+//
+// Only "confirmed" entries are used for opening detection.
+
+const POSITION_STABILITY_FRAMES = 3;   // consecutive identical confirmations before committing
+const OPENING_HISTORY_MAX_PLIES = 12;  // how many early plies to keep for opening ID
+// If a board appears even once in the provisional buffer at a non-head position
+// (i.e. it is not being consecutively reinforced), it is oscillating — discard
+// the entire provisional buffer.  Set to 1 so Ra1→Rb1→Ra1 bounces are caught
+// on the second Ra1 appearance.
+const OSCILLATION_REPEAT_LIMIT = 1;
+// How many canonical entries to walk back when searching for a rebase anchor.
+// A hallucination typically lasts 1-2 frames, so 3 is ample and cheap.
+const CANONICAL_LOOKBACK_DEPTH = 3;
+
+interface PositionEntry {
+  /** Full FEN string (board + turn + castling + …). */
+  fen: string;
+  /** Board part only (before the first space), for quick comparison. */
+  board: string;
+  /** How many consecutive confirmations this board has received so far. */
+  frameCount: number;
+  /** Whether this entry has been committed to the stable history. */
+  status: 'provisional' | 'confirmed' | 'reverted';
+  /** SAN of the move that led to this position, if determinable. */
+  san?: string;
 }
 
 interface VisualIndexChunk {
@@ -146,6 +185,44 @@ class LiveAssistService extends EventEmitter {
   private lastFenForMoveHistory: string | null = null;
   /** Count of confirmed board-position changes (plies) in the current session. */
   private totalMoveCount = 0;
+  /**
+   * Canonical per-ply move history — committed entries only.  A board is only
+   * moved here once the *following* board has confirmed it was real (two-stage
+   * provisional model).  The snapshot sent to the renderer is built from this
+   * list, giving a one-ply display lag that eliminates phantom moves.
+   */
+  private canonicalMoveHistory: Array<{ board: string; san?: string; turn?: 'w' | 'b' }> = [];
+  /**
+   * Provisional buffer — holds the most-recently-seen board before it has been
+   * validated by a subsequent board.  Every new board lands here first; it is
+   * moved to canonicalMoveHistory only when the next board confirms it is real.
+   * If the next board cannot connect from this entry (e.g. it connects from the
+   * previous committed tail instead), this entry is silently discarded.
+   */
+  private pendingCanonicalEntry: { board: string; san?: string; turn?: 'w' | 'b' } | null = null;
+  /**
+   * Previous pending entry — saved when REPLACE fires so that the following
+   * board can check if it connects through the replaced (possibly real) entry.
+   * Example: real move P was in pending, hallucination H came in (REPLACE fired,
+   * P dropped, H is now pending).  Next real board B connects P→B but not H→B.
+   * We recover P by checking prevPending→B.  P gets committed, H is discarded.
+   */
+  private prevPendingCanonicalEntry: { board: string; san?: string; turn?: 'w' | 'b' } | null = null;
+  /** The first board FEN confirmed during the current session — used for opening detection. */
+  private firstSeenFen: string | null = null;
+  /**
+   * Rolling buffer of recent board positions used to build a stable early-move
+   * sequence for opening detection.  Entries are provisional until they survive
+   * POSITION_STABILITY_FRAMES confirmations; hallucinated frames that revert are
+   * marked "reverted" and excluded from the committed history.
+   */
+  private positionBuffer: PositionEntry[] = [];
+  /**
+   * Committed early-position history: only entries that reached "confirmed"
+   * status.  Capped at OPENING_HISTORY_MAX_PLIES entries (enough to cover any
+   * standard opening).
+   */
+  private committedPositionHistory: PositionEntry[] = [];
   private lastChessTurn: 'w' | 'b' | null = null;
   private lastChessPerspective: 'white' | 'black' = 'white';
   // Last engine result — carried on every fen event so the widget always has the current move/eval.
@@ -919,6 +996,10 @@ class LiveAssistService extends EventEmitter {
       blackQueenside: false,
     };
     this.hasSeenInitialChessPosition = false;
+    // NOTE: firstSeenFen, positionBuffer, committedPositionHistory,
+    // canonicalMoveHistory, and pendingCanonicalEntry are NOT reset here —
+    // they are reset in start() alongside totalMoveCount so that stop() →
+    // copilot can still read the opening history before a new session wipes it.
   }
 
   /** Returns the total number of confirmed distinct board positions seen this session (= plies played). */
@@ -926,6 +1007,476 @@ class LiveAssistService extends EventEmitter {
     // Each increment of totalMoveCount represents one real move (board-position change).
     // The initial board is handled by the early-return path and does not increment this counter.
     return this.totalMoveCount;
+  }
+
+  /**
+   * Update the canonical move history with a newly confirmed board position.
+   *
+   * Four cases, evaluated in order:
+   *
+   *  NO-OP    — board matches the current tail → nothing to do.
+   *
+   *  REVERT   — board matches an earlier entry (hallucinated branch reverted
+   *             back to a known-good position) → truncate everything after
+   *             that matching entry.
+   *
+   *  REBASE   — board is genuinely new BUT cannot be connected by a single
+   *             legal move from the current tail, yet CAN be connected from
+   *             one of the last CANONICAL_LOOKBACK_DEPTH entries.
+   *             This is the "late-correction" case: the detector showed a
+   *             hallucinated board H, then the player made the real move and
+   *             the board snapped to the correct position C.  C is reachable
+   *             from a prior canonical entry but not from H.
+   *             → prune back to the connectable entry, resolve SAN, append C.
+   *
+   *  EXTEND   — board is genuinely new and either connects legally from the
+   *             current tail, or no prior entry connects either (we keep it
+   *             and let SAN be undefined rather than drop the position).
+   *
+   * Returns { history, resolvedSan } so the caller can use the rebase-resolved
+   * SAN instead of the one it computed against the wrong (hallucinated) baseline.
+   */
+  /**
+   * Two-stage provisional move history update.
+   *
+   * Every confirmed board first lands in `pendingCanonicalEntry`.  It is only
+   * committed to `canonicalMoveHistory` (and therefore to the visible snapshot)
+   * when the *next* board validates it.  This gives a one-ply display lag that
+   * eliminates phantom moves: a hallucinated board can never appear in the table
+   * because it is discarded the moment the following real board cannot connect
+   * from it.
+   *
+   * Resolution when board N+1 arrives against pending board N:
+   *
+   *  NO-OP    — same board as pending (repeated confirmation) → do nothing.
+   *
+   *  REVERT   — board N+1 matches an earlier committed entry → discard pending,
+   *             prune committed history back to that entry.
+   *
+   *  CONFIRM  — board N+1 connects legally from pending (single clean ply) →
+   *             commit pending, make N+1 the new pending.
+   *
+   *  PREVRECOVER — board N+1 cannot connect from pending, but CAN connect from
+   *             prevPending (the pending BEFORE the current one was set).
+   *             This recovers the pattern: real_move → hallucination → real_move.
+   *             prevPending is committed, current pending (hallucination) is dropped.
+   *
+   *  REPLACE  — board N+1 connects from a committed entry (not pending) →
+   *             pending was a hallucination; discard, make N+1 the new pending.
+   *
+   *  DISCARD  — no connection found; drop pending, N+1 becomes new pending.
+   *
+   * Returns the snapshot-ready committed history and the resolved SAN/turn of
+   * whatever was just committed (if anything), so the caller can forward them
+   * on the fen event.
+   */
+  private updateCanonicalHistory(
+    board: string,
+  ): { history: Array<{ board: string; san?: string; turn?: 'w' | 'b' }>; resolvedSan?: string; resolvedTurn?: 'w' | 'b' } {
+    const committed  = this.canonicalMoveHistory;
+    const pending    = this.pendingCanonicalEntry;
+    const prevPending = this.prevPendingCanonicalEntry;
+
+    // ── NO-OP ────────────────────────────────────────────────────────────────
+    if (pending && pending.board === board) {
+      return { history: committed };
+    }
+
+    // ── REVERT ───────────────────────────────────────────────────────────────
+    let revertIdx = -1;
+    for (let i = committed.length - 1; i >= 0; i--) {
+      if (committed[i].board === board) { revertIdx = i; break; }
+    }
+    if (revertIdx !== -1) {
+      this.canonicalMoveHistory = committed.slice(0, revertIdx + 1);
+      this.pendingCanonicalEntry = null;
+      this.prevPendingCanonicalEntry = null;
+      log.debug(
+        { board: board.slice(0, 24), revertIdx, droppedPending: !!pending },
+        '[CanonicalHistory] Reverted to earlier committed position'
+      );
+      return { history: this.canonicalMoveHistory };
+    }
+
+    const committedTail = committed[committed.length - 1] ?? null;
+
+    // ── CONFIRM ──────────────────────────────────────────────────────────────
+    const fromPending = pending ? this.tryInferSanForHistory(pending.board, board) : null;
+    if (fromPending) {
+      committed.push(pending!);
+      log.debug(
+        { committed: pending!.board.slice(0, 24), san: pending!.san, newPending: board.slice(0, 24) },
+        '[CanonicalHistory] Confirmed — committed pending entry'
+      );
+      const newEntry = { board, san: fromPending.san, turn: fromPending.turn };
+      // Clear prevPending on normal confirmation — it was already committed.
+      this.prevPendingCanonicalEntry = null;
+      this.pendingCanonicalEntry = newEntry;
+      return { history: committed, resolvedSan: pending!.san, resolvedTurn: pending!.turn };
+    }
+
+    // PREVRECOVER: real_move → hallucination → real_move pattern.
+    // prevPending is only set when the previous pending was DISCARDED/REPLACED
+    // (not committed), so checking it here is safe — it won't double-commit.
+    const fromPrevPending = (prevPending && prevPending.board !== pending?.board)
+      ? this.tryInferSanForHistory(prevPending.board, board)
+      : null;
+    if (fromPrevPending) {
+      // ── PREVRECOVER ──────────────────────────────────────────────────────
+      committed.push(prevPending!);
+      log.debug(
+        {
+          recovered: prevPending!.board.slice(0, 24),
+          san: prevPending!.san,
+          droppedHallucination: pending?.board.slice(0, 24),
+          newPending: board.slice(0, 24),
+        },
+        '[CanonicalHistory] PrevRecover — committed prev-pending, discarded hallucination'
+      );
+      const newEntry = { board, san: fromPrevPending.san, turn: fromPrevPending.turn };
+      this.prevPendingCanonicalEntry = null;
+      this.pendingCanonicalEntry = newEntry;
+      return { history: committed, resolvedSan: prevPending!.san, resolvedTurn: prevPending!.turn };
+    }
+
+    // Try connecting from committed entries
+    const fromCommittedTail = committedTail
+      ? this.tryInferSanForHistory(committedTail.board, board)
+      : null;
+
+    let fromLookback: { san: string; turn: 'w' | 'b' } | null = null;
+    let lookbackIdx = -1;
+    if (!fromCommittedTail && committed.length >= 2) {
+      const depth = Math.min(CANONICAL_LOOKBACK_DEPTH, committed.length - 1);
+      for (let i = committed.length - 2; i >= committed.length - 1 - depth; i--) {
+        const r = this.tryInferSanForHistory(committed[i].board, board);
+        if (r) { fromLookback = r; lookbackIdx = i; break; }
+      }
+    }
+
+    // Empty-history fallback
+    const fromStart = (!pending && !committedTail && board !== INITIAL_CHESS_BOARD)
+      ? this.tryInferSanForHistory(INITIAL_CHESS_BOARD, board)
+      : null;
+
+    const connectsToCommitted = fromCommittedTail ?? fromLookback ?? fromStart;
+
+    if (connectsToCommitted) {
+      // ── REPLACE ──────────────────────────────────────────────────────────
+      if (lookbackIdx !== -1) {
+        this.canonicalMoveHistory = committed.slice(0, lookbackIdx + 1);
+        log.debug(
+          { lookbackIdx, prunedEntries: committed.length - lookbackIdx - 1 },
+          '[CanonicalHistory] Replace+prune via lookback'
+        );
+      } else {
+        log.debug(
+          { droppedPending: pending?.board.slice(0, 24) },
+          '[CanonicalHistory] Replaced hallucinated pending entry'
+        );
+      }
+      const newEntry = { board, san: connectsToCommitted.san, turn: connectsToCommitted.turn };
+      // Save discarded pending as prevPending so PREVRECOVER can use it on the next board
+      this.prevPendingCanonicalEntry = pending;
+      this.pendingCanonicalEntry = newEntry;
+      return { history: this.canonicalMoveHistory };
+    }
+
+    // ── DISCARD ───────────────────────────────────────────────────────────────
+    log.debug(
+      { droppedPending: pending?.board.slice(0, 24), orphan: board.slice(0, 24) },
+      '[CanonicalHistory] Discard — unconnected board replaces pending without committing it'
+    );
+    this.prevPendingCanonicalEntry = pending;
+    this.pendingCanonicalEntry = { board, san: undefined, turn: undefined };
+    return { history: committed };
+  }
+
+  /**
+   * Try to infer a single-ply SAN connecting `fromBoard` → `toBoard`.
+   *
+   * A valid single ply satisfies TWO conditions:
+   *  1. Exactly one side's pieces moved (`fenDiffToSan` returns a SAN for that side).
+   *  2. The result is UNAMBIGUOUS: the OTHER side must NOT also produce a SAN.
+   *     If both sides produce a SAN, both moved simultaneously — that is 2 plies,
+   *     not 1.
+   *
+   * Additionally, after finding a candidate side, verify the opponent's piece type
+   * counts did not increase (no OCR-hallucinated pieces were added).
+   *
+   * Returns `{ san, turn }` for the uniquely-moving side, or null.
+   */
+  private tryInferSanForHistory(
+    fromBoard: string,
+    toBoard: string,
+  ): { san: string; turn: 'w' | 'b' } | null {
+    if (!fromBoard || !toBoard || fromBoard === toBoard) return null;
+
+    const whiteSan = fenDiffToSan(`${fromBoard} w - - 0 1`, `${toBoard} w - - 0 1`, 'w');
+    const blackSan = fenDiffToSan(`${fromBoard} b - - 0 1`, `${toBoard} b - - 0 1`, 'b');
+
+    // Both sides produced a SAN → 2 plies, not 1 → ambiguous
+    if (whiteSan && blackSan) return null;
+
+    if (whiteSan && this.opponentCountsOK(fromBoard, toBoard, 'w')) return { san: whiteSan, turn: 'w' };
+    if (blackSan && this.opponentCountsOK(fromBoard, toBoard, 'b')) return { san: blackSan, turn: 'b' };
+    return null;
+  }
+
+  /**
+   * Returns true when the opponent's piece layout is consistent with `side`
+   * having made exactly one legal move (no opponent pieces were created or moved).
+   *
+   * Two conditions must hold:
+   *  A. No opponent piece TYPE COUNT increased (no hallucinated pieces added).
+   *  B. The opponent's total piece count did NOT decrease by more than 1 (no
+   *     mass capture in one ply).
+   *  C. If the total opponent count is UNCHANGED (no capture), then every
+   *     individual opponent piece must be on the exact same square as before
+   *     (no opponent movement).  This catches the 2-ply case where both white
+   *     rook and black bishop moved — counts stay the same but positions change.
+   */
+  private opponentCountsOK(fromBoard: string, toBoard: string, side: 'w' | 'b'): boolean {
+    const from = parseBoardOnlyFen(fromBoard);
+    const to   = parseBoardOnlyFen(toBoard);
+    const isOpp = (p: string) => side === 'w' ? p === p.toLowerCase() : p === p.toUpperCase();
+
+    // Condition A: no opponent piece type count increased
+    const fromCounts = new Map<string, number>();
+    const toCounts   = new Map<string, number>();
+    for (const [, p] of from) if (isOpp(p)) fromCounts.set(p, (fromCounts.get(p) ?? 0) + 1);
+    for (const [, p] of to)   if (isOpp(p)) toCounts.set(p,   (toCounts.get(p)   ?? 0) + 1);
+    for (const [p, toCount] of toCounts) {
+      if (toCount > (fromCounts.get(p) ?? 0)) return false;
+    }
+
+    // Compute total opponent counts
+    const fromTotal = [...fromCounts.values()].reduce((a, b) => a + b, 0);
+    const toTotal   = [...toCounts.values()].reduce((a, b) => a + b, 0);
+
+    // Condition B: at most 1 opponent piece captured
+    if (fromTotal - toTotal > 1) return false;
+
+    // Condition C: if no capture (same total), opponent positions must be identical
+    if (fromTotal === toTotal) {
+      for (const [sq, fp] of from) {
+        if (!isOpp(fp)) continue;
+        if (to.get(sq) !== fp) return false; // opponent piece changed or moved
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Convert the flat per-ply canonical history into the paired-row format that
+   * the renderer expects: { no, white?, black? }.
+   *
+   * Each full-move row pairs White's ply with the following Black ply.
+   * The first ply in the session may be Black's (unusual but legal for mid-game
+   * joins), in which case the first row will have only a black entry.
+   */
+  getCanonicalMoveHistorySnapshot(): Array<{ no: number; white?: string; black?: string }> {
+    const rows: Array<{ no: number; white?: string; black?: string }> = [];
+    for (const entry of this.canonicalMoveHistory) {
+      if (!entry.san) continue; // skip initial board / positions with unknown SAN
+      if (entry.turn === 'w') {
+        rows.push({ no: rows.length + 1, white: entry.san });
+      } else if (entry.turn === 'b') {
+        const last = rows[rows.length - 1];
+        if (last && last.white !== undefined && last.black === undefined) {
+          last.black = entry.san;
+        } else {
+          rows.push({ no: rows.length + 1, black: entry.san });
+        }
+      } else {
+        // turn unknown — best-effort: try to fill black slot if last row is open
+        const last = rows[rows.length - 1];
+        if (last && last.white !== undefined && last.black === undefined) {
+          last.black = entry.san;
+        } else {
+          rows.push({ no: rows.length + 1, white: entry.san });
+        }
+      }
+    }
+    return rows;
+  }
+
+  /**
+   * Returns the first full FEN string observed during the current session.
+   * Used by the post-game summary pipeline to infer opening names without
+   * requiring a complete PGN (games may start mid-position).
+   */
+  getFirstFen(): string | null {
+    return this.firstSeenFen;
+  }
+
+  /**
+   * Returns the stabilised early-move sequence for opening detection.
+   *
+   * Each entry is a confirmed position (survived the stability window or
+   * gap-filled from a verified before/after pair).  Hallucinated frames that
+   * reverted are excluded.  Up to OPENING_HISTORY_MAX_PLIES entries.
+   *
+   * Each element is an object:
+   *   { fen: string, san?: string }
+   * where `san` is the move that led to the position (if determinable).
+   */
+  getEarlyMoveSequence(): Array<{ fen: string; san?: string }> {
+    return this.committedPositionHistory
+      .filter(e => e.status === 'confirmed')
+      .map(e => ({ fen: e.fen, san: e.san }));
+  }
+
+  /**
+   * Record an incoming confirmed board position into the rolling stability
+   * buffer and attempt to commit it to the opening history.
+   *
+   * State machine:
+   *
+   *   REVERT: board matches a previously committed position
+   *     → the provisional buffer contains a hallucinated branch — discard it.
+   *     → do NOT add a new entry (we are back to a known state).
+   *
+   *   REINFORCE: board matches the head of the provisional buffer
+   *     → increment frameCount.
+   *     → when frameCount reaches POSITION_STABILITY_FRAMES, commit and flush buffer.
+   *
+   *   OSCILLATION: board appears more than OSCILLATION_REPEAT_LIMIT times in the
+   *     provisional buffer (e.g. Ra1 → Rb1 → Ra1 bounce)
+   *     → discard the entire provisional buffer.
+   *     → do NOT commit any of the oscillating positions.
+   *
+   *   NEW: genuinely unseen board
+   *     → attempt single-ply SAN inference from the last committed position.
+   *     → if a provisional entry sits between them and two-ply inference succeeds,
+   *       commit the provisional entry too (gap-fill).
+   *     → push the new board as provisional (frameCount=1).
+   */
+  private recordPositionForHistory(fen: string, san?: string): void {
+    if (this.committedPositionHistory.length >= OPENING_HISTORY_MAX_PLIES) return;
+
+    const board = fen.split(' ')[0] ?? '';
+
+    // ── REVERT: board matches a previously committed position ────────────────
+    const committedIdx = this.committedPositionHistory.findIndex(e => e.board === board);
+    if (committedIdx !== -1) {
+      if (this.positionBuffer.length > 0) {
+        log.debug(
+          { board: board.slice(0, 24), committedIdx, dropped: this.positionBuffer.length },
+          '[PositionHistory] Revert to committed position — dropping provisional buffer'
+        );
+        this.positionBuffer = [];
+      }
+      return;
+    }
+
+    // ── REINFORCE: board matches the HEAD of the provisional buffer ──────────
+    // Must run BEFORE the oscillation check — consecutive confirmations of the
+    // same board are legitimate and should increment the frame count, not be
+    // treated as oscillation.
+    const head = this.positionBuffer[this.positionBuffer.length - 1];
+    if (head && head.board === board && head.status === 'provisional') {
+      head.frameCount++;
+      if (san && !head.san) head.san = san;
+
+      if (head.frameCount >= POSITION_STABILITY_FRAMES) {
+        head.status = 'confirmed';
+        this.committedPositionHistory.push({ ...head });
+        log.debug(
+          { board: board.slice(0, 24), san: head.san, histLen: this.committedPositionHistory.length },
+          '[PositionHistory] Position committed after stability window'
+        );
+        this.positionBuffer = [];
+      }
+      return;
+    }
+
+    // ── OSCILLATION: board seen at a non-head position in provisional buffer ──
+    // If this board already appeared anywhere in the buffer (and is NOT the
+    // current head — that case was handled above), the pipeline is bouncing
+    // between positions (e.g. Ra1 → Rb1 → Ra1).  Discard the buffer.
+    const provisionalRepeatCount = this.positionBuffer.filter(e => e.board === board).length;
+    if (provisionalRepeatCount >= OSCILLATION_REPEAT_LIMIT) {
+      log.debug(
+        { board: board.slice(0, 24), repeatCount: provisionalRepeatCount, bufLen: this.positionBuffer.length },
+        '[PositionHistory] Oscillation detected — discarding provisional buffer'
+      );
+      this.positionBuffer = [];
+      return;
+    }
+
+    // ── NEW board ─────────────────────────────────────────────────────────────
+    const lastCommitted = this.committedPositionHistory[this.committedPositionHistory.length - 1];
+    let resolvedSan = san;
+
+    if (lastCommitted) {
+      if (!resolvedSan) {
+        resolvedSan = this.tryInferSan(lastCommitted.fen, fen) ?? undefined;
+      }
+
+      if (!resolvedSan && this.positionBuffer.length > 0) {
+        const provisional = this.positionBuffer[this.positionBuffer.length - 1];
+        if (provisional && provisional.status === 'provisional') {
+          const san1 = this.tryInferSan(lastCommitted.fen, provisional.fen);
+          const san2 = this.tryInferSan(provisional.fen, fen);
+          if (san1 && san2) {
+            provisional.status = 'confirmed';
+            provisional.san = san1;
+            this.committedPositionHistory.push({ ...provisional });
+            this.positionBuffer = [];
+            resolvedSan = san2;
+            log.debug(
+              { san1, san2, histLen: this.committedPositionHistory.length },
+              '[PositionHistory] Gap-filled two-ply transition'
+            );
+          } else {
+            log.debug(
+              { board: provisional.board.slice(0, 24) },
+              '[PositionHistory] Provisional entry discarded (gap-fill failed)'
+            );
+            this.positionBuffer = [];
+          }
+        }
+      }
+    }
+
+    // Push new board as provisional.
+    this.positionBuffer.push({
+      fen,
+      board,
+      frameCount: 1,
+      status: 'provisional',
+      san: resolvedSan,
+    });
+  }
+
+  /**
+   * Try to infer the SAN of the single move between `fromFen` and `toFen`.
+   * Returns the SAN string if exactly one legal move bridges the two positions,
+   * or null if the transition cannot be explained by a single move.
+   */
+  private tryInferSan(fromFen: string, toFen: string): string | null {
+    try {
+      const fromBoard = fromFen.split(' ')[0] ?? '';
+      const toBoard = toFen.split(' ')[0] ?? '';
+      if (fromBoard === toBoard) return null;
+
+      // Try the turn encoded in fromFen first, then the other side as fallback.
+      const fromTurnField = fromFen.split(' ')[1] as 'w' | 'b' | undefined;
+      const turns: ('w' | 'b')[] = fromTurnField
+        ? [fromTurnField, fromTurnField === 'w' ? 'b' : 'w']
+        : ['w', 'b'];
+
+      for (const turn of turns) {
+        const candidate = `${fromBoard} ${turn} - - 0 1`;
+        const result = fenDiffToSan(candidate, toFen, turn);
+        if (result) return result;
+      }
+    } catch {
+      // Best-effort — swallow errors
+    }
+    return null;
   }
 
   private isInitialChessBoard(board: string): boolean {
@@ -1368,6 +1919,11 @@ class LiveAssistService extends EventEmitter {
     this.activeCoachPersonalityId = context?.coachPersonalityId || 'default';
     this.resetChessSessionState();
     this.totalMoveCount = 0;
+    this.firstSeenFen = null;
+    this.positionBuffer = [];
+    this.committedPositionHistory = [];
+    this.canonicalMoveHistory = [];
+    this.pendingCanonicalEntry = null;
     this.roundTipVisible = false;
     this.roundTipAutoClearAt = null;
     this.currentVisibleTip = null;
@@ -1699,6 +2255,10 @@ class LiveAssistService extends EventEmitter {
       );
       const whitePerspectiveFen = `${fenBoard} ${inferredTurn} ${castling} - 0 1`;
       const displayFen = this.buildDisplayFen(whitePerspectiveFen, perspective);
+      // Do NOT set firstSeenFen here — the starting position is not useful for
+      // opening identification. We wait for the first real move (non-initial board)
+      // to capture the actual opening position. If the game is recorded from the
+      // very first move, getFirstFen() will return the post-first-move FEN.
       this.emit('fen', {
         fen: whitePerspectiveFen,
         displayFen,
@@ -1826,48 +2386,34 @@ class LiveAssistService extends EventEmitter {
     const whitePerspectiveFen = `${fenBoard} ${inferredTurn} ${castling} - 0 1`;
     const displayFen = this.buildDisplayFen(whitePerspectiveFen, perspective);
 
-    // Compute played SAN here — fires on EVERY confirmed position change,
-    // not just when the coaching LLM runs. Use lastFenForMoveHistory (separate
-    // from lastChessSignature) so this doesn't interfere with coaching skip logic.
-    const justMoved: 'w' | 'b' = inferredTurn === 'w' ? 'b' : 'w';
-    let fenPlayedSan: string | undefined;
-    let fenPlayedTurn: 'w' | 'b' | undefined;
-
-    // Determine the baseline board to diff against.
-    // Primary: last accepted board position.
-    // Fallback: when no previous board exists (first confirmed position of the session),
-    // try diffing against the standard initial position — this recovers move 1 when
-    // the vote window fills after the first move has already been played.
-    const diffBase: string | null =
-      (this.lastFenForMoveHistory && this.lastFenForMoveHistory !== fenBoard)
-        ? this.lastFenForMoveHistory
-        : (!this.lastFenForMoveHistory && fenBoard !== INITIAL_CHESS_BOARD)
-          ? INITIAL_CHESS_BOARD
-          : null;
-
-    if (diffBase) {
-      const prevFen = `${diffBase} ${justMoved} - - 0 1`;
-      fenPlayedSan = fenDiffToSan(prevFen, whitePerspectiveFen, justMoved);
-      if (fenPlayedSan) {
-        fenPlayedTurn = justMoved;
-      } else {
-        // Fallback: turn inference may be wrong — try the other side
-        const otherSide: 'w' | 'b' = justMoved === 'w' ? 'b' : 'w';
-        const prevFenAlt = `${diffBase} ${otherSide} - - 0 1`;
-        const altSan = fenDiffToSan(prevFenAlt, whitePerspectiveFen, otherSide);
-        if (altSan) {
-          fenPlayedSan = altSan;
-          fenPlayedTurn = otherSide;
-        }
-      }
-    }
-
-    // Update the move history FEN tracker immediately (separate from lastChessSignature
+    // Update the move history FEN tracker (separate from lastChessSignature
     // which controls coaching deduplication — don't touch that here).
     if (fenBoard && fenBoard !== this.lastFenForMoveHistory) {
       this.lastFenForMoveHistory = fenBoard;
       this.totalMoveCount++;
     }
+
+    // Update the canonical move history — revert or rebase hallucinated branches,
+    // and derive the SAN via the guarded tryInferSanForHistory.
+    // SAN derivation lives entirely inside updateCanonicalHistory so there is
+    // exactly one code path and one source of truth.
+    const canonicalResult = this.updateCanonicalHistory(fenBoard);
+    const finalPlayedSan  = canonicalResult.resolvedSan;
+    const finalPlayedTurn = canonicalResult.resolvedTurn;
+    const moveHistorySnapshot = this.getCanonicalMoveHistorySnapshot();
+
+    // Record the first real gameplay position (non-starting-board) for opening detection.
+    // Skipping the initial board ensures mid-game joins capture the actual position,
+    // and games starting from move 1 capture the post-first-move FEN (e.g. after 1.e4)
+    // rather than the blank starting position which always returns "Starting Position".
+    if (!this.firstSeenFen) {
+      this.firstSeenFen = whitePerspectiveFen;
+    }
+
+    // Feed the stable position history buffer used for opening detection.
+    // We pass fenPlayedSan (the move that just led here) so the history can
+    // reconstruct a partial move sequence even when frames are missing.
+    this.recordPositionForHistory(whitePerspectiveFen, finalPlayedSan);
 
     this.emit('fen', {
       fen: whitePerspectiveFen,
@@ -1881,8 +2427,9 @@ class LiveAssistService extends EventEmitter {
       engineTo: this.lastEngineTo,
       engineEval: this.lastEngineEval,
       engineMate: this.lastEngineMate,
-      playedMoveSan: fenPlayedSan,
-      playedTurn: fenPlayedTurn,
+      playedMoveSan: finalPlayedSan,
+      playedTurn: finalPlayedTurn,
+      moveHistorySnapshot,
     });
 
     // The pipeline always works in white's perspective.
@@ -2761,6 +3308,9 @@ Rewrite it as exactly two sentences (40–60 words total). First sentence: name 
     this.lastVisualTextAt = 0;
     this.lastTipShownAt = 0;
     this.resetChessSessionState();
+    this.canonicalMoveHistory = [];
+    this.pendingCanonicalEntry = null;
+    this.prevPendingCanonicalEntry = null;
     this.isProcessing = false;
     this.coachingInFlight = false;
     if (this.roundStartClearTimer) {

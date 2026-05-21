@@ -438,3 +438,11 @@ export function getTerminalState(fen: string): 'checkmate' | 'stalemate' | null 
 
   return isInCheck(board, side) ? 'checkmate' : 'stalemate';
 }
+
+/**
+ * Parse a board-only FEN string (no turn/castling fields) into a square→piece map.
+ * Exported for use in the canonical move-history helper.
+ */
+export function parseBoardOnlyFen(boardStr: string): Map<string, string> {
+  return parseFenBoard(boardStr + ' w - - 0 1');
+}

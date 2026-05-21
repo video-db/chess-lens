@@ -48,6 +48,9 @@ const MOCK_RECORDING_BASE = {
 
 const MOCK_SHORT_OVERVIEW = `In this game, Magnus opened with 1.e4 and Gaurav responded with the Sicilian Defense (1...c5). The game quickly transitioned into a Najdorf variation. Magnus demonstrated excellent positional understanding in the middlegame, gradually building pressure on the queenside. A critical moment occurred around move 24 when Gaurav missed a tactical opportunity with ...Rxc3, allowing Magnus to consolidate his advantage. The endgame was converted cleanly with precise rook technique.`;
 
+const MOCK_WHITE_OPENING = "King's Pawn Opening";
+const MOCK_BLACK_OPENING = "Sicilian Defense, Najdorf";
+
 const MOCK_KEY_POINTS = [
   {
     topic: 'Opening Preparation',
@@ -476,6 +479,8 @@ interface MockPageProps {
   badges: { label: string; bg: string; color: string }[];
   accuracyWhite: number | null;
   accuracyBlack: number | null;
+  whiteOpening?: string | null;
+  blackOpening?: string | null;
 }
 
 function MockRecordingDetailPage({
@@ -489,6 +494,8 @@ function MockRecordingDetailPage({
   badges,
   accuracyWhite,
   accuracyBlack,
+  whiteOpening,
+  blackOpening,
 }: MockPageProps) {
   const players = extractPlayerNames(title);
 
@@ -505,9 +512,20 @@ function MockRecordingDetailPage({
             <MockAccuracyCard label={`${players.white} Accuracy`} value={accuracyWhite} color="#009106" />
             <MockAccuracyCard label={`${players.black} Accuracy`} value={accuracyBlack} color="#EF4444" />
           </div>
-          <div className="flex items-center justify-between" style={{ background: '#F7F7F7', border: '1px solid #EFEFEF', borderRadius: 12, padding: '16px', gap: 30 }}>
+          {/* Opening row */}
+          <div style={{ background: '#F7F7F7', border: '1px solid #EFEFEF', borderRadius: 12, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <span className="text-[14px] font-semibold text-black">Opening</span>
-            <span className="text-[14px] font-semibold text-text-body text-right">—</span>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col gap-[4px]" style={{ flex: 1 }}>
+                <span className="text-[11px] font-semibold text-text-body" style={{ textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.5 }}>White</span>
+                <span className="text-[13px] font-medium text-black">{whiteOpening ?? '—'}</span>
+              </div>
+              <div style={{ width: 1, background: 'rgba(0,0,0,0.08)', alignSelf: 'stretch', flexShrink: 0 }} />
+              <div className="flex flex-col gap-[4px]" style={{ flex: 1 }}>
+                <span className="text-[11px] font-semibold text-text-body" style={{ textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.5 }}>Black</span>
+                <span className="text-[13px] font-medium text-black">{blackOpening ?? '—'}</span>
+              </div>
+            </div>
           </div>
           <MockWinProbabilitySection players={players} tips={gameplayTips} />
           <MockBadgesRow badges={badges} />
@@ -667,6 +685,8 @@ export const FullAnalysis: Story = {
       ]}
       accuracyWhite={null}
       accuracyBlack={null}
+      whiteOpening={MOCK_WHITE_OPENING}
+      blackOpening={MOCK_BLACK_OPENING}
     />
   ),
 };
@@ -691,6 +711,8 @@ export const WithAccuracyScores: Story = {
       ]}
       accuracyWhite={87}
       accuracyBlack={62}
+      whiteOpening={MOCK_WHITE_OPENING}
+      blackOpening={MOCK_BLACK_OPENING}
     />
   ),
 };

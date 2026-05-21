@@ -37,7 +37,7 @@ interface LiveAssistState {
   askThis: string[];
   /** Structured coaching tips with move context for the live panel */
   coachingTips: CoachingTipEntry[];
-  /** Move history table: pairs of white/black moves */
+  /** Move history table: canonical snapshot from the main process */
   moveHistory: MoveEntry[];
   isProcessing: boolean;
   lastProcessedAt: number | null;
@@ -46,8 +46,14 @@ interface LiveAssistState {
   winProbabilityHistory: WinProbabilityPoint[];
 
   // Actions
-  addInsights: (insights: LiveInsights, winData?: { winChance?: number; turn?: 'w' | 'b'; moveSan?: string; playedMoveSan?: string }) => void;
-  addMove: (san: string, turn: 'w' | 'b') => void;
+  addInsights: (insights: LiveInsights, winData?: { winChance?: number; turn?: 'w' | 'b'; moveSan?: string }) => void;
+  /**
+   * Replace the entire move history with the canonical snapshot emitted by the
+   * main process on every confirmed FEN.  Using a full replace (not append)
+   * means hallucinated branches are automatically pruned the moment the board
+   * reverts — no stale rows can persist in the renderer.
+   */
+  setMoveHistory: (snapshot: MoveEntry[]) => void;
   setProcessing: (isProcessing: boolean) => void;
   setError: (error: string | null) => void;
   clearTips: () => void;
@@ -118,66 +124,27 @@ export const useLiveAssistStore = create<LiveAssistState>((set) => ({
       }
     }
 
-    // Update move history: playedMoveSan = actual move played, turn = side that just moved
-    let newMoveHistory = [...state.moveHistory];
-    const playedSan = winData?.playedMoveSan;
-    if (playedSan && winData?.turn) {
-      const san = playedSan;
-      const side = winData.turn; // side that just moved
-      // Deduplicate: skip if last entry already has this exact san on this side
-      const last = newMoveHistory[newMoveHistory.length - 1];
-      const alreadyAdded = last && (
-        (side === 'w' && last.white === san) ||
-        (side === 'b' && last.black === san)
-      );
-      if (!alreadyAdded) {
-        if (side === 'w') {
-          // White just played — start a new move entry
-          newMoveHistory.push({ no: newMoveHistory.length + 1, white: san });
-        } else {
-          // Black just played — fill the black slot of the last entry
-          if (last && last.white && !last.black) {
-            newMoveHistory[newMoveHistory.length - 1] = { ...last, black: san };
-          } else {
-            // Black opened (unusual) or last entry already has both
-            newMoveHistory.push({ no: newMoveHistory.length + 1, black: san });
-          }
-        }
-      }
-    }
+    // NOTE: move history is NOT updated here.  It is owned exclusively by the
+    // main process and delivered as a canonical snapshot via the 'fen' event →
+    // setMoveHistory().  Updating it here too would create a second source of
+    // truth and cause the row-misalignment bug where late-arriving insights
+    // re-add moves that are already in the snapshot.
 
     return {
       sayThis: combinedSayThis,
       askThis: combinedAskThis,
       coachingTips: trimmedTips,
-      moveHistory: newMoveHistory,
       lastProcessedAt: Date.now(),
       error: null,
       winProbabilityHistory: newHistory,
     };
   }),
 
+  setMoveHistory: (snapshot) => set({ moveHistory: snapshot }),
+
   setProcessing: (isProcessing) => set({ isProcessing }),
 
   setError: (error) => set({ error, isProcessing: false }),
-
-  addMove: (san, turn) => set((state) => {
-    const history = [...state.moveHistory];
-    if (turn === 'w') {
-      // White just played — start a new move entry
-      history.push({ no: history.length + 1, white: san });
-    } else {
-      // Black just played — fill in the last entry's black move
-      const last = history[history.length - 1];
-      if (last && !last.black) {
-        history[history.length - 1] = { ...last, black: san };
-      } else {
-        // Edge case: Black plays first (rare) or last entry already has black
-        history.push({ no: history.length + 1, black: san });
-      }
-    }
-    return { moveHistory: history };
-  }),
 
   clearTips: () => set({
     sayThis: [],

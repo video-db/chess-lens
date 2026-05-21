@@ -48,6 +48,9 @@ export const recordings = sqliteTable('recordings', {
   accuracyBlack: real('accuracy_black'),
   // Total number of individual moves (half-moves / plies) played in the game.
   moveCount: integer('move_count'),
+  // Opening names derived by LLM from the first observed FEN of the session.
+  whiteOpening: text('white_opening'),
+  blackOpening: text('black_opening'),
 });
 
 // Meeting Co-Pilot Tables

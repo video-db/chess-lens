@@ -103,6 +103,9 @@ export const RecordingSchema = z.object({
   accuracyBlack: z.number().nullable().optional(),
   // Total number of individual moves (plies) played in the game.
   moveCount: z.number().int().nullable().optional(),
+  // Opening names derived by LLM from the first observed FEN — one label per side.
+  whiteOpening: z.string().nullable().optional(),
+  blackOpening: z.string().nullable().optional(),
 });
 
 export const CreateRecordingInputSchema = z.object({

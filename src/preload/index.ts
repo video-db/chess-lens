@@ -370,6 +370,8 @@ const api: IpcApi = {
       engineMate?: number | null;
       playedMoveSan?: string;
       playedTurn?: 'w' | 'b';
+      /** Full canonical move-history snapshot — replaces any previously held list. */
+      moveHistorySnapshot?: Array<{ no: number; white?: string; black?: string }>;
     }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
       ipcRenderer.on('live-assist:fen', listener);

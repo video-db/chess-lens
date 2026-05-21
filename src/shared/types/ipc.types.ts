@@ -214,6 +214,8 @@ export interface LiveAssistEvents {
     engineMate?: number | null;
     playedMoveSan?: string;
     playedTurn?: 'w' | 'b';
+    /** Full canonical move-history snapshot — replaces any previously held list. */
+    moveHistorySnapshot?: Array<{ no: number; white?: string; black?: string }>;
   }) => void) => () => void;
 }
 

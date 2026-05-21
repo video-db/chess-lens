@@ -30,6 +30,10 @@ export interface PostMeetingSummary {
   keyPoints: KeyPoint[];
   postMeetingChecklist: string[];
   generatedAt: number;
+  /** Opening name from White's perspective (e.g. "King's Pawn Opening", "Sicilian Defense") */
+  whiteOpening?: string;
+  /** Opening name from Black's perspective (e.g. "Sicilian Defense, Najdorf Variation") */
+  blackOpening?: string;
 }
 
 export interface ProbingQA {
@@ -44,6 +48,18 @@ export interface MeetingContext {
   gameId?: SupportedGameId;
   probingQuestions?: ProbingQA[];
   checklist?: string[];
+  /**
+   * The first non-starting FEN position observed during the session.
+   * Fallback for opening detection when no move sequence is available.
+   */
+  firstFen?: string;
+  /**
+   * Stabilised early-move sequence for opening detection.
+   * Each entry is a committed (hallucination-filtered) board position
+   * with an optional SAN for the move that led to it.
+   * Preferred over firstFen when available.
+   */
+  earlyMoveSequence?: Array<{ fen: string; san?: string }>;
 }
 
 // ─── System Prompts ─────────────────────────────────────────────────────────────
@@ -133,12 +149,23 @@ export class SummaryGeneratorService {
       log.info({ recordingId, segmentCount: dbSegments.length }, 'Generating summary from transcript');
       const transcript = this.formatTranscript(dbSegments);
       const userPrompt = this.buildUserPrompt(transcript, context);
-      const [shortOverview, keyPoints, postMeetingChecklist] = await Promise.all([
+      const hasOpeningData = (context.earlyMoveSequence?.length ?? 0) > 0 || !!context.firstFen;
+      const [shortOverview, keyPoints, postMeetingChecklist, openingLabels] = await Promise.all([
         this.generateGameOverview(userPrompt, gameId),
         this.generateGameKeyPoints(userPrompt, gameId),
         this.generateGameChecklist(userPrompt, gameId),
+        hasOpeningData
+          ? this.generateOpeningLabels(context.earlyMoveSequence ?? [], context.firstFen)
+          : Promise.resolve(null),
       ]);
-      return { shortOverview, keyPoints, postMeetingChecklist, generatedAt: Date.now() };
+      return {
+        shortOverview,
+        keyPoints,
+        postMeetingChecklist,
+        generatedAt: Date.now(),
+        whiteOpening: openingLabels?.white ?? undefined,
+        blackOpening: openingLabels?.black ?? undefined,
+      };
     }
 
     // Chess path: build the session log from visual index items (coaching tips).
@@ -187,10 +214,23 @@ export class SummaryGeneratorService {
 
     const userPrompt = this.buildChessUserPrompt(gameLog, context, gameName);
 
-    const [shortOverview, keyPoints, postMeetingChecklist] = await Promise.all([
+    const hasOpeningData = (context.earlyMoveSequence?.length ?? 0) > 0 || !!context.firstFen;
+    log.info(
+      {
+        recordingId,
+        earlyMoveCount: context.earlyMoveSequence?.length ?? 0,
+        firstFen: context.firstFen ? context.firstFen.slice(0, 60) : null,
+      },
+      'generateFromVisualData: opening detection inputs'
+    );
+
+    const [shortOverview, keyPoints, postMeetingChecklist, openingLabels] = await Promise.all([
       this.generateGameOverview(userPrompt, gameId),
       this.generateGameKeyPoints(userPrompt, gameId),
       this.generateGameChecklist(userPrompt, gameId),
+      hasOpeningData
+        ? this.generateOpeningLabels(context.earlyMoveSequence ?? [], context.firstFen)
+        : Promise.resolve(null),
     ]);
 
     // If keyPoints came back empty, do a targeted retry with emphasis on producing output
@@ -203,7 +243,14 @@ export class SummaryGeneratorService {
       );
     }
 
-    return { shortOverview, keyPoints: finalKeyPoints, postMeetingChecklist, generatedAt: Date.now() };
+    return {
+      shortOverview,
+      keyPoints: finalKeyPoints,
+      postMeetingChecklist,
+      generatedAt: Date.now(),
+      whiteOpening: openingLabels?.white ?? undefined,
+      blackOpening: openingLabels?.black ?? undefined,
+    };
   }
 
   /**
@@ -250,6 +297,87 @@ ${gameLog}`;
     }
     log.info({ label, resultLength: result.length }, 'VideoDB generateCoachingText succeeded');
     return result;
+  }
+
+  /**
+   * Derive white and black opening names from the early move sequence and/or
+   * first observed FEN of the session.
+   *
+   * Prefers the stabilised early-move sequence (hallucination-filtered confirmed
+   * positions with optional SAN) when available.  Falls back to the first
+   * observed FEN when the sequence is empty (e.g. very short session, mid-game
+   * join with no gap-fill possible).
+   *
+   * Returns { white, black } or null if the call fails / returns nothing useful.
+   */
+  async generateOpeningLabels(
+    earlyMoveSequence: Array<{ fen: string; san?: string }>,
+    firstFen?: string
+  ): Promise<{ white: string; black: string } | null> {
+    const systemPrompt = `You are a chess opening expert. Given either an early move sequence or a board position (FEN), identify the most likely opening for White and the most likely defense for Black.
+
+The game may have been recorded from the very beginning or joined mid-way through.
+
+Rules:
+- ALWAYS prefer a named opening or defense family over a structural description.
+  Examples for White: "King's Pawn Opening", "Queen's Gambit", "English Opening", "Réti Opening", "King's Indian Attack", "London System", "Catalan Opening".
+  Examples for Black: "Sicilian Defense", "Sicilian Defense, Najdorf Variation", "French Defense", "Caro-Kann Defense", "Scandinavian Defense", "King's Indian Defense", "Nimzo-Indian Defense", "Grünfeld Defense", "Dutch Defense", "Pirc Defense", "Modern Defense".
+- If a move sequence is provided, use it as the primary signal — it is more reliable than a single position.
+- If only a position is provided (mid-game join), infer the opening from the pawn structure and piece placement.
+- If the pawn structure still hints at a known opening family even in a mid/endgame position, name that family (e.g. "Sicilian Defense" for a typical Sicilian pawn structure).
+- Only use a structural label (e.g. "Isolated Queen's Pawn", "Rook endgame") if no named opening family can be reasonably inferred from the position.
+- If there is genuinely no way to identify the opening or structure, return "Unknown" for that side.
+- Do NOT return "Starting Position".
+- Keep each label concise — 2–7 words maximum.
+- Do NOT reference FEN strings or move notation in your answer.
+- Return ONLY a raw JSON object with no markdown fences:
+{"white":"<label>","black":"<label>"}`;
+
+    // Build the user prompt — prefer move sequence, fall back to FEN.
+    let userPrompt: string;
+    if (earlyMoveSequence.length > 0) {
+      const moveLines = earlyMoveSequence
+        .map((entry, i) => {
+          const moveLabel = entry.san ? `Move ${i + 1}: ${entry.san}` : `Position ${i + 1} (move unknown)`;
+          return `${moveLabel}  FEN: ${entry.fen}`;
+        })
+        .join('\n');
+      userPrompt = `Early move sequence (${earlyMoveSequence.length} position${earlyMoveSequence.length === 1 ? '' : 's'}):\n${moveLines}`;
+    } else if (firstFen) {
+      userPrompt = `Board position (FEN): ${firstFen}`;
+    } else {
+      return null;
+    }
+
+    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+    const logCtx = earlyMoveSequence.length > 0
+      ? { moveCount: earlyMoveSequence.length, firstFen: earlyMoveSequence[0]?.fen?.slice(0, 40) }
+      : { firstFen: firstFen?.slice(0, 40) };
+
+    try {
+      const result = await this.callVideoDB(fullPrompt, 'json', 'openingLabels');
+      if (!result) return null;
+
+      let cleaned = result.trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```\s*$/, '')
+        .trim();
+
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) cleaned = jsonMatch[0];
+
+      const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+      const white = typeof parsed.white === 'string' && parsed.white.trim() ? parsed.white.trim() : null;
+      const black = typeof parsed.black === 'string' && parsed.black.trim() ? parsed.black.trim() : null;
+
+      if (white && black) {
+        log.info({ ...logCtx, white, black }, 'Opening labels generated');
+        return { white, black };
+      }
+    } catch (error) {
+      log.warn({ error, ...logCtx }, 'Opening label generation failed');
+    }
+    return null;
   }
 
   private async generateGameOverview(userPrompt: string, gameId: SupportedGameId): Promise<string> {

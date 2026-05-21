@@ -396,7 +396,13 @@ export class MeetingCopilotService extends EventEmitter {
 
     // Fetch game context from recording
     const recording = getRecordingById(recordingId);
-    const meetingContext = {
+    const firstFen = getLiveAssistService().getFirstFen();
+    const earlyMoveSequence = getLiveAssistService().getEarlyMoveSequence();
+    log.info(
+      { recordingId, firstFen: firstFen ? firstFen.slice(0, 60) : null, earlyMoveCount: earlyMoveSequence.length },
+      'endCall: opening detection inputs from live-assist'
+    );
+    const meetingContext: MeetingContext = {
       meetingName: (recording as any)?.meetingName || undefined,
       meetingDescription: (recording as any)?.meetingDescription || undefined,
       gameId: (recording as any)?.gameId || undefined,
@@ -406,6 +412,8 @@ export class MeetingCopilotService extends EventEmitter {
       checklist: (recording as any)?.meetingChecklist
         ? JSON.parse((recording as any).meetingChecklist)
         : undefined,
+      firstFen: firstFen ?? undefined,
+      earlyMoveSequence: earlyMoveSequence.length > 0 ? earlyMoveSequence : undefined,
     };
 
     // Persist accumulated coaching tips so the summary generator can use them.
@@ -478,6 +486,8 @@ export class MeetingCopilotService extends EventEmitter {
         moveCount,
         ...(accuracyWhite !== null && { accuracyWhite }),
         ...(accuracyBlack !== null && { accuracyBlack }),
+        ...(summary.whiteOpening ? { whiteOpening: summary.whiteOpening } : {}),
+        ...(summary.blackOpening ? { blackOpening: summary.blackOpening } : {}),
       });
       log.info({ recordingId }, 'Call data saved to database');
     } catch (error) {

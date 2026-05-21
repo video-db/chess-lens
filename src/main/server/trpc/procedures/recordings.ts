@@ -248,6 +248,9 @@ function toApiRecording(dbRecording: ReturnType<typeof getRecordingById>) {
     accuracyBlack: typeof (dbRecording as any).accuracyBlack === 'number' ? (dbRecording as any).accuracyBlack : null,
     // Total moves played
     moveCount: typeof (dbRecording as any).moveCount === 'number' ? (dbRecording as any).moveCount : null,
+    // Opening names derived by LLM from the first observed FEN
+    whiteOpening: (dbRecording as any).whiteOpening || null,
+    blackOpening: (dbRecording as any).blackOpening || null,
   };
 }
 

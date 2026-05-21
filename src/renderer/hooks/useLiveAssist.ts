@@ -99,18 +99,18 @@ export function useLiveAssist() {
         winChance: event.winChance,
         turn: event.turn,
         moveSan: event.moveSan,
-        playedMoveSan: event.playedMoveSan,
       });
     });
 
-    // Subscribe to FEN events to build move history table.
-    // The fen event fires on EVERY confirmed position change (not just when LLM tips generate),
-    // so move history is complete even when coaching tips are skipped for repeated positions.
+    // Subscribe to FEN events to keep move history in sync with the main process.
+    // The main process owns the canonical move history and sends a full snapshot on
+    // every confirmed position change.  Replacing (not appending) ensures that any
+    // hallucinated branch is immediately pruned when the board reverts.
     let unsubFen: (() => void) | undefined;
     if (typeof api.liveAssistOn.onFen === 'function') {
       unsubFen = api.liveAssistOn.onFen((data) => {
-        if (data.playedMoveSan && data.playedTurn) {
-          store.addMove(data.playedMoveSan, data.playedTurn);
+        if (data.moveHistorySnapshot) {
+          store.setMoveHistory(data.moveHistorySnapshot);
         }
       });
     }
