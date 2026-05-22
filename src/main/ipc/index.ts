@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import { setupCaptureHandlers } from './capture';
 import { setupPermissionHandlers } from './permissions';
-import { setupAppHandlers } from './app';
+import { setupAppHandlers, setupRendererLogHandler, removeRendererLogHandler } from './app';
 import { setupCopilotHandlers, removeCopilotHandlers, setCopilotMainWindow } from './copilot';
 import { setupMCPHandlers, removeMCPHandlers, setMCPMainWindow } from './mcp';
 import { setupCalendarHandlers, removeCalendarHandlers, setCalendarMainWindow } from './calendar';
@@ -19,6 +19,7 @@ export function setupIpcHandlers(): void {
   setupCaptureHandlers();
   setupPermissionHandlers();
   setupAppHandlers();
+  setupRendererLogHandler();
   setupCopilotHandlers();
   setupMCPHandlers();
   setupCalendarHandlers();
@@ -54,6 +55,7 @@ export function removeIpcHandlers(): void {
   ipcMain.removeHandler('open-external-link');
   ipcMain.removeHandler('show-notification');
   ipcMain.removeHandler('open-player-window');
+  removeRendererLogHandler();
 
   // Meeting Co-Pilot handlers
   removeCopilotHandlers();

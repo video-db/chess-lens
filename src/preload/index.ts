@@ -651,9 +651,26 @@ const api: IpcApi = {
     },
   } as CalendarEvents,
 
+  // Renderer → main log bridge: forwards renderer-side errors into the main-process
+  // structured log file (app-YYYY-MM-DD.log) so issues invisible in DevTools are
+  // captured in user-reported logs.
+  log: (
+    level: 'debug' | 'info' | 'warn' | 'error',
+    module: string,
+    message: string,
+    data?: Record<string, unknown>
+  ): void => {
+    // fire-and-forget — we never block on log delivery
+    ipcRenderer.invoke('renderer:log', level, module, message, data).catch(() => {
+      // If the IPC channel is not yet available (e.g. very early startup),
+      // fall back to the DevTools console so the message is not lost entirely.
+      // eslint-disable-next-line no-console
+      console[level](`[renderer:${module}]`, message, data ?? '');
+    });
+  },
+
   // Workflows API
-  workflows: {
-    getAll: () => ipcRenderer.invoke('workflows:get-all'),
+  workflows: {    getAll: () => ipcRenderer.invoke('workflows:get-all'),
     get: (id: string) => ipcRenderer.invoke('workflows:get', id),
     create: (request: { name: string; webhookUrl: string; enabled?: boolean }) =>
       ipcRenderer.invoke('workflows:create', request),

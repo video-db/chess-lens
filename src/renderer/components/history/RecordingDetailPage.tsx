@@ -40,7 +40,15 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
 
   const { data: recording, isLoading } = trpc.recordings.get.useQuery(
     { recordingId },
-    { enabled: !!recordingId }
+    {
+      enabled: !!recordingId,
+      // Poll every 5 s while the recording is still being processed so the page
+      // automatically transitions from "Analysing game…" to the full analysis
+      // view once the backend marks it available.  Polling stops the moment the
+      // status reaches a terminal state ('available' or 'failed').
+      refetchInterval: 5000,
+      refetchIntervalInBackground: false,
+    }
   );
 
   const { data: playbackData } = trpc.recordings.getPlaybackUrl.useQuery(

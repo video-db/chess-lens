@@ -8,6 +8,7 @@ import { useMCPStore } from '../stores/mcp.store';
 import { useLiveAssistStore } from '../stores/live-assist.store';
 import { trpc } from '../api/trpc';
 import { getElectronAPI } from '../api/ipc';
+import { rendererLog } from '../lib/utils';
 import type { ProbingQuestion } from '../../shared/types/meeting-setup.types';
 import {
   DEFAULT_GAME_ID,
@@ -61,10 +62,10 @@ export function useSession() {
   }, [sessionStore.status, sessionStore.startTime]);
 
   const startRecording = useCallback(async (meetingSetup?: MeetingSetupData) => {
-    console.log('[useSession] startRecording called with:', meetingSetup?.name);
+    rendererLog('info', 'use-session', 'startRecording called', { name: meetingSetup?.name ?? null });
     const api = getElectronAPI();
     if (!api) {
-      console.log('[useSession] Error: Electron API not available');
+      rendererLog('error', 'use-session', 'startRecording failed: Electron API not available');
       sessionStore.setError('Electron API not available');
       return;
     }
@@ -73,21 +74,53 @@ export function useSession() {
     const apiUrl = configStore.apiUrl;
 
     if (!accessToken) {
-      console.log('[useSession] Error: Not authenticated');
+      rendererLog('error', 'use-session', 'startRecording failed: not authenticated');
       sessionStore.setError('Not authenticated. Please log in first.');
       return;
     }
 
-    console.log('[useSession] Setting status to starting');
+    rendererLog('info', 'use-session', 'Setting status to starting');
     sessionStore.setStatus('starting');
     transcriptionStore.clear();
     useVisualIndexStore.getState().clear();
     useMCPStore.getState().clearResults();
 
     try {
+      // ─── DEBUG: Simulate a startup failure before recording is confirmed ────
+      // Set CHESS_SIMULATE_STARTUP_FAILURE=1 in your environment to reproduce
+      // the navigation-regression bug where the app drops the user back to the
+      // game library on a failed start.
+      //
+      // Test procedure:
+      //   1. With the fix REVERTED in App.tsx (git stash), set flag → true.
+      //      Expected (broken): lands on game library immediately.
+      //   2. With the fix APPLIED, set flag → true.
+      //      Expected (fixed): stays on current screen and shows error toast.
+      //
+      // REMOVE this block before shipping to production.
+      // ─── DEBUG: Simulate a startup failure before recording is confirmed ────
+      // Flip SIMULATE_STARTUP_FAILURE to true to reproduce the navigation-
+      // regression bug where the app drops the user back to the game library
+      // on a failed start.
+      //
+      // Test procedure:
+      //   1. With the fix REVERTED in App.tsx (git stash), set flag → true.
+      //      Expected (broken): lands on game library immediately.
+      //   2. With the fix APPLIED, set flag → true.
+      //      Expected (fixed): stays on current screen, shows error toast.
+      //
+      // REMOVE this block before shipping to production.
+      const SIMULATE_STARTUP_FAILURE = false;
+      if (SIMULATE_STARTUP_FAILURE) {
+        rendererLog('warn', 'use-session', '[DEBUG] Simulating startup failure — SIMULATE_STARTUP_FAILURE=true');
+        throw new Error('[DEBUG] Simulated startup failure — status reset to idle, error toast shown');
+      }
+      // ───────────────────────────────────────────────────────────────────────
+      // ───────────────────────────────────────────────────────────────────────
       // Always generate a fresh session token before creating a new capture session.
       // Reusing a cached token causes 403 "Unauthorized access to session" because
       // the VideoDB server only authorises sessions created within the same token context.
+      rendererLog('info', 'use-session', 'Generating session token');
       const tokenResult = await generateTokenMutation.mutateAsync({});
       const sessionToken = tokenResult.sessionToken;
       const tokenExpiresAt = tokenResult.expiresAt;
@@ -96,8 +129,11 @@ export function useSession() {
       if (!sessionToken) {
         throw new Error('Failed to get session token');
       }
+      rendererLog('info', 'use-session', 'Session token obtained');
 
+      rendererLog('info', 'use-session', 'Creating capture session');
       const captureSession = await createSessionMutation.mutateAsync({});
+      rendererLog('info', 'use-session', 'Capture session created', { sessionId: captureSession.sessionId });
 
       const streamsConfig = {
         microphone: sessionStore.streams.microphone,
@@ -105,10 +141,22 @@ export function useSession() {
         screen: sessionStore.streams.screen,
       };
 
+      rendererLog('info', 'use-session', 'Stream config', {
+        microphone: streamsConfig.microphone,
+        systemAudio: streamsConfig.systemAudio,
+        screen: streamsConfig.screen,
+      });
+
       if (!streamsConfig.microphone && !streamsConfig.systemAudio && !streamsConfig.screen) {
         throw new Error('No streams enabled for recording');
       }
 
+      rendererLog('info', 'use-session', 'Calling capture.startRecording IPC', {
+        sessionId: captureSession.sessionId,
+        enableTranscription: transcriptionStore.enabled,
+        enableVisualIndex: streamsConfig.screen,
+        gameId: meetingSetup?.gameId ?? DEFAULT_GAME_ID,
+      });
        const result = await api.capture.startRecording({
          config: {
            sessionId: captureSession.sessionId,
@@ -123,6 +171,14 @@ export function useSession() {
          // Used by the floating widget overlay to render game-specific UI (e.g. detailed chess tips).
          gameId: meetingSetup?.gameId || DEFAULT_GAME_ID,
        });
+
+      rendererLog('info', 'use-session', 'capture.startRecording IPC returned', {
+        success: result.success,
+        error: result.error ?? null,
+        hasMicWs: !!result.micWsConnectionId,
+        hasSysAudioWs: !!result.sysAudioWsConnectionId,
+        hasScreenWs: !!result.screenWsConnectionId,
+      });
 
       if (!result.success) {
         throw new Error(result.error || 'Failed to start recording');
@@ -176,7 +232,9 @@ export function useSession() {
             visualIndexStore.setRunning(true);
           }
         } catch (visualError) {
-          console.warn('[useSession] Failed to auto-start visual index:', visualError);
+          rendererLog('warn', 'use-session', 'Failed to auto-start visual index', {
+            error: visualError instanceof Error ? visualError.message : String(visualError),
+          });
         }
       }
 
@@ -190,11 +248,13 @@ export function useSession() {
             useCopilotStore.getState().startCall(recordingResult.id);
           }
         } catch (copilotError) {
-          // Ignore copilot errors
+          rendererLog('warn', 'use-session', 'Failed to start copilot call (non-fatal)', {
+            error: copilotError instanceof Error ? copilotError.message : String(copilotError),
+          });
         }
       }
 
-      console.log('[useSession] Recording started successfully, sessionId:', captureSession.sessionId);
+      rendererLog('info', 'use-session', 'Recording started successfully', { sessionId: captureSession.sessionId });
       sessionStore.startSession(
         captureSession.sessionId,
         sessionToken!,
@@ -204,8 +264,12 @@ export function useSession() {
         visualIndexPrompt,
       );
     } catch (error) {
-      console.log('[useSession] Error starting recording:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to start recording';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      rendererLog('error', 'use-session', 'startRecording failed', {
+        error: errorMessage,
+        stack: errorStack ?? null,
+      });
 
       if (errorMessage.includes('logged in') || errorMessage.includes('UNAUTHORIZED')) {
         configStore.clearAuth();

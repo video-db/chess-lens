@@ -328,6 +328,13 @@ export interface IpcApi {
   calendar: CalendarApi;
   calendarOn: CalendarEvents;
   workflows: WorkflowsApi;
+  /** Forward a renderer-side log entry to the main-process structured log file. */
+  log: (
+    level: 'debug' | 'info' | 'warn' | 'error',
+    module: string,
+    message: string,
+    data?: Record<string, unknown>
+  ) => void;
 }
 
 export type IpcChannel =

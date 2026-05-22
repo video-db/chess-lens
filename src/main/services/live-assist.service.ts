@@ -626,6 +626,12 @@ class LiveAssistService extends EventEmitter {
     const rawBoardContent = rawBoardMatches[rawBoardMatches.length - 1]?.[1]?.trim() || '';
     if (rawBoardContent.toUpperCase() === 'NO_BOARD') {
       log.debug('[LiveAssist] extractFenFromTaggedChessOutput: LLM reported NO_BOARD — no main chess board visible, skipping frame');
+      // Reset board state so the plausibility check doesn't block the first
+      // post-recovery FEN by comparing it against the stale pre-disappearance
+      // position.  Also clear lastChessTurn so injectConfirmedFen treats the
+      // returning board as a cold-start rather than a continuation.
+      this.lastChessBoard = null;
+      this.lastChessTurn = null;
       this.emit('no-board');
       return null;
     }

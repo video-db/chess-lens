@@ -150,6 +150,12 @@ export function App() {
     prepareNewSession();
   }, [sessionStore, prepareNewSession]);
 
+  // Stable callback so HistoryView's selection effect doesn't re-fire on every
+  // App re-render (an inline lambda would be a new reference each time).
+  const handleClearInitialSelection = React.useCallback(() => {
+    setPendingRecordingNavigation(null);
+  }, []);
+
   // Navigate back to game library while keeping the recording active.
   // The recording continues in the background; the library shows an alert banner.
   const handleBackToLibraryDuringRecording = React.useCallback(() => {
@@ -160,14 +166,30 @@ export function App() {
   // When recording stops via the widget (not via RecordingView's own back handler),
   // isActivelyRecording transitions true→false while awaitingCallSummary is also false.
   // Detect this transition and navigate to the detail page automatically.
+  //
+  // IMPORTANT: only set wasActivelyRecordingRef once the session has reached a
+  // *confirmed* recording state ('recording', 'stopping', 'processing').
+  // 'starting' must NOT count — if startup fails and status returns to 'idle'
+  // before 'recording:started' arrives, this effect would otherwise fire
+  // handleExitRecordingMode() and incorrectly navigate to the game library.
   React.useEffect(() => {
     const wasRecording = wasActivelyRecordingRef.current;
-    wasActivelyRecordingRef.current = isActivelyRecording;
+    const isConfirmedRecording =
+      sessionStatus === 'recording' ||
+      sessionStatus === 'stopping' ||
+      sessionStatus === 'processing';
+    if (isConfirmedRecording) {
+      wasActivelyRecordingRef.current = true;
+    }
 
     if (wasRecording && !isActivelyRecording && !awaitingCallSummary) {
+      // Reset the ref before calling so re-renders triggered inside
+      // handleExitRecordingMode (e.g. store resets changing useCallback identity)
+      // cannot cause a second invocation.
+      wasActivelyRecordingRef.current = false;
       handleExitRecordingMode();
     }
-  }, [isActivelyRecording, awaitingCallSummary, handleExitRecordingMode]);
+  }, [isActivelyRecording, sessionStatus, awaitingCallSummary, handleExitRecordingMode]);
 
   const renderContent = () => {
     console.log('[App.renderContent] sessionStatus:', sessionStatus, 'isActivelyRecording:', isActivelyRecording, 'awaitingCallSummary:', awaitingCallSummary, 'activeTab:', activeTab);
@@ -218,7 +240,7 @@ export function App() {
         return (
           <HistoryView
             initialSelectedRecordingId={pendingRecordingNavigation}
-            onClearInitialSelection={() => setPendingRecordingNavigation(null)}
+            onClearInitialSelection={handleClearInitialSelection}
             onStartRecording={() => {
               setBrowsedAwayFromRecording(false);
             }}
@@ -249,7 +271,7 @@ export function App() {
         return (
           <HistoryView
             initialSelectedRecordingId={pendingRecordingNavigation}
-            onClearInitialSelection={() => setPendingRecordingNavigation(null)}
+            onClearInitialSelection={handleClearInitialSelection}
             onStartRecording={handleStartRecording}
           />
         );
@@ -257,7 +279,7 @@ export function App() {
         return (
           <HistoryView
             initialSelectedRecordingId={pendingRecordingNavigation}
-            onClearInitialSelection={() => setPendingRecordingNavigation(null)}
+            onClearInitialSelection={handleClearInitialSelection}
             onStartRecording={handleStartRecording}
           />
         );

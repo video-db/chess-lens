@@ -1,8 +1,32 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { getElectronAPI } from '../api/ipc';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+/**
+ * Forward a renderer-side log entry to the main-process structured log file
+ * (app-YYYY-MM-DD.log).  Entries appear under the module name
+ * `renderer:<module>` alongside all other main-process log lines, making
+ * renderer errors visible in user-reported logs without requiring DevTools access.
+ *
+ * Falls back silently to console if the IPC bridge is not yet available.
+ */
+export function rendererLog(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  module: string,
+  message: string,
+  data?: Record<string, unknown>
+): void {
+  const api = getElectronAPI();
+  if (api?.log) {
+    api.log(level, module, message, data);
+  } else {
+    // eslint-disable-next-line no-console
+    console[level](`[renderer:${module}]`, message, data ?? '');
+  }
 }
 
 export function formatDuration(seconds: number): string {

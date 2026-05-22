@@ -5,6 +5,7 @@ import { useVisualIndexStore } from '../stores/visual-index.store';
 import { useCopilotStore } from '../stores/copilot.store';
 import { useLiveAssistStore } from '../stores/live-assist.store';
 import { getElectronAPI } from '../api/ipc';
+import { trpc } from '../api/trpc';
 import type { RecorderEvent, TranscriptEvent, VisualIndexEvent } from '../../shared/types/ipc.types';
 
 function normalizeVisualIndexText(raw: string): string {
@@ -59,10 +60,15 @@ export function useGlobalRecorderEvents() {
   const transcriptionStore = useTranscriptionStore();
   const visualIndexStore = useVisualIndexStore();
 
+  // tRPC mutation to mark the recording as 'processing' in the DB when the
+  // overlay Stop button is used (which bypasses useSession.stopRecording).
+  const stopRecordingMutation = trpc.recordings.stop.useMutation();
+
   // Use refs to avoid re-subscribing when stores change
   const sessionStoreRef = useRef(sessionStore);
   const transcriptionStoreRef = useRef(transcriptionStore);
   const visualIndexStoreRef = useRef(visualIndexStore);
+  const stopRecordingMutationRef = useRef(stopRecordingMutation);
 
   // Keep refs updated
   useEffect(() => {
@@ -76,6 +82,10 @@ export function useGlobalRecorderEvents() {
   useEffect(() => {
     visualIndexStoreRef.current = visualIndexStore;
   }, [visualIndexStore]);
+
+  useEffect(() => {
+    stopRecordingMutationRef.current = stopRecordingMutation;
+  }, [stopRecordingMutation]);
 
   useEffect(() => {
     const api = getElectronAPI();
@@ -115,6 +125,12 @@ export function useGlobalRecorderEvents() {
             // Fallback path (e.g., stop from floating widget): finalize copilot summary here.
             const isCallActive = useCopilotStore.getState().isCallActive;
             if (!isCallActive) {
+              // Mark the recording as 'processing' in the DB so the post-game
+              // analysis page shows correctly instead of staying at 'recording'.
+              const sessionId = session.sessionId;
+              if (sessionId) {
+                stopRecordingMutationRef.current.mutate({ sessionId });
+              }
               session.setStatus('idle');
               break;
             }

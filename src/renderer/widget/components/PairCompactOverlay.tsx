@@ -1361,7 +1361,7 @@ export function PairCompactOverlay({
             boxSizing: 'border-box',
             gap: 6.73,
           }}>
-            {/* Timer: red dot + 00:00 */}
+            {/* Timer: red dot + elapsed */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6.73, flexShrink: 0 }}>
               <div style={{
                 width: 8.41,
@@ -1378,7 +1378,7 @@ export function PairCompactOverlay({
                 letterSpacing: '-0.02em',
                 fontFamily: 'Inter, sans-serif',
               }}>
-                00:00
+                {elapsed}
               </span>
             </div>
 

@@ -8,6 +8,32 @@ import path from 'path';
 
 const logger = createChildLogger('ipc-app');
 
+type RendererLogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export function setupRendererLogHandler(): void {
+  ipcMain.handle(
+    'renderer:log',
+    (
+      _event,
+      level: RendererLogLevel,
+      module: string,
+      message: string,
+      data?: Record<string, unknown>
+    ): void => {
+      const child = logger.child({ module: `renderer:${module}` });
+      if (data !== undefined) {
+        child[level](data, message);
+      } else {
+        child[level](message);
+      }
+    }
+  );
+}
+
+export function removeRendererLogHandler(): void {
+  ipcMain.removeHandler('renderer:log');
+}
+
 export function setupAppHandlers(): void {
   ipcMain.handle(
     'get-settings',

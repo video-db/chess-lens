@@ -12,6 +12,7 @@ import { getMCPInferenceService, resetMCPInferenceService } from '../services/mc
 import { getMeetingCopilot } from '../services/copilot/sales-copilot.service';
 import { createChildLogger } from '../lib/logger';
 import { updateWidgetLiveAssist, updateWidgetFen, sendWidgetNoBoard } from './widget';
+import { getChessScreenshotService } from '../services/chess-screenshot.service';
 import type { LiveInsightsEvent } from '../../shared/types/live-assist.types';
 import type { MCPDisplayResult } from '../../shared/types/mcp.types';
 
@@ -98,6 +99,10 @@ export function setupLiveAssistHandlers(): void {
       updateWidgetFen(data);
     });
     liveAssistService.on('no-board', () => {
+      // Invalidate the last confirmed FEN in the screenshot service so the
+      // temporal-consistency delta gate doesn't block the first post-recovery
+      // frame (which may be a very different position from before disappearance).
+      getChessScreenshotService().invalidateLastConfirmed();
       sendWidgetNoBoard();
     });
     liveAssistService.start(context);
