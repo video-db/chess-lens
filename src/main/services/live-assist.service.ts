@@ -191,7 +191,7 @@ class LiveAssistService extends EventEmitter {
    * provisional model).  The snapshot sent to the renderer is built from this
    * list, giving a one-ply display lag that eliminates phantom moves.
    */
-  private canonicalMoveHistory: Array<{ board: string; fen?: string; san?: string; turn?: 'w' | 'b' }> = [];
+  private canonicalMoveHistory: Array<{ board: string; fen?: string; san?: string; turn?: 'w' | 'b'; winChance?: number; moveSan?: string }> = [];
   /**
    * Provisional buffer — holds the most-recently-seen board before it has been
    * validated by a subsequent board.  Every new board lands here first; it is
@@ -204,7 +204,7 @@ class LiveAssistService extends EventEmitter {
    * move by the same side).  A suspect pending must also pass an extra
    * opponentCountsOK check against committedTail before it can be committed.
    */
-  private pendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b'; suspect?: boolean } | null = null;
+  private pendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b'; suspect?: boolean; winChance?: number; moveSan?: string } | null = null;
   /**
    * Previous pending entry — saved when REPLACE fires so that the following
    * board can check if it connects through the replaced (possibly real) entry.
@@ -212,7 +212,7 @@ class LiveAssistService extends EventEmitter {
    * P dropped, H is now pending).  Next real board B connects P→B but not H→B.
    * We recover P by checking prevPending→B.  P gets committed, H is discarded.
    */
-  private prevPendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b'; suspect?: boolean } | null = null;
+  private prevPendingCanonicalEntry: { board: string; fen?: string; san?: string; turn?: 'w' | 'b'; suspect?: boolean; winChance?: number; moveSan?: string } | null = null;
   /** The first board FEN confirmed during the current session — used for opening detection. */
   private firstSeenFen: string | null = null;
   /**
@@ -241,6 +241,17 @@ class LiveAssistService extends EventEmitter {
   private lastPositionEval: number | undefined = undefined;
   /** winChance from the PREVIOUS engine call — stored for next-move centipawn-loss calc. */
   private lastPositionWinChance: number | undefined = undefined;
+  /**
+   * Set of board strings (board-only FEN) for which canonical history CONFIRMED
+   * a real move.  Only positions in this set are allowed to emit winChance /
+   * centipawnLoss / engineEval on the insights event so the win-probability
+   * chart only advances on confirmed canonical moves, not hallucinated boards.
+   *
+   * Populated in injectConfirmedFen when canonicalResult.resolvedSan is defined.
+   * Consumed (and removed) in runCoachingLLM after the emit so each board only
+   * contributes one chart point.
+   */
+  private confirmedMoveBoards = new Set<string>();
   private castlingRights: CastlingRightsState = {
     whiteKingside: false,
     whiteQueenside: false,
@@ -992,6 +1003,7 @@ class LiveAssistService extends EventEmitter {
     this.lastEngineMate = undefined;
     this.lastPositionEval = undefined;
     this.lastPositionWinChance = undefined;
+    this.confirmedMoveBoards.clear();
     this.pendingChessSignature = null;
     this.pendingChessSignatureCount = 0;
     this.castlingRights = {
@@ -1078,7 +1090,7 @@ class LiveAssistService extends EventEmitter {
   private updateCanonicalHistory(
     board: string,
     fen?: string,
-  ): { history: Array<{ board: string; fen?: string; san?: string; turn?: 'w' | 'b' }>; resolvedSan?: string; resolvedTurn?: 'w' | 'b' } {
+  ): { history: Array<{ board: string; fen?: string; san?: string; turn?: 'w' | 'b'; winChance?: number; moveSan?: string }>; resolvedSan?: string; resolvedTurn?: 'w' | 'b' } {
     const committed  = this.canonicalMoveHistory;
     const pending    = this.pendingCanonicalEntry;
     const prevPending = this.prevPendingCanonicalEntry;
@@ -1341,6 +1353,142 @@ class LiveAssistService extends EventEmitter {
       }
     }
     return rows;
+  }
+
+  /**
+   * Build the win-probability snapshot from canonical history.
+   *
+   * Walks all committed `canonicalMoveHistory` entries that have `winChance`
+   * stamped, then also appends `pendingCanonicalEntry` if it has `winChance`
+   * (stamped at stage-1 while it is still pending confirmation).
+   *
+   * Including the pending entry means the live chart shows the most-recent
+   * confirmed+pending move without waiting for the next board to arrive and
+   * commit it.  If the pending entry is later discarded (hallucination), the
+   * next `fen` emit rebuilds the snapshot from scratch — the point disappears
+   * automatically, giving the same self-healing behaviour as committed entries.
+   */
+  private getWinProbabilitySnapshot(): Array<{ winChance: number; turn: 'w' | 'b'; moveIndex: number; moveSan?: string }> {
+    const points: Array<{ winChance: number; turn: 'w' | 'b'; moveIndex: number; moveSan?: string }> = [];
+    for (let i = 0; i < this.canonicalMoveHistory.length; i++) {
+      const entry = this.canonicalMoveHistory[i];
+      if (typeof entry.winChance === 'number' && entry.turn) {
+        points.push({
+          winChance: entry.winChance,
+          turn: entry.turn,
+          moveIndex: i,
+          moveSan: entry.moveSan,
+        });
+      }
+    }
+    // Also include the pending entry if it has winChance stamped.
+    // Its moveIndex is the next slot it will occupy once confirmed.
+    const pending = this.pendingCanonicalEntry;
+    if (pending && typeof pending.winChance === 'number' && pending.turn) {
+      points.push({
+        winChance: pending.winChance,
+        turn: pending.turn,
+        moveIndex: this.canonicalMoveHistory.length,
+        moveSan: pending.moveSan,
+      });
+    }
+    return points;
+  }
+
+  /**
+   * Stamp engine win-probability data onto the canonical entry for `board`,
+   * if that board is in `confirmedMoveBoards`.
+   *
+   * The two-stage provisional model means `board` (the newly-arriving board)
+   * is placed into `pendingCanonicalEntry`, not directly into
+   * `canonicalMoveHistory`, at the time `injectConfirmedFen` runs.  The entry
+   * only moves to `canonicalMoveHistory` when the *next* board confirms it.
+   *
+   * So this method:
+   *  1. First searches `canonicalMoveHistory` (handles re-runs after the entry
+   *     has already been committed, or edge cases where the board re-appears).
+   *  2. Falls back to stamping `pendingCanonicalEntry` directly when the
+   *     committed search fails — this is the common path at stage-1.
+   *
+   * `getWinProbabilitySnapshot` includes the pending entry, so the chart
+   * updates immediately.  When the pending entry is later committed (CONFIRM),
+   * the field carries over into `canonicalMoveHistory` automatically.  If it
+   * is discarded (hallucination), the next snapshot omits it.
+   *
+   * Called at stage-1 (~1s after each move) so the live chart updates well
+   * before the LLM coaching tip completes (~3–5s).
+   *
+   * Returns true when the entry was found and stamped, false otherwise.
+   */
+  private stampWinChanceAtStage1(
+    board: string,
+    winChance: number | undefined,
+    turn: 'w' | 'b' | undefined,
+    moveSan: string | undefined,
+  ): boolean {
+    if (!board || typeof winChance !== 'number' || !turn) return false;
+
+    // Pass 1 — search committed history (handles re-runs and edge cases where
+    // the board was already confirmed and moved out of pending).
+    let entryIdx = -1;
+    for (let i = this.canonicalMoveHistory.length - 1; i >= 0; i--) {
+      if (this.canonicalMoveHistory[i]!.board === board) { entryIdx = i; break; }
+    }
+    if (entryIdx !== -1) {
+      const entry = this.canonicalMoveHistory[entryIdx]!;
+      entry.winChance = winChance;
+      if (moveSan) entry.moveSan = moveSan;
+      log.debug(
+        { board: board.slice(0, 30), winChance, moveSan: entry.moveSan, entryIdx, slot: 'committed' },
+        '[LiveAssist] Stage-1: stamped winChance onto committed canonical history entry'
+      );
+      return true;
+    }
+
+    // Pass 2 — fall back to pendingCanonicalEntry (the common path at stage-1:
+    // the board was just placed into pending by injectConfirmedFen and has not
+    // yet been committed by the next board's CONFIRM).  No confirmedMoveBoards
+    // gate here — any board that passed injectConfirmedFen's semantic and
+    // plausibility guards and got an engine result is valid for the chart.
+    // Self-healing is handled structurally: getWinProbabilitySnapshot rebuilds
+    // from canonical history on every fen event, so if pending is later
+    // discarded (hallucination), the point disappears automatically.
+    //
+    // Also accept lastChessBoard as a fallback when processTranscriptInner is
+    // triggered by the websocket path: in that case chessContext.board comes
+    // from the websocket FEN which may differ from pendingCanonicalEntry.board
+    // (the screenshot-injected board).  We still stamp onto pendingCanonicalEntry
+    // because it is the nearest valid slot.
+    const pendingMatches = this.pendingCanonicalEntry?.board === board;
+    const lastBoardMatches = !pendingMatches && this.lastChessBoard === board;
+
+    if (pendingMatches) {
+      this.pendingCanonicalEntry!.winChance = winChance;
+      if (moveSan) this.pendingCanonicalEntry!.moveSan = moveSan;
+      log.debug(
+        { board: board.slice(0, 30), winChance, moveSan: this.pendingCanonicalEntry!.moveSan, slot: 'pending' },
+        '[LiveAssist] Stage-1: stamped winChance onto pendingCanonicalEntry'
+      );
+      return true;
+    }
+
+    if (lastBoardMatches && this.pendingCanonicalEntry) {
+      // Websocket-path fallback: board matches lastChessBoard but not pending.
+      // Stamp onto pendingCanonicalEntry — closest valid slot.
+      this.pendingCanonicalEntry.winChance = winChance;
+      if (moveSan) this.pendingCanonicalEntry.moveSan = moveSan;
+      log.debug(
+        { board: board.slice(0, 30), winChance, slot: 'pending-via-lastBoard' },
+        '[LiveAssist] Stage-1: stamped winChance onto pendingCanonicalEntry via lastChessBoard match'
+      );
+      return true;
+    }
+
+    log.debug(
+      { board: board.slice(0, 30) },
+      '[LiveAssist] Stage-1: board not found in committed history or pending — winChance not stamped'
+    );
+    return false;
   }
 
   /**
@@ -2086,6 +2234,7 @@ class LiveAssistService extends EventEmitter {
       engineEval: this.lastEngineEval,
       engineMate: this.lastEngineMate,
       isFlipAck: true,
+      winProbabilitySnapshot: this.getWinProbabilitySnapshot(),
     });
 
     // Re-schedule processing so the engine re-analyses with the flipped turn.
@@ -2318,6 +2467,7 @@ class LiveAssistService extends EventEmitter {
         engineTo: this.lastEngineTo,
         engineEval: this.lastEngineEval,
         engineMate: this.lastEngineMate,
+        winProbabilitySnapshot: this.getWinProbabilitySnapshot(),
       });
       const syntheticText = `<source>\nscreenshot\n</source>\n\n<perspective>\nwhite\n</perspective>\n\n<raw_board>\n${fenBoard}\n</raw_board>`;
       this.addVisualIndexRaw(syntheticText);
@@ -2449,6 +2599,21 @@ class LiveAssistService extends EventEmitter {
     const finalPlayedTurn = canonicalResult.resolvedTurn;
     const moveHistorySnapshot = this.getCanonicalMoveHistorySnapshot();
 
+    // Gate win-probability chart points on confirmed canonical moves only.
+    // When canonical history commits a real move (resolvedSan is defined), the
+    // incoming board is the position AFTER that confirmed move — the engine will
+    // analyse it and its winChance is a valid chart point.
+    // When no commit occurred (hallucination replaced, discarded, or reverted),
+    // the engine still runs for coaching but its winChance must NOT reach the
+    // chart, otherwise a hallucinated board causes a spurious spike.
+    if (finalPlayedSan !== undefined) {
+      this.confirmedMoveBoards.add(fenBoard);
+      log.debug(
+        { fenBoard: fenBoard.slice(0, 30), san: finalPlayedSan },
+        '[LiveAssist] Board added to confirmedMoveBoards — winChance will be charted'
+      );
+    }
+
     // Record the first real gameplay position (non-starting-board) for opening detection.
     // Skipping the initial board ensures mid-game joins capture the actual position,
     // and games starting from move 1 capture the post-first-move FEN (e.g. after 1.e4)
@@ -2477,6 +2642,7 @@ class LiveAssistService extends EventEmitter {
       playedMoveSan: finalPlayedSan,
       playedTurn: finalPlayedTurn,
       moveHistorySnapshot,
+      winProbabilitySnapshot: this.getWinProbabilitySnapshot(),
     });
 
     // The pipeline always works in white's perspective.
@@ -2839,6 +3005,7 @@ class LiveAssistService extends EventEmitter {
           engineTo: undefined,
           engineEval: undefined,
           engineMate: undefined,
+          winProbabilitySnapshot: this.getWinProbabilitySnapshot(),
         });
       }
       this.lastProcessedTimestamp = now;
@@ -2903,6 +3070,14 @@ class LiveAssistService extends EventEmitter {
         this.pendingChessSignatureCount = 0;
         const whitePerspFen = chessContext?.fen || `${chessSignature} ${sideToMove} - - 0 1`;
         const dFen = this.buildDisplayFen(whitePerspFen, this.lastChessPerspective);
+        // Stage-1 stamp: attach winChance to the canonical entry NOW so the live
+        // chart updates immediately rather than waiting for the LLM to complete.
+        this.stampWinChanceAtStage1(
+          chessContext?.board ?? '',
+          chessContext?.winChance,
+          chessContext?.turn,
+          chessContext?.playedMoveSan,
+        );
         this.emit('fen', {
           fen: whitePerspFen,
           displayFen: dFen,
@@ -2914,6 +3089,7 @@ class LiveAssistService extends EventEmitter {
           engineTo: this.lastEngineTo,
           engineEval: this.lastEngineEval,
           engineMate: this.lastEngineMate,
+          winProbabilitySnapshot: this.getWinProbabilitySnapshot(),
         });
       }
       this.lastProcessedTimestamp = now;
@@ -3043,6 +3219,14 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
       this.pendingChessSignatureCount = 0;
       const whitePerspFen = chessContext?.fen || `${chessSignature} ${this.lastChessTurn || 'w'} - - 0 1`;
       const dFen = this.buildDisplayFen(whitePerspFen, this.lastChessPerspective);
+      // Stage-1 stamp: attach winChance to the canonical entry NOW so the live
+      // chart updates immediately rather than waiting for the LLM to complete.
+      this.stampWinChanceAtStage1(
+        chessContext?.board ?? '',
+        chessContext?.winChance,
+        chessContext?.turn,
+        computedPlayedSan ?? chessContext?.playedMoveSan,
+      );
       this.emit('fen', {
         fen: whitePerspFen,
         displayFen: dFen,
@@ -3054,6 +3238,7 @@ Respond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
         engineTo: this.lastEngineTo,
         engineEval: this.lastEngineEval,
         engineMate: this.lastEngineMate,
+        winProbabilitySnapshot: this.getWinProbabilitySnapshot(),
       });
     }
     this.lastProcessedTimestamp = now;
@@ -3312,12 +3497,19 @@ Rewrite it as exactly two sentences (40–60 words total). First sentence: name 
         insights: { say_this: finalSayThis, ask_this: finalAskThis },
         processedAt: Date.now(),
         clearExisting: true,
-        winChance: chessContext?.winChance,
+        // WP fields always included when chessContext has them — used by the IPC
+        // handler to persist data to DB for post-game accuracy and post-game chart.
+        // The live chart is driven by the fen-event winProbabilitySnapshot path
+        // (stamped at stage-1), but the DB persistence here is the source of truth
+        // for post-game analysis.  No confirmedMoveBoards gate: the LLM only runs
+        // for positions that passed injectConfirmedFen's semantic/plausibility
+        // guards and had a real engine call, so every tip with WP data is valid.
+        winChance:       chessContext?.winChance,
         winChanceBefore: chessContext?.winChanceBefore,
-        engineEval: chessContext?.engineEval,
-        centipawnLoss: chessContext?.centipawnLoss,
-        turn: chessContext?.turn ?? undefined,
-        moveSan: chessContext?.engineSan ?? chessContext?.playedMoveSan ?? undefined,
+        engineEval:      chessContext?.engineEval,
+        centipawnLoss:   chessContext?.centipawnLoss,
+        turn:            chessContext?.turn ?? undefined,
+        moveSan:      chessContext?.engineSan ?? chessContext?.playedMoveSan ?? undefined,
         playedMoveSan: playedMoveSan ?? chessContext?.playedMoveSan ?? undefined,
       });
       endStep('coachingTip');

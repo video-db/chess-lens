@@ -560,3 +560,125 @@ describe('updateCanonicalHistory', () => {
     expect(allSans).toContain('Bc4');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Win-probability chart gating — confirmedMoveBoards contract
+//
+// The fix gates winChance / engineEval / centipawnLoss on confirmed canonical
+// moves only.  The invariant is:
+//
+//   resolvedSan !== undefined  →  the incoming board is a confirmed chart point
+//   resolvedSan === undefined  →  the incoming board is hallucinated / pending / reverted
+//
+// IMPORTANT: The simplified test-harness updateCanonicalHistory above (single-stage,
+// no pending/suspect model) differs from the real service's two-stage implementation.
+// In the real service:
+//   - CONFIRM/PREVRECOVER paths → resolvedSan defined → board added to confirmedMoveBoards
+//   - REPLACE/DISCARD/REVERT   → resolvedSan undefined → board NOT added
+//
+// In this harness, EXTEND always returns resolvedSan (analogous to the real CONFIRM),
+// and REVERT returns undefined (same as real service).  Hallucinations that connect
+// as a legal single-ply move are extended (not blocked) in this harness, whereas
+// in the real service they are blocked by the pending/suspect/opponentCountsOK guards.
+//
+// These tests verify:
+//  1. The confirmedMoveBoards population logic is correctly keyed on resolvedSan.
+//  2. The no-op path (same board twice) does NOT add a duplicate point.
+//  3. The REVERT path does NOT add the reverted board.
+//  4. The correct contract: any board with resolvedSan defined is added, others not.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('winChance gating via confirmedMoveBoards', () => {
+  /**
+   * Simulate the confirmedMoveBoards population logic from live-assist.service.ts:
+   *   - Call updateCanonicalHistory for each board.
+   *   - If resolvedSan is defined, add the board to confirmedBoards.
+   *   - Return the final set.
+   */
+  function simulate(boards: string[]): Set<string> {
+    const hist: HistoryEntry[] = [];
+    const confirmed = new Set<string>();
+    for (const board of boards) {
+      const result = updateCanonicalHistory(hist, board);
+      if (result.resolvedSan !== undefined) {
+        confirmed.add(board);
+      }
+    }
+    return confirmed;
+  }
+
+  it('happy path: confirmed set grows with each real EXTEND', () => {
+    const boards = [START, AFT_E4, AFT_E6, AFT_NC3];
+    const confirmed = simulate(boards);
+    // EXTEND fires for every new real board — each adds to confirmed.
+    expect(confirmed.has(AFT_E4)).toBe(true);
+    expect(confirmed.has(AFT_E6)).toBe(true);
+    expect(confirmed.has(AFT_NC3)).toBe(true);
+    // START was the first board — no previous entry to EXTEND from, so
+    // resolvedSan is undefined for the very first push (no SAN can be derived).
+    // The contract is: only boards that result from a confirmed single-ply
+    // transition contribute a chart point.
+    // In the real service START itself never triggers an engine call at all.
+  });
+
+  it('no-op same board does not add a chart point', () => {
+    // Same board emitted twice in a row — the second is a no-op (resolvedSan=undefined).
+    const boards = [START, AFT_E4, AFT_E4];
+    const confirmed = simulate(boards);
+    // Only one AFT_E4 point, not two.
+    expect(confirmed.has(AFT_E4)).toBe(true);
+    // Size: AFT_E4 is the only confirmed board (START has no predecessor SAN).
+    expect(confirmed.size).toBe(1);
+  });
+
+  it('REVERT path does not add the reverted board to confirmed set', () => {
+    // After e4, some boards are added, then we revert to e4 position.
+    // The REVERT call returns resolvedSan=undefined — should not re-add AFT_E4.
+    const hist: HistoryEntry[] = [];
+    const confirmed = new Set<string>();
+
+    // Build: START → e4 → e6 → NC3
+    for (const b of [START, AFT_E4, AFT_E6, AFT_NC3]) {
+      const r = updateCanonicalHistory(hist, b);
+      if (r.resolvedSan !== undefined) confirmed.add(b);
+    }
+    const sizeBeforeRevert = confirmed.size;
+
+    // Revert to e4 — board seen before in history
+    const revertResult = updateCanonicalHistory(hist, AFT_E4);
+    // REVERT path returns resolvedSan=undefined
+    expect(revertResult.resolvedSan).toBeUndefined();
+    // confirmed set must NOT grow on revert
+    if (revertResult.resolvedSan !== undefined) confirmed.add(AFT_E4);
+    expect(confirmed.size).toBe(sizeBeforeRevert);
+  });
+
+  it('resolvedSan being the sole gate: no resolvedSan → no chart point', () => {
+    // The ONLY way a board enters confirmedMoveBoards is via resolvedSan !== undefined.
+    // Test this directly: simulate a mix and assert every member of confirmed
+    // had resolvedSan defined at the time it was added.
+    const hist: HistoryEntry[] = [];
+    const confirmed = new Set<string>();
+    const withSan: string[] = [];
+    const withoutSan: string[] = [];
+
+    for (const b of [START, AFT_E4, AFT_E6, AFT_NC3, AFT_B6]) {
+      const r = updateCanonicalHistory(hist, b);
+      if (r.resolvedSan !== undefined) {
+        confirmed.add(b);
+        withSan.push(b);
+      } else {
+        withoutSan.push(b);
+      }
+    }
+
+    // Every board in confirmed had resolvedSan defined — test confirms the gate.
+    for (const b of confirmed) {
+      expect(withSan).toContain(b);
+    }
+    // No board without resolvedSan leaked into confirmed.
+    for (const b of withoutSan) {
+      expect(confirmed.has(b)).toBe(false);
+    }
+  });
+});

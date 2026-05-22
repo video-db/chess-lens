@@ -356,11 +356,13 @@ export function WinProbChart({ points }: WinProbChartProps) {
 
   const toY = (wc: number) => ((100 - wc) / 100) * CHART_H;
   const n = points.length;
-  const hasData = n >= 2;
+  const hasData = n >= 1;
 
   const pts = hasData
     ? points.map((p, i) => {
-        const x = (i / (n - 1)) * CHART_W;
+        // When there is only one point, place it at the horizontal midpoint.
+        // Dividing by (n - 1) would be 0/0 for a single point.
+        const x = n === 1 ? CHART_W / 2 : (i / (n - 1)) * CHART_W;
         return `${x.toFixed(2)},${toY(p.winChance).toFixed(2)}`;
       }).join(' ')
     : '';
@@ -424,7 +426,7 @@ export function WinProbChart({ points }: WinProbChartProps) {
               {/* X-axis move numbers */}
               {points.map((_, i) => {
                 if (i % labelEvery !== 0 && i !== n - 1) return null;
-                const x = (i / (n - 1)) * CHART_W;
+                const x = n === 1 ? CHART_W / 2 : (i / (n - 1)) * CHART_W;
                 const moveNum = Math.floor(i / 2) + 1;
                 return (
                   <text
@@ -563,7 +565,7 @@ export function LiveAssistPanel({ onAskAboutTip }: LiveAssistPanelProps = {}) {
           </div>
           {/* Body */}
           <div className="bg-white flex-1 min-h-0 overflow-hidden">
-            {winProbabilityHistory.length >= 2 ? (
+            {winProbabilityHistory.length >= 1 ? (
               <div style={{ padding: 16 }}>
                 <WinProbChart
                   points={winProbabilityHistory}

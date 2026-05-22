@@ -372,6 +372,8 @@ const api: IpcApi = {
       playedTurn?: 'w' | 'b';
       /** Full canonical move-history snapshot — replaces any previously held list. */
       moveHistorySnapshot?: Array<{ no: number; white?: string; black?: string }>;
+      /** Canonical win-probability snapshot — replaces any previously held chart data. */
+      winProbabilitySnapshot?: Array<{ winChance: number; turn: 'w' | 'b'; moveIndex: number; moveSan?: string }>;
     }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
       ipcRenderer.on('live-assist:fen', listener);

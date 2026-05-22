@@ -19,8 +19,10 @@ export interface WinProbabilityPoint {
   winChance: number;
   /** Side that just moved */
   turn: 'w' | 'b';
-  /** Timestamp (ms) when this point was recorded */
-  timestamp: number;
+  /** Position of this point in the canonical move sequence (0-based) */
+  moveIndex: number;
+  /** SAN of the move that produced this position (e.g. "Bc4") */
+  moveSan?: string;
 }
 
 export interface CoachingTipEntry {
@@ -42,11 +44,13 @@ interface LiveAssistState {
   isProcessing: boolean;
   lastProcessedAt: number | null;
   error: string | null;
-  /** Accumulated win probability history for the live chart */
+  /** Win probability history — canonical snapshot from the main process.
+   *  Replaced wholesale on every fen event, mirroring the same self-healing
+   *  mechanism used by moveHistory. */
   winProbabilityHistory: WinProbabilityPoint[];
 
   // Actions
-  addInsights: (insights: LiveInsights, winData?: { winChance?: number; turn?: 'w' | 'b'; moveSan?: string }) => void;
+  addInsights: (insights: LiveInsights, moveSan?: string) => void;
   /**
    * Replace the entire move history with the canonical snapshot emitted by the
    * main process on every confirmed FEN.  Using a full replace (not append)
@@ -54,6 +58,13 @@ interface LiveAssistState {
    * reverts — no stale rows can persist in the renderer.
    */
   setMoveHistory: (snapshot: MoveEntry[]) => void;
+  /**
+   * Replace the entire win-probability history with the canonical snapshot
+   * emitted by the main process on every fen event.  Same self-healing
+   * mechanism as setMoveHistory — any hallucinated chart points are wiped
+   * the moment the canonical history reverts or replaces them.
+   */
+  setWinProbabilityHistory: (snapshot: WinProbabilityPoint[]) => void;
   setProcessing: (isProcessing: boolean) => void;
   setError: (error: string | null) => void;
   clearTips: () => void;
@@ -70,7 +81,7 @@ export const useLiveAssistStore = create<LiveAssistState>((set) => ({
   error: null,
   winProbabilityHistory: [],
 
-  addInsights: (insights, winData) => set((state) => {
+  addInsights: (insights, moveSan) => set((state) => {
     // Filter out engine-only text (stage-1 emits have say_this starting with "engine:")
     const isEngineText = (s: string) => s.toLowerCase().startsWith('engine:');
 
@@ -98,31 +109,17 @@ export const useLiveAssistStore = create<LiveAssistState>((set) => ({
       if (!existingTipTexts.has(text.toLowerCase())) {
         newCoachingTips.push({
           text,
-          moveSan: winData?.moveSan,
+          moveSan,
           moveNo: currentMoveNo,
         });
       }
     }
     const trimmedTips = newCoachingTips.slice(-15);
 
-    // Append win probability point if we have valid data for this position
-    const newHistory = [...state.winProbabilityHistory];
-    if (winData?.winChance !== undefined && winData?.turn !== undefined) {
-      const lastPoint = newHistory[newHistory.length - 1];
-      const isDuplicate = lastPoint &&
-        Math.abs(lastPoint.winChance - winData.winChance) < 0.01 &&
-        lastPoint.turn === winData.turn &&
-        Date.now() - lastPoint.timestamp < 2000;
-
-      if (!isDuplicate) {
-        newHistory.push({
-          winChance: winData.winChance,
-          turn: winData.turn,
-          timestamp: Date.now(),
-        });
-        if (newHistory.length > 100) newHistory.splice(0, newHistory.length - 100);
-      }
-    }
+    // NOTE: winProbabilityHistory is NOT updated here.  It is owned exclusively
+    // by the main process and delivered as a canonical snapshot via the 'fen'
+    // event → setWinProbabilityHistory().  This mirrors how moveHistory works
+    // and ensures the chart self-heals when the canonical history reverts.
 
     // NOTE: move history is NOT updated here.  It is owned exclusively by the
     // main process and delivered as a canonical snapshot via the 'fen' event →
@@ -136,11 +133,12 @@ export const useLiveAssistStore = create<LiveAssistState>((set) => ({
       coachingTips: trimmedTips,
       lastProcessedAt: Date.now(),
       error: null,
-      winProbabilityHistory: newHistory,
     };
   }),
 
   setMoveHistory: (snapshot) => set({ moveHistory: snapshot }),
+
+  setWinProbabilityHistory: (snapshot) => set({ winProbabilityHistory: snapshot }),
 
   setProcessing: (isProcessing) => set({ isProcessing }),
 

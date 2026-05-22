@@ -216,6 +216,12 @@ export interface LiveAssistEvents {
     playedTurn?: 'w' | 'b';
     /** Full canonical move-history snapshot — replaces any previously held list. */
     moveHistorySnapshot?: Array<{ no: number; white?: string; black?: string }>;
+    /** Canonical win-probability snapshot — replaces any previously held chart data.
+     *  Each point corresponds to a committed canonical history entry that has had
+     *  engine analysis completed.  Replacing (not appending) means hallucinated
+     *  boards that are later pruned by REVERT or REPLACE automatically vanish from
+     *  the chart on the very next fen event. */
+    winProbabilitySnapshot?: Array<{ winChance: number; turn: 'w' | 'b'; moveIndex: number; moveSan?: string }>;
   }) => void) => () => void;
 }
 

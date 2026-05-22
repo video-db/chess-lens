@@ -92,25 +92,26 @@ export function useLiveAssist() {
         // The widget handles its own clearing separately. Full reset only happens on session end.
       }
 
-      // Pass winChance data alongside insights so the store can build the live chart.
-      // winChance arrives on every emit (both stage-1 engine-only and stage-2 LLM tips).
-      // We only add a chart point when we have a real winChance value.
-      store.addInsights(event.insights, {
-        winChance: event.winChance,
-        turn: event.turn,
-        moveSan: event.moveSan,
-      });
+      // Pass moveSan alongside insights so coaching tips can display which move triggered them.
+      store.addInsights(event.insights, event.moveSan);
     });
 
-    // Subscribe to FEN events to keep move history in sync with the main process.
-    // The main process owns the canonical move history and sends a full snapshot on
-    // every confirmed position change.  Replacing (not appending) ensures that any
-    // hallucinated branch is immediately pruned when the board reverts.
+    // Subscribe to FEN events to keep move history and win-probability chart in
+    // sync with the main process.  The main process owns both canonical snapshots
+    // and sends them on every confirmed position change.  Replacing (not appending)
+    // ensures that any hallucinated branch is immediately pruned when the board reverts.
     let unsubFen: (() => void) | undefined;
     if (typeof api.liveAssistOn.onFen === 'function') {
       unsubFen = api.liveAssistOn.onFen((data) => {
         if (data.moveHistorySnapshot) {
           store.setMoveHistory(data.moveHistorySnapshot);
+        }
+        // Only replace win-probability history when the snapshot is non-empty.
+        // An empty snapshot means no positions have been analysed yet in this
+        // cycle — replacing with [] would wipe valid points that are already
+        // in the store from a previous successful analysis.
+        if (data.winProbabilitySnapshot && data.winProbabilitySnapshot.length > 0) {
+          store.setWinProbabilityHistory(data.winProbabilitySnapshot);
         }
       });
     }
