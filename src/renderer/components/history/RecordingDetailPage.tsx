@@ -206,6 +206,7 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
         recordingId={recordingId}
         createdAt={recording.createdAt}
         duration={recording.duration}
+        moveCount={recording.moveCount}
         playerUrl={resolvedPlayerUrl}
         onBack={onBack}
       />
@@ -295,11 +296,12 @@ interface HeaderProps {
   recordingId: number;
   createdAt: string;
   duration: number | null;
+  moveCount: number | null | undefined;
   playerUrl: string | null | undefined;
   onBack: () => void;
 }
 
-function Header({ title, recordingId, createdAt, duration, playerUrl, onBack }: HeaderProps) {
+function Header({ title, recordingId, createdAt, duration, moveCount, playerUrl, onBack }: HeaderProps) {
   const [copyState, setCopyState] = useState<'idle' | 'copying' | 'copied'>('idle');
   const [exportOpen, setExportOpen] = useState(false);
   const [downloadingVideo, setDownloadingVideo] = useState(false);
@@ -360,7 +362,9 @@ function Header({ title, recordingId, createdAt, duration, playerUrl, onBack }: 
             {/* Moves */}
             <div className="flex items-center gap-[4px]">
               <Swords className="h-4 w-4 text-text-body opacity-20" />
-              <span className="text-[13px] text-text-body" style={{ letterSpacing: '0.005em' }}>— Moves</span>
+              <span className="text-[13px] text-text-body" style={{ letterSpacing: '0.005em' }}>
+                {moveCount != null ? `${moveCount} Moves` : '— Moves'}
+              </span>
             </div>
           </div>
         </div>
