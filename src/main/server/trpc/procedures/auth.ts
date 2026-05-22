@@ -1,8 +1,9 @@
 import { TRPCError } from '@trpc/server';
+import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
-import { router, publicProcedure } from '../trpc';
+import { router, publicProcedure, protectedProcedure } from '../trpc';
 import { RegisterInputSchema, RegisterOutputSchema } from '../../../../shared/schemas/auth.schema';
-import { createUser, getUserByAccessToken } from '../../../db';
+import { createUser, getUserByAccessToken, updateUser } from '../../../db';
 import { createVideoDBService } from '../../../services/videodb.service';
 import { createChildLogger } from '../../../lib/logger';
 import { loadRuntimeConfig, loadAppConfig, saveAppConfig } from '../../../lib/config';
@@ -93,5 +94,36 @@ export const authRouter = router({
           message: 'Failed to create user',
         });
       }
+    }),
+
+  // Update the stored API key for the currently authenticated user.
+  // Verifies the new key against the live VideoDB API before persisting it.
+  updateApiKey: protectedProcedure
+    .input(z.object({ apiKey: z.string().min(1, 'API key is required') }))
+    .output(z.object({ success: z.boolean(), error: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const { user } = ctx;
+      const { apiKey } = input;
+
+      logger.info({ userId: user.id }, 'API key update requested');
+
+      const runtimeConfig = loadRuntimeConfig();
+      const videodbService = createVideoDBService(apiKey, runtimeConfig.apiUrl);
+
+      const isValid = await videodbService.verifyApiKey();
+      if (!isValid) {
+        logger.warn({ userId: user.id }, 'API key update failed: invalid key');
+        return { success: false, error: 'Invalid API key — could not connect to VideoDB.' };
+      }
+
+      // Persist to DB user record
+      updateUser(user.id, { apiKey });
+
+      // Keep AppConfig in sync so the main process picks it up immediately
+      const existingConfig = loadAppConfig();
+      saveAppConfig({ ...existingConfig, apiKey });
+
+      logger.info({ userId: user.id }, 'API key updated successfully');
+      return { success: true };
     }),
 });

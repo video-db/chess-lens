@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useGameSetupStore } from '../../stores/meeting-setup.store';
 import { useSession } from '../../hooks/useSession';
+import { useSessionStore } from '../../stores/session.store';
 import { trpc } from '../../api/trpc';
 import { InfoStep } from './InfoStep';
 import { QuestionsStep } from './QuestionsStep';
@@ -49,6 +50,12 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
   } = useGameSetupStore();
 
   const { startRecording, isStarting } = useSession();
+
+  // Also surface errors set on the session store (e.g. IPC / capture failures)
+  // so the user sees them in-context rather than being silently dropped to the
+  // game library with no explanation.
+  const sessionError = useSessionStore((s) => s.error);
+  const displayError = error || sessionError;
 
   const generateQuestionsMutation = trpc.meetingSetup.generateProbingQuestions.useMutation();
   const generateChecklistMutation = trpc.meetingSetup.generateChecklist.useMutation();
@@ -216,13 +223,13 @@ export function MeetingSetupFlow({ onCancel }: MeetingSetupFlowProps) {
     <div className="w-full flex flex-col items-center relative">
       {/* Main content */}
       <div className="w-full max-w-[480px] px-6 relative z-10">
-        {error && (
+        {displayError && (
           <div className="mb-6 p-[16px] bg-[#fff5f5] border border-[#ffdfdf] rounded-[12px] flex items-start gap-[12px]">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0 mt-0.5">
               <circle cx="10" cy="10" r="8" stroke="#dc2626" strokeWidth="1.5" />
               <path d="M10 6v5M10 13.5v.5" stroke="#dc2626" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
-            <p className="text-[13px] text-[#dc2626] leading-[20px]">{error}</p>
+            <p className="text-[13px] text-[#dc2626] leading-[20px]">{displayError}</p>
           </div>
         )}
 

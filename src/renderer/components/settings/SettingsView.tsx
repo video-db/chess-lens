@@ -12,8 +12,10 @@ import {
   Pencil,
   Check,
   Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { useConfigStore } from '../../stores/config.store';
+import { trpc } from '../../api/trpc';
 
 // ── Icon-only action button — 28×28, matches Figma spec ───────────────────────
 function IconBtn({
@@ -81,8 +83,10 @@ function AccountPanel() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [isEditingApiKey, setIsEditingApiKey] = useState(false);
   const [newApiKey, setNewApiKey] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+
+  const updateApiKeyMutation = trpc.auth.updateApiKey.useMutation();
 
   const maskApiKey = (key: string) => {
     if (!key) return 'Not set';
@@ -99,18 +103,32 @@ function AccountPanel() {
   };
 
   const handleSaveApiKey = async () => {
-    if (!newApiKey.trim()) return;
-    setIsSaving(true);
+    const trimmed = newApiKey.trim();
+    if (!trimmed) return;
+
+    setApiKeyError(null);
     try {
-      configStore.setConfig({ apiKey: newApiKey.trim() });
-      setIsEditingApiKey(false);
-      setNewApiKey('');
+      const result = await updateApiKeyMutation.mutateAsync({ apiKey: trimmed });
+      if (result.success) {
+        // Persist in the renderer store so the rest of the app sees the new key immediately
+        configStore.setConfig({ apiKey: trimmed });
+        setIsEditingApiKey(false);
+        setNewApiKey('');
+      } else {
+        setApiKeyError(result.error ?? 'Failed to update API key.');
+      }
     } catch (err) {
-      console.error('Failed to save API key:', err);
-    } finally {
-      setIsSaving(false);
+      setApiKeyError(err instanceof Error ? err.message : 'Failed to update API key.');
     }
   };
+
+  const handleCancelEdit = () => {
+    setIsEditingApiKey(false);
+    setNewApiKey('');
+    setApiKeyError(null);
+  };
+
+  const isSaving = updateApiKeyMutation.isPending;
 
   const handleLogout = () => configStore.clearAuth();
 
@@ -130,27 +148,36 @@ function AccountPanel() {
         {/* API Key row */}
         <CardRow label="API Key" hasBorder={false}>
           {isEditingApiKey ? (
-            <>
-              <input
-                type="text"
-                value={newApiKey}
-                onChange={(e) => setNewApiKey(e.target.value)}
-                placeholder="Paste new API key"
-                className="w-[200px] px-[12px] py-[6px] bg-surface-muted border border-border-default rounded-[8px] text-sm text-text-heading placeholder:text-text-muted-brand outline-none focus:border-brand font-jb-mono"
-                autoFocus
-              />
-              <button
-                onClick={handleSaveApiKey}
-                disabled={isSaving || !newApiKey.trim()}
-                className="w-[28px] h-[28px] flex items-center justify-center bg-brand-cta hover:bg-brand-cta-hover disabled:opacity-50 rounded-[8px] text-white transition-colors"
-                title="Save"
-              >
-                {isSaving ? <Loader2 className="w-[14px] h-[14px] animate-spin" /> : <Check className="w-[14px] h-[14px]" />}
-              </button>
-              <IconBtn onClick={() => { setIsEditingApiKey(false); setNewApiKey(''); }} title="Cancel">
-                <span className="text-[11px] font-medium text-text-body">✕</span>
-              </IconBtn>
-            </>
+            <div className="flex flex-col items-end gap-[6px]">
+              <div className="flex items-center gap-[8px]">
+                <input
+                  type="text"
+                  value={newApiKey}
+                  onChange={(e) => { setNewApiKey(e.target.value); setApiKeyError(null); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveApiKey()}
+                  placeholder="Paste new API key"
+                  className="w-[200px] px-[12px] py-[6px] bg-surface-muted border border-border-default rounded-[8px] text-sm text-text-heading placeholder:text-text-muted-brand outline-none focus:border-brand font-jb-mono"
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveApiKey}
+                  disabled={isSaving || !newApiKey.trim()}
+                  className="w-[28px] h-[28px] flex items-center justify-center bg-brand-cta hover:bg-brand-cta-hover disabled:opacity-50 rounded-[8px] text-white transition-colors"
+                  title="Save"
+                >
+                  {isSaving ? <Loader2 className="w-[14px] h-[14px] animate-spin" /> : <Check className="w-[14px] h-[14px]" />}
+                </button>
+                <IconBtn onClick={handleCancelEdit} title="Cancel">
+                  <span className="text-[11px] font-medium text-text-body">✕</span>
+                </IconBtn>
+              </div>
+              {apiKeyError && (
+                <div className="flex items-center gap-[6px] text-[12px] text-[#dc2626] max-w-[300px]">
+                  <AlertCircle className="w-[12px] h-[12px] flex-shrink-0" />
+                  <span>{apiKeyError}</span>
+                </div>
+              )}
+            </div>
           ) : (
             <>
               <span className="text-[14px] font-medium text-black font-jb-mono">

@@ -120,11 +120,34 @@ export function App() {
   // Track previous recording state to detect widget-stop transitions
   const wasActivelyRecordingRef = React.useRef(false);
 
+  // Track whether we entered 'starting' so we can detect a startup failure
+  // ('starting' → 'idle' without ever reaching 'recording').
+  const wasStartingRef = React.useRef(false);
+
   React.useEffect(() => {
     if (isActivelyRecording && showMeetingSetup) {
       setShowMeetingSetup(false);
     }
   }, [isActivelyRecording, showMeetingSetup]);
+
+  // Detect startup failure: status went 'starting' → 'idle' before confirming
+  // recording. Bring the setup flow back so the user sees the error inline and
+  // can retry, instead of being silently dropped to the game library.
+  React.useEffect(() => {
+    if (sessionStatus === 'starting') {
+      wasStartingRef.current = true;
+    }
+
+    if (
+      wasStartingRef.current &&
+      sessionStatus === 'idle' &&
+      !wasActivelyRecordingRef.current
+    ) {
+      // Startup failed — return to setup screen so the error is visible.
+      wasStartingRef.current = false;
+      setShowMeetingSetup(true);
+    }
+  }, [sessionStatus]);
 
   // Handle start recording — show GameSetupFlow over the Game Library
   const handleStartRecording = () => {

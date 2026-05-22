@@ -86,37 +86,6 @@ export function useSession() {
     useMCPStore.getState().clearResults();
 
     try {
-      // ─── DEBUG: Simulate a startup failure before recording is confirmed ────
-      // Set CHESS_SIMULATE_STARTUP_FAILURE=1 in your environment to reproduce
-      // the navigation-regression bug where the app drops the user back to the
-      // game library on a failed start.
-      //
-      // Test procedure:
-      //   1. With the fix REVERTED in App.tsx (git stash), set flag → true.
-      //      Expected (broken): lands on game library immediately.
-      //   2. With the fix APPLIED, set flag → true.
-      //      Expected (fixed): stays on current screen and shows error toast.
-      //
-      // REMOVE this block before shipping to production.
-      // ─── DEBUG: Simulate a startup failure before recording is confirmed ────
-      // Flip SIMULATE_STARTUP_FAILURE to true to reproduce the navigation-
-      // regression bug where the app drops the user back to the game library
-      // on a failed start.
-      //
-      // Test procedure:
-      //   1. With the fix REVERTED in App.tsx (git stash), set flag → true.
-      //      Expected (broken): lands on game library immediately.
-      //   2. With the fix APPLIED, set flag → true.
-      //      Expected (fixed): stays on current screen, shows error toast.
-      //
-      // REMOVE this block before shipping to production.
-      const SIMULATE_STARTUP_FAILURE = false;
-      if (SIMULATE_STARTUP_FAILURE) {
-        rendererLog('warn', 'use-session', '[DEBUG] Simulating startup failure — SIMULATE_STARTUP_FAILURE=true');
-        throw new Error('[DEBUG] Simulated startup failure — status reset to idle, error toast shown');
-      }
-      // ───────────────────────────────────────────────────────────────────────
-      // ───────────────────────────────────────────────────────────────────────
       // Always generate a fresh session token before creating a new capture session.
       // Reusing a cached token causes 403 "Unauthorized access to session" because
       // the VideoDB server only authorises sessions created within the same token context.
@@ -271,9 +240,10 @@ export function useSession() {
         stack: errorStack ?? null,
       });
 
-      if (errorMessage.includes('logged in') || errorMessage.includes('UNAUTHORIZED')) {
+      if (errorMessage.includes('logged in') || errorMessage.includes('UNAUTHORIZED')
+          || errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
         configStore.clearAuth();
-        sessionStore.setError('Session expired. Please log in again.');
+        sessionStore.setError('Your API key is invalid or has expired. Please update it in Settings and try again.');
       } else {
         sessionStore.setError(errorMessage);
       }
