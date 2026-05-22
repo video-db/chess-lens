@@ -732,18 +732,13 @@ function BadgesRow({
 function MatchSummaryCard({ summary }: { summary: string | null | undefined }) {
   if (!summary) return null;
 
-  const normalized = summary
-    .replace(/\bIn the meeting titled\b/gi, 'In this match titled')
-    .replace(/\bmeeting\b/gi, 'session')
-    .replace(/\bagenda\b/gi, 'gameplan');
-
   return (
     <div className="flex flex-col gap-[20px]" style={{ background: '#F7F7F7', border: '1px solid #EFEFEF', borderRadius: 16, padding: 20 }}>
       <div className="flex items-center gap-[8px]">
         <span className="text-[14px] font-semibold text-black" style={{ textTransform: 'capitalize' }}>Match Summary</span>
       </div>
       <p className="text-[13px] text-[#2D2D2D]" style={{ lineHeight: '20px', letterSpacing: '0.005em' }}>
-        {normalized}
+        {summary}
       </p>
     </div>
   );

@@ -42,6 +42,10 @@ export function WidgetApp() {
   const [isStopping, setIsStopping] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
   const [connectingError, setConnectingError] = useState<string | null>(null);
+  const [forceStartupUi, setForceStartupUi] = useState(false);
+  // Counts consecutive NO_BOARD frames received from the main process.
+  // Stored as a ref so the onNoBoard callback always sees the current value.
+  const noBoardStreakRef = useRef(0);
 
   // Ref for the root wrapper — observed by ResizeObserver to auto-resize the window
   const rootRef = useRef<HTMLDivElement>(null);
@@ -92,6 +96,8 @@ export function WidgetApp() {
           setEngineTo(undefined);
           setEngineEval(undefined);
           setEngineMate(undefined);
+          noBoardStreakRef.current = 0;
+          setForceStartupUi(false);
         }
         // Transitioning not-recording → recording: also clear (fresh session)
         if (!prev.isRecording && state.isRecording) {
@@ -112,6 +118,8 @@ export function WidgetApp() {
           setEngineTo(undefined);
           setEngineEval(undefined);
           setEngineMate(undefined);
+          noBoardStreakRef.current = 0;
+          setForceStartupUi(false);
         }
         return state;
       });
@@ -149,6 +157,15 @@ export function WidgetApp() {
     });
 
     const unsubFen = api.onFen((data) => {
+      // Only reset the no-board streak when this is a fresh board detection
+      // from the pipeline, not a syncWidgetState replay (isSync: true).
+      // Replays fire every ~1 s and would otherwise keep resetting the streak,
+      // preventing the no-board fallback from ever triggering.
+      if (!data.isSync) {
+        noBoardStreakRef.current = 0;
+        setForceStartupUi(false);
+      }
+
       setCurrentFen(data.fen);
       setDisplayFen(data.displayFen);
       setCurrentTurn(data.turn);
@@ -184,6 +201,17 @@ export function WidgetApp() {
       setConnectingError(data.message);
     }) ?? (() => {});
 
+    // Count consecutive NO_BOARD frames. Each frame where the LLM sees no
+    // board increments the streak; any valid fen event resets it (above).
+    // After 3 consecutive no-board frames the overlay reverts to startup UI.
+    const NO_BOARD_THRESHOLD = 3;
+    const unsubNoBoard = api.onNoBoard?.(() => {
+      noBoardStreakRef.current += 1;
+      if (noBoardStreakRef.current >= NO_BOARD_THRESHOLD) {
+        setForceStartupUi(true);
+      }
+    }) ?? (() => {});
+
     // Keep polling requestInitialState until the main process responds.
     // No retry cap — we stay in the connecting state until isRecording fires.
     // Each call is cheap (IPC ping); we stop as soon as cancelled.
@@ -210,6 +238,7 @@ export function WidgetApp() {
       unsubNudge();
       unsubFen();
       unsubStartError();
+      unsubNoBoard();
     };
   }, []);
 
@@ -327,8 +356,15 @@ export function WidgetApp() {
         onFlipTurn={handleFlipTurn}
         isRegenerating={isTurnFlipping}
         stopDisabled={isStopping}
-        statusText={isConnecting || connectingError ? 'Connecting to VideoDB and starting screen capture...' : undefined}
+        statusText={
+          forceStartupUi
+            ? 'No chess board detected. Move your chess tab back into focus.'
+            : (isConnecting || connectingError)
+              ? 'Connecting to VideoDB and starting screen capture...'
+              : undefined
+        }
         connectingError={connectingError}
+        forceStartupUi={forceStartupUi}
       />
     </div>
   );

@@ -59,11 +59,40 @@ Overlay upgrades with full coaching tip
 
 ## Prerequisites
 
-- **macOS 12+** (Monterey or later) — packaged for both x64 and arm64
+- **Node.js 18+** and **npm 10+**
+- **Git**
 - **VideoDB API key** — [console.videodb.io](https://console.videodb.io) (free tier available)
-- **Permissions** — Screen Recording and Microphone (grant in System Settings → Privacy & Security)
+- **macOS 12+** — grant Screen Recording + Microphone in System Settings → Privacy & Security
+- **Linux** — tested on Ubuntu 22.04+; install `libgconf-2-4 libnss3` if Electron fails to launch
+- **Windows 10/11** — no extra permissions needed; Windows Defender may prompt on first launch
 
-For development: Node.js 18+ and npm 10+
+---
+
+## Direct Installation
+
+One-line installers that clone the repo, check prerequisites, and run `npm install` for you.
+
+**macOS / Linux**
+```bash
+curl -fsSL https://raw.githubusercontent.com/video-db/chess-lens/main/install.sh | bash
+```
+
+**Windows (PowerShell)**
+```powershell
+irm https://raw.githubusercontent.com/video-db/chess-lens/main/install.ps1 | iex
+```
+
+Both scripts:
+- Detect your OS and abort gracefully on the wrong platform
+- Verify Git and Node.js 18+ are present
+- Clone into `~/chess-lens` (or pull if it already exists)
+- Run `npm install` (which auto-rebuilds native modules via the `postinstall` hook)
+
+After installation, start the app with:
+```bash
+cd ~/chess-lens && npm run dev        # macOS / Linux
+cd "$HOME\chess-lens"; npm run dev    # Windows PowerShell
+```
 
 ---
 

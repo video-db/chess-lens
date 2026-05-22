@@ -296,6 +296,8 @@ interface PairCompactOverlayProps {
   onFlipTurn?: () => void;
   /** True while the main process is re-running the engine after a user-initiated turn flip. */
   isRegenerating?: boolean;
+  /** Force the widget back into the initial startup/connect UI. */
+  forceStartupUi?: boolean;
 }
 
 function fmtElapsed(startTime?: number | null, endTime: number = Date.now()): string {
@@ -846,6 +848,7 @@ export function PairCompactOverlay({
   connectingError,
   onFlipTurn,
   isRegenerating = false,
+  forceStartupUi = false,
 }: PairCompactOverlayProps) {
   const [now, setNow] = useState(Date.now());
   const [isExpanded, setIsExpanded] = useState(false);
@@ -1156,6 +1159,7 @@ export function PairCompactOverlay({
   // fully ready and isRecording flips to true.  statusText is set to the
   // "Connecting…" string by App.tsx while isConnecting is true.
   const isPreRecording = !sessionState.isRecording && !!statusText;
+  const shouldShowStartupUi = isPreRecording || forceStartupUi;
 
   // ── Derive coach greeting from current live position data ──
   const coachGreeting = chessParagraphText
@@ -1196,7 +1200,7 @@ export function PairCompactOverlay({
     );
   }
 
-  if (isPreRecording) {
+  if (shouldShowStartupUi) {
     return (
       <div style={{ width: '100%', height: 'auto', display: 'flex', flexDirection: 'column', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
         <div style={{
@@ -1259,6 +1263,44 @@ export function PairCompactOverlay({
                     wordBreak: 'break-word',
                   }}>
                     {connectingError}
+                  </span>
+                </div>
+              </>
+            ) : forceStartupUi ? (
+              /* ── No-board detected state ── */
+              <>
+                {/* Row 1: eye-off icon + "NO BOARD DETECTED" */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                    <path d="M1 1L13 13M5.5 5.56A2 2 0 0 0 8.44 8.5M2.5 2.76C1.5 3.6 0.75 4.72 0.5 7c.67 3 3.5 5 6.5 5 1.3 0 2.5-.38 3.5-1.02M4 2.27A6.7 6.7 0 0 1 7 2c3 0 5.83 2 6.5 5-.3 1.35-.97 2.52-1.9 3.44" stroke="#464646" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: '#464646',
+                    lineHeight: '13px',
+                    fontFamily: 'Inter, sans-serif',
+                  }}>
+                    NO BOARD DETECTED
+                  </span>
+                </div>
+
+                {/* Row 2: hint pill */}
+                <div style={{
+                  background: '#EFEFEF',
+                  borderRadius: 12.84,
+                  padding: '6.73px 10.09px',
+                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
+                }}>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 400,
+                    color: '#464646',
+                    lineHeight: '18px',
+                    fontFamily: 'Inter, sans-serif',
+                    display: 'block',
+                  }}>
+                    {statusText}
                   </span>
                 </div>
               </>

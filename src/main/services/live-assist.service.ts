@@ -626,6 +626,7 @@ class LiveAssistService extends EventEmitter {
     const rawBoardContent = rawBoardMatches[rawBoardMatches.length - 1]?.[1]?.trim() || '';
     if (rawBoardContent.toUpperCase() === 'NO_BOARD') {
       log.debug('[LiveAssist] extractFenFromTaggedChessOutput: LLM reported NO_BOARD — no main chess board visible, skipping frame');
+      this.emit('no-board');
       return null;
     }
 
@@ -3015,8 +3016,8 @@ class LiveAssistService extends EventEmitter {
         ? `## PLAYER'S GAME GOALS\n${this.meetingContext.description.trim()}\n\n`
         : '';
       const terminalPrompt = terminal === 'checkmate'
-        ? `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nThe game has ended. ${sideToMoveLabel} is in checkmate — ${justMovedLabel} delivered the decisive blow.\n\n## TASK\nYou are a chess coach. In exactly two sentences (30–55 words total), explain this checkmate to the player:\n- First sentence: identify the tactical pattern or motif that made the mate possible (back-rank mate, smothered mate, Arabian mate, etc.) and the key piece(s) involved.\n- Second sentence: explain what the losing side could have done differently to prevent it.\nFor ask_this, write one short question that tests the player's understanding of the mating pattern.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`
-        : `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nThe game has ended in stalemate — ${sideToMoveLabel} has no legal move but is not in check.\n\n## TASK\nYou are a chess coach. In exactly two sentences (30–55 words total), explain this stalemate:\n- First sentence: identify which pieces are blocking all of ${sideToMoveLabel}'s moves and why the position became a stalemate.\n- Second sentence: explain what ${justMovedLabel} could have done differently to avoid gifting the stalemate.\nFor ask_this, write one short question that tests the player's understanding of stalemate avoidance.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
+        ? `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nThe game has ended. ${sideToMoveLabel} is in checkmate — ${justMovedLabel} delivered the decisive blow.\n\n## TASK\nYou are a chess analyst. In exactly two sentences (30–55 words total), explain this checkmate:\n- First sentence: identify the tactical pattern or motif that made the mate possible (back-rank mate, smothered mate, Arabian mate, etc.) and the key piece(s) involved.\n- Second sentence: explain what defensive resource ${sideToMoveLabel} lacked or what earlier mistake allowed this conclusion.\nFor ask_this, write one short question that tests understanding of the mating pattern.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`
+        : `${gameContextSection}## CHESS POSITION CONTEXT\nFEN: ${chessContext.fen}\nThe game has ended in stalemate — ${sideToMoveLabel} has no legal move but is not in check.\n\n## TASK\nYou are a chess analyst. In exactly two sentences (30–55 words total), explain this stalemate:\n- First sentence: identify which pieces are restricting all of ${sideToMoveLabel}'s moves and why the position became a stalemate.\n- Second sentence: explain what ${justMovedLabel} could have done differently to avoid the stalemate and convert the advantage.\nFor ask_this, write one short question that tests understanding of stalemate avoidance.\nRespond with ONLY a raw JSON object: {"say_this":"...","ask_this":"..."}`;
 
       this.coachingInFlight = true;
       void this.runCoachingLLM(chessContext, chessSignature, terminalPrompt, null, trackedCycleId);
@@ -3385,7 +3386,12 @@ Rewrite it as exactly two sentences (40–60 words total). First sentence: name 
         return this.isSpecificChessTip(repairedSay, bestMoveSan) ? repaired : current;
       };
 
-      parsed = await maybeRepairGenericTip(parsed);
+      // Terminal tips (checkmate / stalemate) have no best move to anchor on, so
+      // maybeRepairGenericTip would fire its best-move repair prompt and produce
+      // garbage.  Skip the repair entirely and trust the LLM's terminal explanation.
+      if (!chessContext?.terminalState) {
+        parsed = await maybeRepairGenericTip(parsed);
+      }
 
       if (!parsed) {
         endStep('coachingTip', 'null response');

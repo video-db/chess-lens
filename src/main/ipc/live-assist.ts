@@ -11,7 +11,7 @@ import type { MeetingContext } from '../services/live-assist.service';
 import { getMCPInferenceService, resetMCPInferenceService } from '../services/mcp-inference.service';
 import { getMeetingCopilot } from '../services/copilot/sales-copilot.service';
 import { createChildLogger } from '../lib/logger';
-import { updateWidgetLiveAssist, updateWidgetFen } from './widget';
+import { updateWidgetLiveAssist, updateWidgetFen, sendWidgetNoBoard } from './widget';
 import type { LiveInsightsEvent } from '../../shared/types/live-assist.types';
 import type { MCPDisplayResult } from '../../shared/types/mcp.types';
 
@@ -48,6 +48,7 @@ export function setupLiveAssistHandlers(): void {
     const liveAssistService = getLiveAssistService();
     liveAssistService.removeAllListeners('insights');
     liveAssistService.removeAllListeners('fen');
+    liveAssistService.removeAllListeners('no-board');
     liveAssistService.on('insights', (event: LiveInsightsEvent) => {
       logger.info(
         {
@@ -95,6 +96,9 @@ export function setupLiveAssistHandlers(): void {
     liveAssistService.on('fen', (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => {
       sendToRenderer('live-assist:fen', data);
       updateWidgetFen(data);
+    });
+    liveAssistService.on('no-board', () => {
+      sendWidgetNoBoard();
     });
     liveAssistService.start(context);
 

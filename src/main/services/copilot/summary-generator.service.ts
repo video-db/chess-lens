@@ -69,31 +69,29 @@ function buildGameSummarySystemPrompt(gameId: SupportedGameId, section: 'overvie
   const gameName = profile.name;
 
   if (section === 'overview') {
-    return `You are a ${gameName} post-game coach delivering a thorough post-game analysis. Write a rich, specific overview of how this game unfolded based on the coaching tips and engine suggestions recorded during play.
+    return `You are a ${gameName} analyst writing a concise post-game overview of how this match unfolded, based on the coaching tips and engine suggestions recorded during play.
 
 Rules:
 - Write 4-6 sentences that tell the story of the game: how the opening was handled, where the critical turning points occurred, and how the position evolved into the endgame or decisive moment.
-- Name specific moves, pieces, or squares when the coaching data supports it (e.g. "the knight on f5 created persistent pressure", "the early queenside pawn break defined the middlegame").
-- Identify at least one strength and one weakness from the session — be direct and honest.
+- Name specific moves, pieces, or squares when the data supports it (e.g. "the knight on f5 created persistent pressure", "the early queenside pawn break defined the middlegame").
+- Identify at least one notable strength and one notable weakness evident in the game — be direct and factual.
 - Reference concrete chess concepts: piece activity, pawn structure, king safety, tactical threats, positional advantages, initiative, development, endgame technique.
-- Do NOT mention FEN strings, board coordinates, XML tags, or raw notation unless it forms part of a natural chess sentence (e.g. "played ...Nc6").
-- Do not mention meetings, discussions, colleagues, or agenda items.
-- Use past tense. Write as an authoritative coach, not as a neutral summariser.
+- Do NOT mention FEN strings, board coordinates, XML tags, or raw notation unless it forms part of a natural chess sentence (e.g. "...Nc6 equalised").
+- Write in past tense. Analyse the game as a neutral chess analyst, not as a coach addressing the player directly.
 
 Return only the summary paragraph.`;
   }
 
   if (section === 'keyPoints') {
-    return `You are a ${gameName} post-game coach delivering a detailed breakdown of the key moments and patterns from this game. Analyse the coaching tips and engine suggestions and return 3-5 high-value takeaways grouped by chess theme as JSON.
+    return `You are a ${gameName} analyst delivering a detailed breakdown of the key moments and patterns from this game. Analyse the coaching tips and engine suggestions and return 3-5 high-value takeaways grouped by chess theme as JSON.
 
 Rules:
 - Always return at least 3 topics. If the game was short, dig deeper into the engine evaluations and infer patterns from the moves and positions mentioned.
-- Each topic must contain 2-3 specific, concrete points — not generic advice. Bad: "Improve piece activity." Good: "The bishop remained passive on c8 for most of the middlegame while the opponent's knights dominated the centre."
+- Each topic must contain 2-3 specific, concrete observations — not generic advice. Bad: "Improve piece activity." Good: "The bishop remained passive on c8 for most of the middlegame while White's knights dominated the centre."
 - Every point should be directly traceable to something that actually happened in this game — a specific move, tactical idea, structural decision, or turning point.
-- Group by chess themes such as: Opening Choices, Tactical Opportunities, Piece Activity, Pawn Structure, King Safety, Critical Moments, Endgame Technique, Decision-Making Under Pressure.
+- Group by chess themes such as: Opening Choices, Tactical Opportunities, Piece Activity, Pawn Structure, King Safety, Critical Moments, Endgame Technique, Critical Decisions.
 - Do NOT return an empty array. Always produce at least 3 topics.
 - Do NOT echo FEN strings, board mappings, XML, or raw coordinates.
-- Do not mention meetings, attendees, or agenda items.
 
 IMPORTANT: Always return valid JSON matching EXACTLY this format with snake_case key "key_points":
 {
@@ -106,21 +104,21 @@ IMPORTANT: Always return valid JSON matching EXACTLY this format with snake_case
 }`;
   }
 
-  return `You are a ${gameName} post-game coach building a targeted training plan based on what you observed in this game. Use the coaching tips and engine suggestions to identify the most important things to work on before the next game.
+  return `You are a ${gameName} analyst identifying the key patterns, errors, and themes from this game that are worth deeper study. Use the coaching tips and engine suggestions to highlight the most instructive aspects of the match.
 
 Rules:
-- Return 4-8 items. Every item must be directly motivated by a specific pattern, mistake, or missed opportunity from this game — do not pad with generic advice.
-- Each item must be a concrete, actionable training goal. Bad: "Improve your opening." Good: "Study the Bc4 attacking ideas against the Sicilian Dragon — twice you missed the Ng5 thrust that the engine recommended."
-- Mix correction-focused items (fixing what went wrong) with reinforcement items (drilling what worked well).
-- Prefer specific drills, study topics, or positions to revisit: openings to prepare, tactical patterns to practise, endgame techniques to study.
+- Return 4-8 items. Every item must be directly motivated by a specific pattern, error, or missed opportunity observed in this game — do not pad with generic advice.
+- Each item must describe a concrete, specific aspect of the game. Bad: "Opening play was weak." Good: "The Ng5 thrust was available twice in the middlegame but was not played — a key attacking idea in this structure."
+- Cover both errors and well-executed ideas: note what went wrong and what was handled effectively.
+- Prefer specific tactical patterns, structural decisions, or positions from the game: openings played, tactical themes that arose, endgame technique demonstrated.
 - Do NOT include FEN strings, board mappings, or XML fragments.
-- Do not mention meetings, discussions, or follow-up calls.
-- Order items by priority — the most critical training gap first.
+- Write in third person, describing what happened in the game — not instructions addressed to a player.
+- Order items by significance — the most critical or instructive aspect first.
 
 Output format:
 {
   "checklist": [
-    "Actionable chess training goal tied to this game"
+    "Specific observation about this game worth further study"
   ]
 }`;
 }
@@ -257,7 +255,7 @@ export class SummaryGeneratorService {
    * Build the user prompt for the LLM using a log of chess coaching tips.
    */
   private buildChessUserPrompt(gameLog: string, context: MeetingContext, gameName: string): string {
-    const title = context.meetingName || `${gameName} Session`;
+    const title = context.meetingName || `${gameName} Game`;
     const description = context.meetingDescription?.trim();
 
     const probingQA = context.probingQuestions?.length
@@ -268,9 +266,9 @@ export class SummaryGeneratorService {
       : '';
 
     const descriptionBlock = description ? `Game Description: ${description}\n\n` : '';
-    const preContext = probingQA ? `Pre-Session Goals:\n${probingQA}\n\n` : '';
+    const preContext = probingQA ? `Pre-Match Context:\n${probingQA}\n\n` : '';
 
-    return `${gameName} Session: ${title}
+    return `${gameName} Game: ${title}
 ${descriptionBlock}${preContext}Live Coaching Tips (captured during the game):
 ${gameLog}`;
   }
@@ -489,24 +487,24 @@ Rules:
   }
 
   private buildUserPrompt(transcript: string, context: MeetingContext): string {
-    const title = context.meetingName || (context.gameId ? `${getGameCoachingProfile(context.gameId).name} Session` : 'Chess Session');
-    const description = context.meetingDescription || 'Gameplay session';
+    const title = context.meetingName || (context.gameId ? `${getGameCoachingProfile(context.gameId).name} Game` : 'Chess Game');
+    const description = context.meetingDescription || 'Gameplay recording';
 
     const probingQA = context.probingQuestions?.length
       ? context.probingQuestions.map((q, i) => {
           const answer = q.customAnswer ? `${q.answer} (${q.customAnswer})` : q.answer;
           return `Q${i + 1}: ${q.question}\nA${i + 1}: ${answer}`;
         }).join('\n\n')
-      : 'No pre-session context provided';
+      : 'No pre-match context provided';
 
     const checklist = context.checklist?.length
       ? context.checklist.map((item, i) => `${i + 1}. ${item}`).join('\n')
       : 'No checklist';
 
-    return `Game Session Title: ${title}
-Session Context: ${description}
+    return `Game Title: ${title}
+Game Context: ${description}
 
-Pre-Session Context (Q&A):
+Pre-Match Context (Q&A):
 ${probingQA}
 
 Checklist:
@@ -537,19 +535,19 @@ ${transcript}`;
    */
   private emptyChessFallback(gameName: string): PostMeetingSummary {
     return {
-      shortOverview: `No coaching tips were captured during this ${gameName} session. For richer post-game analysis, ensure the overlay is active and visible during gameplay so the live coach can record position-specific suggestions.`,
+      shortOverview: `No coaching tips were captured during this ${gameName} game. For richer post-game analysis, ensure the overlay is active and visible during gameplay so the live coach can record position-specific suggestions.`,
       keyPoints: [
         {
           topic: 'Getting Started',
           points: [
-            'Start a recording with the overlay visible on screen while playing.',
+            'Start a recording with the overlay visible on screen during the game.',
             'The coach captures engine suggestions and position analysis in real time.',
-            'After the session, tips are automatically organised into key themes here.',
+            'After the game, tips are automatically organised into key themes here.',
           ],
         },
       ],
       postMeetingChecklist: [
-        'Start a new session with the overlay active to capture live coaching tips.',
+        'Start a new game with the overlay active to capture live coaching tips.',
         'Play at least 10–15 moves so the engine has time to analyse meaningful positions.',
       ],
       generatedAt: Date.now(),

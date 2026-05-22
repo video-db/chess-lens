@@ -24,18 +24,10 @@ export function RecordingCard({ recording, onClick }: RecordingCardProps) {
 
   const title = recording.meetingName || `Recording - ${formatDate(recording.createdAt)}`;
 
-  const normalizeDesc = (text: string): string =>
-    text
-      .replace(/\bIn the meeting titled\b/gi, 'In this match titled')
-      .replace(/\bmeeting\b/gi, 'session')
-      .replace(/\bagenda\b/gi, 'gameplan')
-      .replace(/\bchecklist\b/gi, 'goals')
-      .replace(/\baction items\b/gi, 'next-match goals');
-
   const description = (() => {
-    if (recording.shortOverview) return normalizeDesc(recording.shortOverview);
-    if (recording.insights) return normalizeDesc(stripMarkdown(recording.insights));
-    if (recording.meetingDescription) return normalizeDesc(recording.meetingDescription);
+    if (recording.shortOverview) return recording.shortOverview;
+    if (recording.insights) return stripMarkdown(recording.insights);
+    if (recording.meetingDescription) return recording.meetingDescription;
     return 'No summary available yet.';
   })();
 

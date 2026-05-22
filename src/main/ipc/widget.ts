@@ -116,7 +116,9 @@ export function syncWidgetState(): void {
   sendToWidget('widget:live-assist', widgetLiveAssist);
   sendToWidget('widget:visual-analysis', widgetVisualAnalysis);
   sendToWidget('widget:nudge', widgetNudge);
-  if (widgetFen) sendToWidget('widget:fen', widgetFen);
+  // Mark replayed fen as a sync (not a fresh detection) so the renderer's
+  // no-board streak counter ignores it.
+  if (widgetFen) sendToWidget('widget:fen', { ...widgetFen, isSync: true });
 }
 
 export function setupWidgetIpcHandlers(): void {
@@ -341,6 +343,10 @@ export function updateWidgetNudge(nudge: { id: string; message: string; type: 'i
 
 export function sendWidgetStartError(message: string): void {
   sendToWidget('widget:start-error', { message });
+}
+
+export function sendWidgetNoBoard(): void {
+  sendToWidget('widget:no-board', {});
 }
 
 export function updateWidgetFen(data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }): void {

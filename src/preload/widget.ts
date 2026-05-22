@@ -48,10 +48,13 @@ export interface WidgetApi {
   onLiveAssist: (callback: (data: WidgetLiveAssistData) => void) => () => void;
   onVisualAnalysis: (callback: (data: { description: string }) => void) => () => void;
   onNudge: (callback: (nudge: WidgetNudge | null) => void) => () => void;
-  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => void) => () => void;
+  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean; isSync?: boolean }) => void) => () => void;
 
   // Start-error event: fired when the recording pipeline fails to start
   onStartError: (callback: (data: { message: string }) => void) => () => void;
+
+  // No-board event: fired each time the LLM reports NO_BOARD in a screenshot frame
+  onNoBoard: (callback: () => void) => () => void;
 
   // Initial state request
   requestInitialState: () => Promise<void>;
@@ -104,8 +107,8 @@ const widgetApi: WidgetApi = {
     return () => ipcRenderer.removeListener('widget:nudge', listener);
   },
 
-  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => callback(data);
+  onFen: (callback: (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean; isSync?: boolean }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean; isSync?: boolean }) => callback(data);
     ipcRenderer.on('widget:fen', listener);
     return () => ipcRenderer.removeListener('widget:fen', listener);
   },
@@ -114,6 +117,12 @@ const widgetApi: WidgetApi = {
     const listener = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data);
     ipcRenderer.on('widget:start-error', listener);
     return () => ipcRenderer.removeListener('widget:start-error', listener);
+  },
+
+  onNoBoard: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('widget:no-board', listener);
+    return () => ipcRenderer.removeListener('widget:no-board', listener);
   },
 
   // Initial state request
