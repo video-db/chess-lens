@@ -238,12 +238,14 @@ export function useSession() {
       rendererLog('error', 'use-session', 'startRecording failed', {
         error: errorMessage,
         stack: errorStack ?? null,
+        // tRPC always sets data.path to the procedure name (e.g. "token.generate",
+        // "capture.createSession"). Logging it here tells us exactly which call threw.
+        trpcPath: (error as any)?.data?.path ?? null,
       });
 
-      if (errorMessage.includes('logged in') || errorMessage.includes('UNAUTHORIZED')
-          || errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+      if (errorMessage.includes('logged in') || errorMessage.includes('UNAUTHORIZED')) {
         configStore.clearAuth();
-        sessionStore.setError('Your API key is invalid or has expired. Please update it in Settings and try again.');
+        sessionStore.setError('Session expired. Please log in again.');
       } else {
         sessionStore.setError(errorMessage);
       }
