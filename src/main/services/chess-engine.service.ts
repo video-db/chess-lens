@@ -1,5 +1,4 @@
 import { logger } from '../lib/logger';
-import { loadRuntimeConfig } from '../lib/config';
 
 const log = logger.child({ module: 'chess-engine-service' });
 const DEFAULT_CHESS_ENGINE_API_URL = 'https://chess-api.com/v1';
@@ -62,17 +61,10 @@ export class ChessEngineService {
     ChessEngineService.instance = null;
   }
 
-  private getEndpoint(): string | null {
-    return DEFAULT_CHESS_ENGINE_API_URL;
-  }
-
   /**
    * Single API call — returns one best move result.
    */
   async analyzeByFen(fen: string, options?: ChessEngineAnalyzeOptions): Promise<ChessEngineResponse | null> {
-    const endpoint = this.getEndpoint();
-    if (!endpoint) return null;
-
     const payload = {
       fen,
       variants: clamp(options?.variants ?? 5, 1, 5),
@@ -82,7 +74,7 @@ export class ChessEngineService {
     };
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch(DEFAULT_CHESS_ENGINE_API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -121,7 +113,7 @@ export class ChessEngineService {
    * `variants` parameter — additional lines are derived from `continuationArr`.
    * Returns a single-element array for API compatibility with summarize().
    */
-  async getTopLines(fen: string, _count: number, baseOptions?: ChessEngineAnalyzeOptions): Promise<ChessEngineResponse[]> {
+  async getTopLines(fen: string, baseOptions?: ChessEngineAnalyzeOptions): Promise<ChessEngineResponse[]> {
     const opts = {
       depth: clamp(baseOptions?.depth ?? 12, 1, 18),
       maxThinkingTime: clamp(baseOptions?.maxThinkingTime ?? 50, 1, 100),

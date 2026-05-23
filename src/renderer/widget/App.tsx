@@ -4,7 +4,6 @@ import type {
   InsightCard,
   WidgetSessionState as SessionState,
   WidgetNudge as Nudge,
-  WidgetLiveAssistData,
 } from '../../types/widget';
 
 export function WidgetApp() {
@@ -75,51 +74,37 @@ export function WidgetApp() {
     let retryTimer: number | null = null;
 
     // Set up listeners
+    const resetCoachingState = () => {
+      setSayThis([]);
+      setAskThis([]);
+      setCurrentFen(null);
+      setDisplayFen(null);
+      setCurrentTurn(null);
+      setBoardOrientation('white');
+      setTurnOverride(null);
+      setIsTurnFlipping(false);
+      flipPendingRef.current = false;
+      flipStartedAtRef.current = 0;
+      lastFenBoardRef.current = null;
+      setEngineSan(undefined);
+      setEngineLan(undefined);
+      setEngineFrom(undefined);
+      setEngineTo(undefined);
+      setEngineEval(undefined);
+      setEngineMate(undefined);
+      noBoardStreakRef.current = 0;
+      setForceStartupUi(false);
+    };
+
     const unsubSession = api.onSessionState((state) => {
       setSessionState((prev) => {
         // Transitioning recording → not recording: clear all coaching state
         if (prev.isRecording && !state.isRecording) {
-          setSayThis([]);
-          setAskThis([]);
-          setCurrentFen(null);
-          setDisplayFen(null);
-          setCurrentTurn(null);
-          setBoardOrientation('white');
-          setTurnOverride(null);
-          setIsTurnFlipping(false);
-          flipPendingRef.current = false;
-          flipStartedAtRef.current = 0;
-          lastFenBoardRef.current = null;
-          setEngineSan(undefined);
-          setEngineLan(undefined);
-          setEngineFrom(undefined);
-          setEngineTo(undefined);
-          setEngineEval(undefined);
-          setEngineMate(undefined);
-          noBoardStreakRef.current = 0;
-          setForceStartupUi(false);
+          resetCoachingState();
         }
         // Transitioning not-recording → recording: also clear (fresh session)
         if (!prev.isRecording && state.isRecording) {
-          setSayThis([]);
-          setAskThis([]);
-          setCurrentFen(null);
-          setDisplayFen(null);
-          setCurrentTurn(null);
-          setBoardOrientation('white');
-          setTurnOverride(null);
-          setIsTurnFlipping(false);
-          flipPendingRef.current = false;
-          flipStartedAtRef.current = 0;
-          lastFenBoardRef.current = null;
-          setEngineSan(undefined);
-          setEngineLan(undefined);
-          setEngineFrom(undefined);
-          setEngineTo(undefined);
-          setEngineEval(undefined);
-          setEngineMate(undefined);
-          noBoardStreakRef.current = 0;
-          setForceStartupUi(false);
+          resetCoachingState();
         }
         return state;
       });

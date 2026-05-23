@@ -15,6 +15,7 @@ import type {
 import { logger } from '../lib/logger';
 import { pipelineLatency } from '../lib/pipeline-latency';
 import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
+import { flipBoardPerspective, validateFenRanks, getPieceOnBoard } from '../lib/fen-utils';
 
 const log = logger.child({ module: 'llm-service' });
 
@@ -54,6 +55,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
  * If the proxy doesn't support it the field is silently ignored.
  */
 const EXTRA_PARAMS = { reasoning_effort: 'low' } as Record<string, unknown>;
+
+/** Parse a <tagName> algebraic square tag (e.g. <last_move_from>) → square string or null. */
+function parseAlgebraicTag(text: string, tag: string): string | null {
+  const re = new RegExp(`<${tag}>\\s*([a-h][1-8])\\s*</${tag}>`, 'i');
+  const m = text.match(re);
+  return m ? m[1].toLowerCase() : null;
+}
 
 /** Returns true when the error indicates the requested model is unavailable. */
 function isModelUnavailableError(error: unknown): boolean {
@@ -549,13 +557,6 @@ export class LLMService {
     let savedLastMoveFrom: string | null = null;
     let savedLastMoveTo:   string | null = null;
 
-    /** Parse a <last_move_from> or <last_move_to> algebraic tag → square string or null. */
-    const parseAlgebraicTag = (text: string, tag: string): string | null => {
-      const re = new RegExp(`<${tag}>\\s*([a-h][1-8])\\s*</${tag}>`, 'i');
-      const m  = text.match(re);
-      return m ? m[1].toLowerCase() : null;
-    };
-
     log.info({ model: RTSTREAM_VISION_MODEL }, '[VideoDB] extractFenFromImage starting');
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -611,35 +612,10 @@ export class LLMService {
         const rawBoard = rawBoardMatches[rawBoardMatches.length - 1][1]
           .replace(/\s+/g, '').replace(/\n/g, '');
 
-        // Validate math (same as Python validate_fen_math)
-        const ranks = rawBoard.split('/');
-        let mathError: string | null = null;
-        if (ranks.length !== 8) {
-          mathError = `Board has ${ranks.length} ranks instead of 8.`;
-        } else {
-          for (let i = 0; i < ranks.length; i++) {
-            let squares = 0;
-            for (const ch of ranks[i]) {
-              if (/\d/.test(ch)) squares += parseInt(ch, 10);
-              else if (/[pnbrqkPNBRQK]/.test(ch)) squares += 1;
-              else { mathError = `Invalid character '${ch}' in rank ${i + 1} (not a legal FEN piece letter).`; break; }
-            }
-            if (mathError) break;
-            if (squares !== 8) {
-              mathError = `Visual Row ${i + 1} ('${ranks[i]}') sums to ${squares} squares instead of 8.`;
-              break;
-            }
-          }
-        }
+        const mathError = validateFenRanks(rawBoard);
 
         if (!mathError) {
-          // transform_to_fen: reverse for black perspective (white-perspective board for engine)
-          let fenBoard = rawBoard;
-          if (savedPerspective === 'black') {
-            const rows = rawBoard.split('/');
-            rows.reverse();
-            fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
-          }
+          const fenBoard = savedPerspective === 'black' ? flipBoardPerspective(rawBoard) : rawBoard;
           log.info({ fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn, lastMoveFrom: savedLastMoveFrom, lastMoveTo: savedLastMoveTo, attempt }, '[VideoDB] FEN extracted successfully');
           return { fenBoard, perspective: savedPerspective, reportedTurn: savedReportedTurn, reportedLastMoveFrom: savedLastMoveFrom, reportedLastMoveTo: savedLastMoveTo };
         }
@@ -663,13 +639,7 @@ export class LLMService {
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log.error({ attempt, error: errMsg }, '[VideoDB] extractFenFromImage error');
-        // Don't retry on server errors (5xx) or timeouts — they won't resolve
-        // with a math-correction follow-up and just waste time.
-        const status = (error as { status?: number }).status;
         if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'fenExtract', errMsg.slice(0, 80));
-        if (!status || status >= 500 || errMsg.toLowerCase().includes('timeout')) {
-          return null;
-        }
         return null;
       }
     }
@@ -677,11 +647,6 @@ export class LLMService {
     log.warn({ maxRetries }, '[VideoDB] extractFenFromImage failed after all attempts');
     if (cycleId !== undefined) pipelineLatency.endStep(cycleId, 'fenExtract', 'all attempts failed');
     return null;
-  }
-
-  /** Always true — the VideoDB client is always available. */
-  get hasLitellmClient(): boolean {
-    return true;
   }
 
   async complete(prompt: string, systemPrompt?: string, timeoutMs?: number, modelOverride?: string): Promise<LLMResponse> {
@@ -752,6 +717,7 @@ Text to analyze:
     fenPrompt: string,
     turnPrompt: string,
     cycleId?: number,
+    skipTurn = false,
   ): Promise<{
     fenBoard: string;
     perspective: 'white' | 'black';
@@ -888,33 +854,10 @@ Text to analyze:
           const rawBoard = rawBoardMatches[rawBoardMatches.length - 1][1]
             .replace(/\s+/g, '').replace(/\n/g, '');
 
-          const ranks = rawBoard.split('/');
-          let mathError: string | null = null;
-          if (ranks.length !== 8) {
-            mathError = `Board has ${ranks.length} ranks instead of 8.`;
-          } else {
-            for (let i = 0; i < ranks.length; i++) {
-              let sq = 0;
-              for (const ch of ranks[i]) {
-                if (/\d/.test(ch)) sq += parseInt(ch, 10);
-                else if (/[pnbrqkPNBRQK]/.test(ch)) sq += 1;
-                else { mathError = `Invalid character '${ch}' in rank ${i + 1} (not a legal FEN piece letter).`; break; }
-              }
-              if (mathError) break;
-              if (sq !== 8) {
-                mathError = `Visual Row ${i + 1} ('${ranks[i]}') sums to ${sq} squares instead of 8.`;
-                break;
-              }
-            }
-          }
+          const mathError = validateFenRanks(rawBoard);
 
           if (!mathError) {
-            let fenBoard = rawBoard;
-            if (savedPerspective === 'black') {
-              const rows = rawBoard.split('/');
-              rows.reverse();
-              fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
-            }
+            const fenBoard = savedPerspective === 'black' ? flipBoardPerspective(rawBoard) : rawBoard;
             log.info({ fenBoard, perspective: savedPerspective, attempt }, '[VideoDB] extractFen (parallel): success');
             return { fenBoard, perspective: savedPerspective, retried: attempt > 0 };
           }
@@ -954,12 +897,7 @@ Text to analyze:
           .replace(/\s+/g, '').replace(/\n/g, '');
         const repaired = validateAndRepairBoard(lastRawBoard);
         if (repaired) {
-          let fenBoard = repaired.board;
-          if (savedPerspective === 'black') {
-            const rows = fenBoard.split('/');
-            rows.reverse();
-            fenBoard = rows.map((r) => r.split('').reverse().join('')).join('/');
-          }
+          const fenBoard = savedPerspective === 'black' ? flipBoardPerspective(repaired.board) : repaired.board;
           log.info(
             { fenBoard, perspective: savedPerspective, autoFixed: repaired.autoFixed },
             '[VideoDB] extractFen (parallel): local auto-correction succeeded'
@@ -983,32 +921,9 @@ Text to analyze:
     //
     // getPieceAt returns '' for empty, a piece letter for occupied, or null on
     // parse error — mirroring deriveTurnFromAlgebraicMove in live-assist.service.
-    const getPieceAt = (board: string, sq: string): string | null => {
-      const fileIdx = sq.charCodeAt(0) - 97;            // 'a'=0 … 'h'=7
-      const rankIdx = 8 - parseInt(sq[1] ?? '0', 10);   // '1'→7, '8'→0
-      if (fileIdx < 0 || fileIdx > 7 || rankIdx < 0 || rankIdx > 7) return null;
-      const ranks = board.split('/');
-      if (ranks.length !== 8) return null;
-      const rank = ranks[rankIdx];
-      if (!rank) return null;
-      let col = 0;
-      for (const ch of rank) {
-        if (/\d/.test(ch)) {
-          const skip = parseInt(ch, 10);
-          if (fileIdx < col + skip) return '';
-          col += skip;
-        } else {
-          if (col === fileIdx) return ch;
-          col += 1;
-        }
-        if (col > fileIdx) break;
-      }
-      return '';
-    };
-
     const isMovePairValid = (board: string, from: string, to: string): boolean => {
-      const fp = getPieceAt(board, from);
-      const tp = getPieceAt(board, to);
+      const fp = getPieceOnBoard(board, from);
+      const tp = getPieceOnBoard(board, to);
       if (fp === null || tp === null) return false;
       // FROM must be empty, TO must be occupied — or they are swapped (also acceptable)
       return (fp === '' && tp !== '') || (fp !== '' && tp === '');
@@ -1071,8 +986,8 @@ Text to analyze:
 
           if (pairPresent && !pairValid && attempt === 0) {
             // Squares don't match the board — one retry with a correction prompt
-            const fromPiece = fenBoardForValidation ? getPieceAt(fenBoardForValidation, from!) : null;
-            const toPiece   = fenBoardForValidation ? getPieceAt(fenBoardForValidation, to!)   : null;
+            const fromPiece = fenBoardForValidation ? getPieceOnBoard(fenBoardForValidation, from!) : null;
+            const toPiece   = fenBoardForValidation ? getPieceOnBoard(fenBoardForValidation, to!)   : null;
             const diagnosis = fenBoardForValidation
               ? `Square ${from} has "${fromPiece ?? '?'}" and square ${to} has "${toPiece ?? '?'}" on the board. ` +
                 `The ORIGIN square must be EMPTY and the DESTINATION square must have a piece.`
@@ -1123,8 +1038,16 @@ Text to analyze:
     // pair against the FEN board. If the pair is invalid (origin not empty or
     // destination empty) we fire a single correction-only turn call with the
     // FEN context, which is now available.
+    //
+    // skipTurn=true: the caller has determined that the turn call is unnecessary
+    // for this frame (e.g. the initial board position on the very first tick,
+    // where there is no last-move highlight and the turn is always White).
+    // In that case we run only the FEN call to save one full vision round-trip
+    // (~10-12 s) and return null turn/move fields.
     if (cycleId !== undefined) pipelineLatency.startStep(cycleId, 'fenExtract');
-    const [fenResult, turnResult] = await Promise.all([fenCall(), turnCall(null)]);
+    const [fenResult, turnResult] = skipTurn
+      ? await Promise.all([fenCall(), Promise.resolve(null)])
+      : await Promise.all([fenCall(), turnCall(null)]);
     if (cycleId !== undefined) {
       pipelineLatency.endStep(cycleId, 'fenExtract', fenResult ? undefined : 'fen failed');
     }
@@ -1140,10 +1063,8 @@ Text to analyze:
     let resolvedTurn = turnResult;
     let postMergeRetried = false;
     if (
-      turnResult?.reportedLastMoveFrom !== null &&
-      turnResult?.reportedLastMoveTo   !== null &&
-      turnResult?.reportedLastMoveFrom !== undefined &&
-      turnResult?.reportedLastMoveTo   !== undefined &&
+      turnResult?.reportedLastMoveFrom != null &&
+      turnResult?.reportedLastMoveTo   != null &&
       !isMovePairValid(fenResult.fenBoard, turnResult.reportedLastMoveFrom, turnResult.reportedLastMoveTo)
     ) {
       log.warn(

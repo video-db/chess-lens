@@ -116,14 +116,27 @@ export const authRouter = router({
         return { success: false, error: 'Invalid API key — could not connect to VideoDB.' };
       }
 
-      // Persist to DB user record
-      updateUser(user.id, { apiKey });
+      // Find or create the chess-lens collection under the new key.
+      // This is essential when the new key belongs to a different VideoDB account —
+      // the old collectionId would be inaccessible and cause 403s during recording.
+      let collectionId: string;
+      try {
+        collectionId = await videodbService.findOrCreateCallMdCollection();
+        logger.info({ userId: user.id, collectionId }, 'Collection resolved for new API key');
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        logger.error({ userId: user.id, error: errMsg }, 'Failed to set up collection for new API key');
+        return { success: false, error: 'API key is valid but failed to set up collection. Please try again.' };
+      }
+
+      // Persist both apiKey and collectionId to the DB user record
+      updateUser(user.id, { apiKey, collectionId });
 
       // Keep AppConfig in sync so the main process picks it up immediately
       const existingConfig = loadAppConfig();
       saveAppConfig({ ...existingConfig, apiKey });
 
-      logger.info({ userId: user.id }, 'API key updated successfully');
+      logger.info({ userId: user.id, collectionId }, 'API key updated successfully');
       return { success: true };
     }),
 });

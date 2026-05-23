@@ -185,8 +185,13 @@ interface VoteEntry {
 //   1. largeDelta  — board change vs last confirmed > MAX_SQUARE_DELTA squares.
 //                    Real chess moves change ≤ 4 squares; more means hallucination
 //                    or mid-animation frame.
-//   2. initialBoard — starting position always goes through vote so castling
-//                    rights are re-seeded correctly in live-assist.
+//
+// NOTE: the initial board position (rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR) is
+// intentionally NOT a hard-fail here. Castling rights for the starting position are
+// seeded unconditionally by board-string identity inside
+// live-assist.service.ts::updateCastlingRightsFromBoard — they do not depend on how many
+// votes the screenshot pipeline collected. Forcing two reads just delays the first board
+// display by an additional ~12 s with no correctness benefit.
 //
 // Soft signals (logged but never block promotion on their own):
 //   - noRetryNeeded  — a retry was needed but still produced a valid board.
@@ -231,12 +236,6 @@ function scoreFenConfidence(
     if (delta > maxSquareDelta) {
       hardReasons.push(`largeDelta(${delta})`);
     }
-  }
-
-  // Hard signal 2: initial board must go through vote
-  const isInitial = rawResult.fenBoard === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
-  if (isInitial) {
-    hardReasons.push('initialBoard');
   }
 
   return {
@@ -367,18 +366,6 @@ class ChessScreenshotService {
 
   private static readonly MAX_SQUARE_DELTA = 6;
 
-  /**
-   * Count the number of squares that differ between two FEN board strings.
-   * Both boards must already be in white-perspective (8 ranks, rank-sum = 8).
-   * Returns Infinity if either string fails basic validation so the caller
-   * can treat a malformed FEN as an unconditional reject.
-   * Delegates to the module-level squareDeltaFn so the same logic is reused
-   * by the confidence gate without needing a class reference.
-   */
-  private static squareDelta(fenA: string, fenB: string): number {
-    return squareDeltaFn(fenA, fenB);
-  }
-
   // ─── Vote helpers ─────────────────────────────────────────────────────────
 
   private pushToVoteBuffer(entry: VoteEntry): void {
@@ -434,6 +421,36 @@ class ChessScreenshotService {
       return withGrid[withGrid.length - 1] ?? withTurn[withTurn.length - 1] ?? matchingEntries[matchingEntries.length - 1] ?? null;
     }
     return null;
+  }
+
+  /**
+   * Check temporal consistency of a candidate FEN against the last confirmed FEN.
+   * A real chess move changes at most 4 squares; more than MAX_SQUARE_DELTA
+   * indicates a hallucination or mid-animation frame.
+   *
+   * Returns true when the candidate passes (should be promoted).
+   * Returns false when it fails — also purges the vote buffer and ends the
+   * pipeline cycle so the caller can return immediately.
+   */
+  private checkTemporalConsistency(
+    fenBoard: string,
+    isInitialBoard: boolean,
+    cycleId: number,
+    logLabel: string,
+  ): boolean {
+    if (this.lastConfirmedFen === null || isInitialBoard) return true;
+    const delta = squareDeltaFn(fenBoard, this.lastConfirmedFen);
+    if (delta > ChessScreenshotService.MAX_SQUARE_DELTA) {
+      log.warn(
+        { delta, max: ChessScreenshotService.MAX_SQUARE_DELTA, votedFen: fenBoard, prevFen: this.lastConfirmedFen },
+        `[ChessScreenshot] ${logLabel} temporal consistency REJECT — large delta, likely hallucination`
+      );
+      this.fenVoteBuffer = [];
+      this.fenVoteMeta.clear();
+      pipelineLatency.endCycle(cycleId, 'temporalReject');
+      return false;
+    }
+    return true;
   }
 
   // ─── Burst confirmation ───────────────────────────────────────────────────
@@ -548,6 +565,15 @@ class ChessScreenshotService {
     //   FEN call  — extracts <perspective> + <raw_board>; retries once on math errors.
     //   Turn call — extracts <turn>, <last_move_from>, <last_move_to>.
     // Results are merged before entering the vote buffer.
+    //
+    // Exception: on the very first tick of a session (lastConfirmedFen === null) we
+    // skip the turn call entirely.  At this point there is no last-move highlight on
+    // the board (nothing has been played yet), so the turn call will always return null
+    // move coordinates and frequently triggers an expensive post-merge retry.
+    // live-assist.service.ts hardcodes turn='w' and seeds full castling rights (KQkq)
+    // whenever it receives the initial board position, so the null turn is handled
+    // correctly downstream.  Skipping saves ~10-12 s on first-board detection.
+    const skipTurnCall = this.lastConfirmedFen === null;
     const llm = getLLMService();
     pipelineLatency.startStep(cycleId, 'fenExtract');
     const fenExtractStart = Date.now();
@@ -557,31 +583,27 @@ class ChessScreenshotService {
       this.fenPrompt,
       this.turnPrompt,
       cycleId,
+      skipTurnCall,
     );
     const fenExtractMs = Date.now() - fenExtractStart;
 
     // ── Step 3b: Debug frame save ──────────────────────────────────────────
     if (DEBUG_ENABLED) {
       this.debugSeq += 1;
-      const peekBuffer = rawResult
-        ? [...this.fenVoteBuffer, rawResult].slice(-FEN_VOTE_WINDOW)
-        : [...this.fenVoteBuffer];
-      const peekCounts = new Map<string, number>();
-      for (const e of peekBuffer) peekCounts.set(e.fenBoard, (peekCounts.get(e.fenBoard) ?? 0) + 1);
-      let peekBestFen: string | null = null;
-      let peekBestCount = 0;
-      for (const [fen, count] of peekCounts) {
-        if (count > peekBestCount) { peekBestCount = count; peekBestFen = fen; }
+      // Temporarily add the new result to a copy of the buffer so computeVotedFen
+      // can preview what the vote would produce with this frame included.
+      const savedBuffer = this.fenVoteBuffer;
+      if (rawResult) {
+        this.fenVoteBuffer = [...savedBuffer, rawResult].slice(-FEN_VOTE_WINDOW) as typeof savedBuffer;
       }
-      const peekVoted = peekBestCount >= FEN_VOTE_THRESHOLD && peekBestFen !== null
-        ? peekBuffer.slice().reverse().find((e) => e.fenBoard === peekBestFen) ?? null
-        : null;
+      const peekVoted = rawResult ? this.computeVotedFen() : null;
+      this.fenVoteBuffer = savedBuffer;
 
       saveDebugFrame({
         seq: this.debugSeq,
         pngBuffer,
         rawResult,
-        voteBuffer: peekBuffer,
+        voteBuffer: rawResult ? [...savedBuffer, rawResult].slice(-FEN_VOTE_WINDOW) as typeof savedBuffer : savedBuffer,
         votedEntry: peekVoted,
         isBurst,
       });
@@ -634,18 +656,8 @@ class ChessScreenshotService {
       }
 
       // Temporal consistency gate applies on the fast-path too.
-      if (this.lastConfirmedFen !== null && !isInitialBoard) {
-        const delta = ChessScreenshotService.squareDelta(voteEntry.fenBoard, this.lastConfirmedFen);
-        if (delta > ChessScreenshotService.MAX_SQUARE_DELTA) {
-          log.warn(
-            { delta, max: ChessScreenshotService.MAX_SQUARE_DELTA, votedFen: voteEntry.fenBoard, prevFen: this.lastConfirmedFen },
-            '[ChessScreenshot] Fast-path temporal consistency REJECT — large delta, likely hallucination'
-          );
-          this.fenVoteBuffer = [];
-          this.fenVoteMeta.clear();
-          pipelineLatency.endCycle(cycleId, 'temporalReject');
-          return;
-        }
+      if (!this.checkTemporalConsistency(voteEntry.fenBoard, isInitialBoard, cycleId, 'Fast-path')) {
+        return;
       }
 
       log.info(
@@ -756,19 +768,8 @@ class ChessScreenshotService {
     // the last confirmed FEN by more than MAX_SQUARE_DELTA squares, it is almost
     // certainly a hallucination or mid-animation snapshot. Reject it, clear the
     // vote buffer, and wait for a stable frame.
-    if (this.lastConfirmedFen !== null && !isInitialBoard) {
-      const delta = ChessScreenshotService.squareDelta(votedEntry.fenBoard, this.lastConfirmedFen);
-      if (delta > ChessScreenshotService.MAX_SQUARE_DELTA) {
-        log.warn(
-          { delta, max: ChessScreenshotService.MAX_SQUARE_DELTA, votedFen: votedEntry.fenBoard, prevFen: this.lastConfirmedFen },
-          '[ChessScreenshot] Temporal consistency REJECT — voted FEN diffs by too many squares, likely hallucination'
-        );
-        // Purge the vote buffer so these bad frames don’t influence the next vote.
-        this.fenVoteBuffer = [];
-        this.fenVoteMeta.clear();
-        pipelineLatency.endCycle(cycleId, 'temporalReject');
-        return;
-      }
+    if (!this.checkTemporalConsistency(votedEntry.fenBoard, isInitialBoard, cycleId, 'Slow-path')) {
+      return;
     }
 
     log.info(

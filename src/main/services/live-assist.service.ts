@@ -22,6 +22,7 @@ import {
   getChessPersonality,
   type SupportedGameId,
 } from '../../shared/config/game-coaching';
+import { flipBoardPerspective, getPieceOnBoard } from '../lib/fen-utils';
 
 const log = logger.child({ module: 'live-assist' });
 
@@ -272,26 +273,6 @@ class LiveAssistService extends EventEmitter {
   /** Set to true by flipTurn() so the next processTranscriptInner run does not
    *  overwrite lastChessTurn from chessContext — preserving the user override. */
   private userFlippedTurn = false;
-
-  private getTipLengthLimits(): { maxSayWords: number; maxAskWords: number; maxFinalSayCount: number; maxFinalAskCount: number } {
-    return { maxSayWords: 20, maxAskWords: 16, maxFinalSayCount: 2, maxFinalAskCount: 2 };
-  }
-
-  private truncateTo3Words(text: string): string {
-    const words = text.split(/\s+/);
-    if (words.length <= 10) return text;
-    return words.slice(0, 8).join(' ');
-  }
-
-  private truncateToShortTip(text: string, maxWords?: number): string {
-    const cleaned = this.sanitizeInsightText(text);
-    if (!cleaned) return '';
-    const limits = this.getTipLengthLimits();
-    const limit = maxWords ?? limits.maxAskWords;
-    const words = cleaned.split(/\s+/).filter(Boolean);
-    if (words.length <= limit) return cleaned;
-    return words.slice(0, limit).join(' ');
-  }
 
   private scheduleProcessing(): void {
     if (!this.isRunning) return;
@@ -554,37 +535,6 @@ class LiveAssistService extends EventEmitter {
     return fen;
   }
 
-  private validateBoardMath(board: string): boolean {
-    const rows = board.split('/');
-    if (rows.length !== 8) return false;
-
-    for (const row of rows) {
-      let squareCount = 0;
-      for (const char of row) {
-        if (/^[1-8]$/.test(char)) {
-          squareCount += Number(char);
-          continue;
-        }
-        if (/^[prnbqkPRNBQK]$/.test(char)) {
-          squareCount += 1;
-          continue;
-        }
-        return false;
-      }
-      if (squareCount !== 8) return false;
-    }
-
-    return true;
-  }
-
-  private transformRawBoardToWhitePerspective(rawBoard: string, perspective: 'white' | 'black'): string {
-    if (perspective === 'white') return rawBoard;
-
-    const rows = rawBoard.split('/');
-    rows.reverse();
-    return rows.map((row) => row.split('').reverse().join('')).join('/');
-  }
-
   /**
    * Build a FEN string for display on the overlay board.
    *
@@ -605,12 +555,7 @@ class LiveAssistService extends EventEmitter {
     const boardPart = spaceIdx === -1 ? whitePerspectiveFen : whitePerspectiveFen.slice(0, spaceIdx);
     const rest = spaceIdx === -1 ? '' : whitePerspectiveFen.slice(spaceIdx);
 
-    // Rotate 180°: reverse rank order AND mirror each rank's files
-    const rows = boardPart.split('/');
-    rows.reverse();
-    const displayBoard = rows.map((row) => row.split('').reverse().join('')).join('/');
-
-    return `${displayBoard}${rest}`;
+    return `${flipBoardPerspective(boardPart)}${rest}`;
   }
 
   private extractFenFromTaggedChessOutput(text: string): string | null {
@@ -643,9 +588,9 @@ class LiveAssistService extends EventEmitter {
     }
     const rawBoard = rawBoardContent.replace(/\s+/g, '');
     if (!rawBoard) return null;
-    if (!this.validateBoardMath(rawBoard)) return null;
+    if (!this.isValidFenBoard(rawBoard)) return null;
 
-    const board = this.transformRawBoardToWhitePerspective(rawBoard, perspective);
+    const board = perspective === 'black' ? flipBoardPerspective(rawBoard) : rawBoard;
     // Side/castling/en-passant counters are unavailable from a single frame.
     const syntheticFen = `${board} w - - 0 1`;
     return this.parseFenCandidate(syntheticFen);
@@ -664,9 +609,9 @@ class LiveAssistService extends EventEmitter {
     if (rows.some((r) => !r)) return null;
 
     const rawBoard = rows.join('/');
-    if (!this.validateBoardMath(rawBoard)) return null;
+    if (!this.isValidFenBoard(rawBoard)) return null;
 
-    const board = this.transformRawBoardToWhitePerspective(rawBoard, perspective);
+    const board = perspective === 'black' ? flipBoardPerspective(rawBoard) : rawBoard;
     const syntheticFen = `${board} w - - 0 1`;
     return this.parseFenCandidate(syntheticFen);
   }
@@ -705,7 +650,7 @@ class LiveAssistService extends EventEmitter {
     const boardOnlyRegex = /([prnbqkPRNBQK1-8]+(?:\/[prnbqkPRNBQK1-8]+){7})/g;
     while ((match = boardOnlyRegex.exec(normalizedText)) !== null) {
       const board = match[1];
-      if (!this.validateBoardMath(board)) continue;
+      if (!this.isValidFenBoard(board)) continue;
       const fen = this.parseFenCandidate(`${board} w - - 0 1`);
       if (fen) {
         candidates.push({ fen, source: 'board_only' });
@@ -820,45 +765,11 @@ class LiveAssistService extends EventEmitter {
    * Returns true when the pair is usable, false otherwise.
    */
   private validateAlgebraicMovePair(from: string, to: string, fenBoard: string): boolean {
-    const algebraicToIndices = (sq: string): { rankIdx: number; fileIdx: number } | null => {
-      if (!sq || sq.length < 2) return null;
-      const fileIdx = sq.charCodeAt(0) - 97;
-      const rankIdx = 8 - parseInt(sq[1], 10);
-      if (fileIdx < 0 || fileIdx > 7 || rankIdx < 0 || rankIdx > 7) return null;
-      return { rankIdx, fileIdx };
-    };
-
-    const getPiece = (rankIdx: number, fileIdx: number): string | null => {
-      const ranks = fenBoard.split('/');
-      if (ranks.length !== 8) return null;
-      const rank = ranks[rankIdx];
-      if (!rank) return null;
-      let col = 0;
-      for (const ch of rank) {
-        if (/\d/.test(ch)) {
-          const skip = parseInt(ch, 10);
-          if (fileIdx < col + skip) return '';
-          col += skip;
-        } else {
-          if (col === fileIdx) return ch;
-          col++;
-        }
-        if (col > fileIdx) break;
-      }
-      return '';
-    };
-
-    const fromIdx = algebraicToIndices(from);
-    const toIdx   = algebraicToIndices(to);
-    if (!fromIdx || !toIdx) return false;
-
-    const fromPiece = getPiece(fromIdx.rankIdx, fromIdx.fileIdx);
-    const toPiece   = getPiece(toIdx.rankIdx,   toIdx.fileIdx);
+    const fromPiece = getPieceOnBoard(fenBoard, from);
+    const toPiece   = getPieceOnBoard(fenBoard, to);
     if (fromPiece === null || toPiece === null) return false;
-
     // Exactly one must be empty (origin) and the other must have a piece (destination).
-    const oneEmpty = (fromPiece === '' && toPiece !== '') || (fromPiece !== '' && toPiece === '');
-    return oneEmpty;
+    return (fromPiece === '' && toPiece !== '') || (fromPiece !== '' && toPiece === '');
   }
 
   /**
@@ -876,40 +787,8 @@ class LiveAssistService extends EventEmitter {
     toSq: string,
     fenBoard: string,
   ): 'w' | 'b' | null {
-    const algebraicToIndices = (sq: string): { rankIdx: number; fileIdx: number } | null => {
-      if (!sq || sq.length < 2) return null;
-      const fileIdx = sq.charCodeAt(0) - 97; // 'a'=0 … 'h'=7
-      const rankIdx = 8 - parseInt(sq[1], 10); // '1'→7, '8'→0
-      if (fileIdx < 0 || fileIdx > 7 || rankIdx < 0 || rankIdx > 7) return null;
-      return { rankIdx, fileIdx };
-    };
-
-    const getPiece = (rankIdx: number, fileIdx: number): string | null => {
-      const ranks = fenBoard.split('/');
-      if (ranks.length !== 8) return null;
-      const rank = ranks[rankIdx];
-      if (!rank) return null;
-      let col = 0;
-      for (const ch of rank) {
-        if (/\d/.test(ch)) {
-          const skip = parseInt(ch, 10);
-          if (fileIdx < col + skip) return '';
-          col += skip;
-        } else {
-          if (col === fileIdx) return ch;
-          col++;
-        }
-        if (col > fileIdx) break;
-      }
-      return '';
-    };
-
-    const fromIdx = algebraicToIndices(fromSq);
-    const toIdx   = algebraicToIndices(toSq);
-    if (!fromIdx || !toIdx) return null;
-
-    const fromPiece = getPiece(fromIdx.rankIdx, fromIdx.fileIdx);
-    const toPiece   = getPiece(toIdx.rankIdx,   toIdx.fileIdx);
+    const fromPiece = getPieceOnBoard(fenBoard, fromSq);
+    const toPiece   = getPieceOnBoard(fenBoard, toSq);
     if (fromPiece === null || toPiece === null) return null;
 
     let actualToPiece: string;
@@ -1675,8 +1554,8 @@ class LiveAssistService extends EventEmitter {
         const result = fenDiffToSan(candidate, toFen, turn);
         if (result) return result;
       }
-    } catch {
-      // Best-effort — swallow errors
+    } catch (err) {
+      log.warn({ err }, '[LiveAssist] tryInferSan: unexpected error');
     }
     return null;
   }
@@ -1851,9 +1730,9 @@ class LiveAssistService extends EventEmitter {
     }
 
     const rawBoard = rows.join('/');
-    if (!this.validateBoardMath(rawBoard)) return null;
+    if (!this.isValidFenBoard(rawBoard)) return null;
 
-    const board = this.transformRawBoardToWhitePerspective(rawBoard, perspective);
+    const board = perspective === 'black' ? flipBoardPerspective(rawBoard) : rawBoard;
     const syntheticFen = `${board} w - - 0 1`;
     return this.parseFenCandidate(syntheticFen);
   }
@@ -1936,7 +1815,7 @@ class LiveAssistService extends EventEmitter {
     // Fetch 3 top lines in parallel (best move + 2 alternatives) so the engine
     // card can display "Top lines: 1. e4 (eval 0.36) | 2. d4 (eval 0.34) | ...".
     if (cycleId !== undefined) pipelineLatency.startStep(cycleId, 'engineCall');
-    const topLines = await engine.getTopLines(resolvedFen.fen, 3, {
+    const topLines = await engine.getTopLines(resolvedFen.fen, {
       depth: 12,
       maxThinkingTime: 50,
     });

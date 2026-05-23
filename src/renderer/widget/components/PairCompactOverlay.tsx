@@ -171,34 +171,21 @@ function ChessBoard({
               )}
               {piece && (
                 piece === piece.toUpperCase() ? (
-                  /* White piece: dark outline layer first, solid white fill on top */
-                  <>
-                    <text
-                      x={x + sq / 2}
-                      y={y + sq / 2 + 1}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      fontSize={sq * 0.72}
-                      style={{ userSelect: 'none' }}
-                      fill="#ffffff"
-                      stroke="#444444"
-                      strokeWidth={2.2}
-                      paintOrder="stroke fill"
-                    >
-                      {PIECE_UNICODE[piece] ?? piece}
-                    </text>
-                    <text
-                      x={x + sq / 2}
-                      y={y + sq / 2 + 1}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      fontSize={sq * 0.72}
-                      style={{ userSelect: 'none' }}
-                      fill="#ffffff"
-                    >
-                      {PIECE_UNICODE[piece] ?? piece}
-                    </text>
-                  </>
+                  /* White piece: white fill with dark stroke outline, painted stroke-first */
+                  <text
+                    x={x + sq / 2}
+                    y={y + sq / 2 + 1}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize={sq * 0.72}
+                    style={{ userSelect: 'none' }}
+                    fill="#ffffff"
+                    stroke="#444444"
+                    strokeWidth={2.2}
+                    paintOrder="stroke fill"
+                  >
+                    {PIECE_UNICODE[piece] ?? piece}
+                  </text>
                 ) : (
                   /* Black piece: solid dark fill with a light outline */
                   <text
@@ -307,6 +294,10 @@ function fmtElapsed(startTime?: number | null, endTime: number = Date.now()): st
   const ss = String(sec % 60).padStart(2, '0');
   return `${mm}:${ss}`;
 }
+
+// Module-level constants — hoisted out of component body to avoid re-creation on every render.
+const NON_ACTIONABLE = 'No actionable gameplay moment in this frame.';
+const NON_ACTIONABLE_REGEX = /no actionable gameplay moment(?: in this frame)?\.?/i;
 
 // ---------------------------------------------------------------------------
 // Send arrow icon for chat submit
@@ -940,8 +931,6 @@ export function PairCompactOverlay({
     await submitChatQuestion(question, tipCtx);
   }, [chatInput, chatLoading, chatPrefillCtx, submitChatQuestion]);
 
-  const NON_ACTIONABLE = 'No actionable gameplay moment in this frame.';
-  const NON_ACTIONABLE_REGEX = /no actionable gameplay moment(?: in this frame)?\.?/i;
   const CARD_TTL_MS = 60_000;
 
   const compact = (text: string, max = 220): string => {
