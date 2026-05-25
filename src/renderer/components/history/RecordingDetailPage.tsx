@@ -37,6 +37,7 @@ interface RecordingDetailPageProps {
 
 export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPageProps) {
   const [collectionId, setCollectionId] = useState<string | null>(null);
+  const [seekTimestamp, setSeekTimestamp] = useState<number | null>(null);
 
   const { data: recording, isLoading } = trpc.recordings.get.useQuery(
     { recordingId },
@@ -261,7 +262,7 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
           <MatchSummaryCard summary={recording.shortOverview || recording.insights} />
 
           {/* Key Moments */}
-          <KeyMomentsCard tips={gameplayTips} playerUrl={resolvedPlayerUrl} />
+          <KeyMomentsCard tips={gameplayTips} playerUrl={resolvedPlayerUrl} onJumpTo={setSeekTimestamp} />
 
           {/* Insights & Patterns */}
           <InsightsPatternsCard keyPoints={recording.keyPoints} recordingStatus={recording.status} />
@@ -278,6 +279,7 @@ export function RecordingDetailPage({ recordingId, onBack }: RecordingDetailPage
             isReady={isVideoReady}
             isFailed={isVideoFailed}
             isProcessing={isVideoProcessing}
+            seekTimestamp={seekTimestamp}
           />
 
           {/* Chat with video button */}
@@ -767,6 +769,7 @@ function formatTipTimestamp(seconds: number): string {
 function KeyMomentsCard({
   tips,
   playerUrl,
+  onJumpTo,
 }: {
   tips: {
     id: string;
@@ -779,6 +782,7 @@ function KeyMomentsCard({
     turn?: 'w' | 'b';
   }[];
   playerUrl: string | null | undefined;
+  onJumpTo?: (seconds: number) => void;
 }) {
   // Classify all tips using the WP-based shared classifier, preserving original index for move number
   const classified = tips.map((tip, idx) => ({
@@ -836,9 +840,7 @@ function KeyMomentsCard({
 
   const openAtTimestamp = (seconds: number) => {
     if (!playerUrl) return;
-    const hasQuery = playerUrl.includes('?');
-    const timedUrl = `${playerUrl}${hasQuery ? '&' : '?'}t=${Math.max(0, Math.floor(seconds))}`;
-    window.electronAPI?.app.openExternalLink(timedUrl);
+    onJumpTo?.(Math.max(0, Math.floor(seconds)));
   };
 
   // Derive chess move number from the tip's position in the full tip list.
@@ -1196,19 +1198,34 @@ function VideoPlayerSection({
   isReady,
   isFailed,
   isProcessing,
+  seekTimestamp,
 }: {
   playerUrl: string | null | undefined;
   isReady: boolean;
   isFailed?: boolean;
   isProcessing?: boolean;
+  seekTimestamp?: number | null;
 }) {
-  const embedUrl = playerUrl?.replace('/watch', '/embed');
+  const baseEmbedUrl = playerUrl?.replace('/watch', '/embed');
+  const [iframeSrc, setIframeSrc] = useState<string | undefined>(baseEmbedUrl);
+
+  // Keep iframeSrc in sync with the base URL (e.g. when playerUrl first loads)
+  useEffect(() => {
+    setIframeSrc(baseEmbedUrl);
+  }, [baseEmbedUrl]);
+
+  // When seekTimestamp changes, reload the iframe at the requested time
+  useEffect(() => {
+    if (seekTimestamp == null || !baseEmbedUrl) return;
+    const hasQuery = baseEmbedUrl.includes('?');
+    setIframeSrc(`${baseEmbedUrl}${hasQuery ? '&' : '?'}t=${seekTimestamp}`);
+  }, [seekTimestamp]);
 
   const renderInner = () => {
-    if (isReady && embedUrl) {
+    if (isReady && iframeSrc) {
       return (
         <iframe
-          src={embedUrl}
+          src={iframeSrc}
           className="w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen

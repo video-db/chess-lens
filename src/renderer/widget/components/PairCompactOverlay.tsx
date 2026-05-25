@@ -390,8 +390,14 @@ export function CoachingChatView({
   return (
     <div style={{
       width: 400,
-      /* Grow naturally — no fixed height. Cap at 820px then chat area scrolls. */
-      maxHeight: 820,
+      /* Grow naturally — no fixed height. Cap dynamically so the overlay never
+         exceeds the available screen height on small/low-res displays.
+         window.screen.availHeight excludes the OS taskbar/dock; subtracting 60px
+         accounts for WIDGET_MARGIN (20 top + 20 bottom) and WIDGET_HEIGHT_PADDING
+         (40px) that the main-process window-sizing already reserves, keeping
+         content cleanly inside the clamped BrowserWindow on any screen size.
+         On large screens (≥ 880 px tall) the original 820 px cap wins unchanged. */
+      maxHeight: Math.min(820, window.screen.availHeight - 60),
       display: 'flex',
       flexDirection: 'column',
       background: '#FFFFFF',
