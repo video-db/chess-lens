@@ -36,12 +36,12 @@ Chess Lens watches your chess game through screen capture, extracts the board po
 
 **macOS / Linux**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/video-db/chess-lens/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/video-db/chess-lens/main/scripts/install.sh | bash
 ```
 
 **Windows (PowerShell)**
 ```powershell
-irm https://raw.githubusercontent.com/video-db/chess-lens/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/video-db/chess-lens/main/scripts/install.ps1 | iex
 ```
 
 Then start the app:

@@ -2,12 +2,11 @@
 set -e
 
 # Chess Lens Installer
-# Usage: curl -fsSL https://artifacts.videodb.io/chess-lens/install | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/video-db/chess-lens/main/scripts/install.sh | bash
 
 APP_NAME="Chess Lens"
 APP_DIR="/Applications/${APP_NAME}.app"
-BASE_URL="https://artifacts.videodb.io/chess-lens"
-# Version is read from package.json at build time; update here on each release.
+BASE_URL="https://github.com/video-db/chess-lens/releases/download/v${VERSION}"
 VERSION="1.0.2"
 
 # Colors
@@ -37,8 +36,8 @@ fi
 
 ARCH="$(uname -m)"
 case "$ARCH" in
-  arm64) DMG_FILE="${APP_NAME}-${VERSION}-arm64.dmg" ;;
-  x86_64) DMG_FILE="${APP_NAME}-${VERSION}-x64.dmg" ;;
+  arm64) DMG_FILE="Chess Lens-${VERSION}-arm64.dmg" ;;
+  x86_64) DMG_FILE="Chess Lens-${VERSION}-x64.dmg" ;;
   *) error "Unsupported architecture: $ARCH" ;;
 esac
 
@@ -46,7 +45,7 @@ DMG_URL="${BASE_URL}/${DMG_FILE}"
 
 echo ""
 printf "${BOLD}  Chess Lens Installer${NC}\n"
-echo "  ────────────────────"
+echo "  ─────────────────────"
 echo ""
 info "Detected architecture: $ARCH"
 info "Downloading ${DMG_FILE}..."
@@ -58,7 +57,6 @@ TMP_DMG="${TMP_DIR}/${DMG_FILE}"
 
 cleanup() {
   if [ -d "$TMP_DIR" ]; then
-    # Detach any mounted volume quietly
     if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT" ]; then
       hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
     fi
@@ -78,7 +76,6 @@ MOUNT_OUTPUT="$(hdiutil attach "$TMP_DMG" -nobrowse -quiet 2>&1)"
 MOUNT_POINT="$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)"
 
 if [ -z "$MOUNT_POINT" ]; then
-  # Fallback: find mount point by listing volumes
   MOUNT_POINT="$(find /Volumes -maxdepth 1 -name "${APP_NAME}*" -type d 2>/dev/null | head -1)"
 fi
 
@@ -90,7 +87,6 @@ fi
 
 SOURCE_APP="${MOUNT_POINT}/${APP_NAME}.app"
 if [ ! -d "$SOURCE_APP" ]; then
-  # Try to find the .app in the volume
   SOURCE_APP="$(find "$MOUNT_POINT" -maxdepth 1 -name "*.app" -type d | head -1)"
 fi
 
@@ -124,7 +120,6 @@ success "Chess Lens has been installed to /Applications!"
 echo ""
 echo "  Next steps:"
 echo "    1. Open Chess Lens from Applications or Spotlight"
-echo "    2. Grant Microphone and Screen Recording permissions when prompted"
+echo "    2. Grant Screen Recording and Microphone permissions when prompted"
 echo "    3. Enter your VideoDB API key (get one at https://console.videodb.io)"
-echo "    4. Start a chess session to get real-time move coaching"
 echo ""
