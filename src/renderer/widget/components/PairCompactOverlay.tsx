@@ -1544,6 +1544,9 @@ export function PairCompactOverlay({
         borderRadius: 16,
         overflow: 'hidden',
         boxShadow: '0px 4px 24px rgba(0,0,0,0.08)',
+        display: 'flex',
+        flexDirection: 'column',
+        maxHeight: 'calc(100vh - 10px)',
       }}>
 
         {/* Header */}
@@ -1559,6 +1562,9 @@ export function PairCompactOverlay({
           borderTop: '1px solid rgba(0,0,0,0.05)',
           borderBottom: '1px solid rgba(0,0,0,0.05)',
           boxSizing: 'border-box',
+          flex: '1 1 auto',
+          overflowY: 'auto',
+          minHeight: 0,
         }}>
 
           {/* Chess board � only when FEN is present */}

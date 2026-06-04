@@ -58,22 +58,20 @@ function getDefaultPosition(): WidgetPosition {
 
 function validatePosition(position: WidgetPosition): WidgetPosition {
   const displays = screen.getAllDisplays();
-  let isValid = false;
 
   for (const display of displays) {
-    const { x, y, width, height } = display.bounds;
+    const { x, y, width, height } = display.workArea;
     if (
       position.x >= x &&
-      position.x < x + width &&
+      position.x + WIDGET_WIDTH <= x + width &&
       position.y >= y &&
-      position.y < y + height
+      position.y + WIDGET_DEFAULT_HEIGHT <= y + height
     ) {
-      isValid = true;
-      break;
+      return position;
     }
   }
 
-  return isValid ? position : getDefaultPosition();
+  return getDefaultPosition();
 }
 
 export function createWidgetWindow(): BrowserWindow {
@@ -153,17 +151,26 @@ export function createWidgetWindow(): BrowserWindow {
       syncWidgetState();
     });
 
-  // Save position on move
+  // Save position on move; re-clamp to ensure the window still fits on the
+  // target display (handles dragging to a smaller monitor).
   widgetWindow.on('moved', () => {
     if (widgetWindow && !widgetWindow.isDestroyed()) {
       const [x, y] = widgetWindow.getPosition();
       saveWidgetPosition({ x, y });
+      // Only clamp when collapsed is false — while collapsed the height is
+      // intentionally minimal and should not be overridden by content height.
+      if (!widgetCollapsed) {
+        applyWindowHeight(widgetWindow.getSize()[1]);
+      }
     }
   });
 
   widgetWindow.on('closed', () => {
     widgetWindow = null;
   });
+
+  // Clamp the window to the display it will appear on before showing.
+  applyWindowHeight(WIDGET_DEFAULT_HEIGHT);
 
   widgetWindow.once('ready-to-show', () => {
     if (!widgetWindow || widgetWindow.isDestroyed()) return;
@@ -192,6 +199,9 @@ export function showWidgetWindow(): void {
     widgetWindow.setAlwaysOnTop(true, 'screen-saver', 1);
     widgetWindow.showInactive();
     widgetWindow.moveTop();
+    // Re-clamp to the current display — the display may have changed since
+    // the window was last shown (e.g. external monitor disconnected).
+    applyWindowHeight(widgetWindow.getSize()[1]);
     syncWidgetState();
   }
 }
