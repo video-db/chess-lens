@@ -80,6 +80,7 @@ export function useSession() {
     }
 
     rendererLog('info', 'use-session', 'Setting status to starting');
+    sessionStore.stopSession();
     sessionStore.setStatus('starting');
     transcriptionStore.clear();
     useVisualIndexStore.getState().clear();

@@ -469,25 +469,30 @@ export function CoachingChatView({
                       alignItems: 'center',
                       gap: 4,
                       padding: '3px 8px',
-                      background: 'rgba(0,0,0,0.05)',
-                      border: '0.84px solid rgba(0,0,0,0.12)',
+                      background: 'rgba(0,145,6,0.08)',
+                      border: '1px solid rgba(0,145,6,0.35)',
                       borderRadius: 20,
                       cursor: 'pointer',
                       fontSize: 11,
                       fontWeight: 500,
-                      color: '#464646',
+                      color: '#007a05',
                       lineHeight: '14px',
                       whiteSpace: 'nowrap',
                     }}
                   >
                     {/* swap icon */}
                     <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M1 5h10M1 5l3-3M1 5l3 3M15 11H5M15 11l-3-3M15 11l-3 3" stroke="#464646" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M1 5h10M1 5l3-3M1 5l3 3M15 11H5M15 11l-3-3M15 11l-3 3" stroke="#007a05" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                     {currentTurn === 'w' ? 'White' : 'Black'} to move
                   </button>
                 )}
               </div>
+              {onFlipTurn && currentTurn && (
+                <span style={{ fontSize: 10, color: '#888', lineHeight: '13px', marginTop: -4 }}>
+                  Wrong turn detected? Switch side to recalculate.
+                </span>
+              )}
             </div>
           )}
 
@@ -1605,25 +1610,30 @@ export function PairCompactOverlay({
                               alignItems: 'center',
                               gap: 4,
                               padding: '3px 8px',
-                              background: 'rgba(0,0,0,0.05)',
-                              border: '0.84px solid rgba(0,0,0,0.12)',
+                              background: 'rgba(0,145,6,0.08)',
+                              border: '1px solid rgba(0,145,6,0.35)',
                               borderRadius: 20,
                               cursor: 'pointer',
                               fontSize: 11,
                               fontWeight: 500,
-                              color: '#464646',
+                              color: '#007a05',
                               fontFamily: 'Inter, sans-serif',
                               lineHeight: '14px',
                               whiteSpace: 'nowrap',
                             }}
                           >
                             <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              <path d="M1 5h10M1 5l3-3M1 5l3 3M15 11H5M15 11l-3-3M15 11l-3 3" stroke="#464646" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M1 5h10M1 5l3-3M1 5l3 3M15 11H5M15 11l-3-3M15 11l-3 3" stroke="#007a05" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                             {currentTurn === 'w' ? 'White' : 'Black'} to move
                           </button>
                         )}
                       </div>
+                      {onFlipTurn && currentTurn && !isRegenerating && (
+                        <span style={{ fontSize: 10, color: '#888', lineHeight: '13px', marginTop: -4, fontFamily: 'Inter, sans-serif' }}>
+                          Wrong turn detected? Switch side to recalculate.
+                        </span>
+                      )}
                     </>
                   )}
                 </div>
