@@ -19,7 +19,7 @@ const activeSceneIndexes = new Map<string, {
 
 const MAX_RETRIES = 60;
 const RETRY_DELAY_MS = 2000;
-const DEFAULT_INDEXING_PROMPT = 'Return ONLY valid minified JSON with exactly two keys: {"heading_tip":"string","tip":"string"}. No markdown, no prose, no code fences. `heading_tip` is a short headline (max 90 chars). `tip` is full scenario/details in plain text. Describe actionable gameplay only and ignore menus/loading/scoreboards/overlays. Do not repeat the obvious visible state as the tip; if the player is already holding a spot like mid doors, do not say hold mid doors. Instead give the next adjustment, timing cue, angle change, utility play, or rotation. If no actionable gameplay moment is visible return exactly: {"heading_tip":"No actionable gameplay moment","tip":"No actionable gameplay moment in this frame."}.';
+const DEFAULT_INDEXING_PROMPT = 'Return ONLY valid minified JSON with exactly two keys: {"heading_tip":"string","tip":"string"}. No markdown, no prose, no code fences. `heading_tip` is a short headline (max 90 chars). `tip` is full scenario/details in plain text. Describe actionable gameplay only and ignore menus/loading/scoreboards. Do not repeat the obvious visible state as the tip; if the player is already holding a spot like mid doors, do not say hold mid doors. Instead give the next adjustment, timing cue, angle change, utility play, or rotation. If no actionable gameplay moment is visible return exactly: {"heading_tip":"No actionable gameplay moment","tip":"No actionable gameplay moment in this frame."}.';
 const MODEL_NAME = RTSTREAM_VISION_MODEL; // 'openai/gpt-5.4' — supported by RTStream indexVisuals SDK
 
 function sleep(ms: number): Promise<void> {

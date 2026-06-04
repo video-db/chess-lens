@@ -187,11 +187,7 @@ export const GAME_COACHING_PROFILES: GameCoachingProfile[] = [
 Your task is to analyze the image of a chessboard and for each change in the position of the pieces extract the pieces EXACTLY as they appear visually, from TOP to BOTTOM, LEFT to RIGHT.
 Do NOT try to determine FEN orientation. Just act as a strict visual scanner.
 
-CRITICAL — OVERLAY EXCLUSION:
-This screenshot may contain a small Chess Lens analysis overlay widget pinned to one side of the screen. This overlay displays a miniature chess board inside a white rounded-corner card along with text labels and buttons.
-DO NOT analyze this overlay — it is not the game board.
-Only analyze the MAIN chess board: the large board embedded in the chess website or application (chess.com, lichess, etc.) that occupies the central area of the screen.
-If no main chess board is clearly visible (e.g. a different browser tab or application is in the foreground and only the overlay mini-board is visible), output ONLY the text "NO_BOARD" inside <raw_board> tags and omit ALL other tags entirely.
+If no main chess board is clearly visible (e.g. a different browser tab or application is in the foreground), output ONLY the text "NO_BOARD" inside <raw_board> tags and omit ALL other tags entirely.
 
 STEP 1: DETERMINE PERSPECTIVE
 Use the rank labels on the board to determine the perspective, not where the pieces happen to be.
