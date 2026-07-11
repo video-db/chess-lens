@@ -34,9 +34,9 @@ Chess Lens watches your chess game through screen capture, extracts the board po
 
 ## Installation
 
-**macOS / Linux**
+**macOS**
 ```bash
-curl -fsSL https://artifacts.videodb.io/chess-lens/install | bash
+curl -fsSL https://raw.githubusercontent.com/video-db/chess-lens/main/scripts/install.sh | bash
 ```
 
 **Windows (PowerShell)**
@@ -44,10 +44,7 @@ curl -fsSL https://artifacts.videodb.io/chess-lens/install | bash
 irm https://raw.githubusercontent.com/video-db/chess-lens/main/scripts/install.ps1 | iex
 ```
 
-Then start the app:
-```bash
-cd ~/chess-lens && npm run dev
-```
+Then start the app from Applications, Spotlight, or the Start Menu.
 
 <details>
 <summary>Manual install</summary>
@@ -69,19 +66,23 @@ On first launch, enter your VideoDB API key. Get a free key at [console.videodb.
 
 | Feature | Description |
 |---------|-------------|
-| **Automatic board detection** | Reads any chess board from a screenshot, white or black perspective |
+| **Automatic board detection** | Reads any visible chess board from screen capture, white or black perspective |
+| **RTStream visual indexing** | Uses VideoDB screen RTStreams for live visual analysis when recording |
+| **Screenshot fallback** | Keeps a local screenshot-to-FEN pipeline running during RTStream warmup or outages |
 | **Two-stage coaching** | Engine tip shown instantly; LLM explanation upgrades it in the background |
-| **Floating HUD** | Transparent always-on-top overlay with board, tip, and drill question. Draggable. |
-| **Session history** | Browse past games and review coaching tips |
+| **Floating HUD** | Transparent always-on-top overlay with board, tip, drill question, chat, and no-board state. Draggable. |
+| **Session history** | Browse past games and review recordings, transcripts, and coaching tips |
 | **Post-session summary** | AI-generated recap after each game |
-| **Local-first** | All data stored on your machine. Only API calls leave the device. |
+| **Local-first** | Data is stored locally; VideoDB and model API calls leave the device. |
 
 ---
 
 ## How It Works
 
 ```
-Screenshot (every second)
+VideoDB capture session starts
+    ↓
+Screen RTStream visual indexing + local screenshot fallback
     ↓
 Vision model -> board position (FEN)
     ↓
@@ -92,7 +93,7 @@ Instant tip shown in overlay
 LLM coaching explanation (background) -> overlay upgrades
 ```
 
-A new tip fires only when the board position changes, exactly one tip per move.
+A new tip fires when the board position changes. If the vision model reports `NO_BOARD` repeatedly, the widget asks you to bring the chess board back into focus.
 
 ---
 
@@ -103,6 +104,7 @@ A new tip fires only when the board position changes, exactly one tip per move.
 - Node.js 18+
 - VideoDB API key: [console.videodb.io](https://console.videodb.io)
 - macOS 12+: grant Screen Recording in System Settings > Privacy & Security
+- Microphone permission if you enable audio recording or transcription
 
 ### Run
 
@@ -123,14 +125,12 @@ npm run dist        # all platforms
 
 - `src/`: application source for Electron main, preload, renderer, shared types, and widget code
 - `test/`: unit tests, mirroring the source tree without the `src/` prefix
-- `test-data/`: smoke-test fixtures and sample frames
 - `tools/`: validation, diagnostics, maintenance, and asset-generation scripts
 - `scripts/`: install and local launch helper scripts
 - `assets/`: runtime model files packaged with the app
 - `resources/`: app icons and packaged resources
-- `docs/`: development notes that do not need to live at the root
 
-Generated folders such as `dist/`, `release/`, `drizzle/`, Storybook output, logs, and benchmark result files are ignored and can be regenerated.
+Generated folders such as `dist/`, `release/`, `drizzle/`, Storybook output, logs, benchmark result files, and local fixture data such as `test-data/` are ignored and can be regenerated.
 
 ---
 
@@ -141,15 +141,26 @@ Generated folders such as `dist/`, `release/`, `drizzle/`, Storybook output, log
 
 - Confirm Screen Recording permission is granted in System Settings > Privacy & Security
 - Make sure the chess board is fully visible and not covered by other windows
+- RTStream visual indexing may take a moment to warm up; the screenshot fallback should continue scanning
 - The first tip takes 5-10 seconds on a new position
-- Check logs at `~/Library/Application Support/chess-lens/logs/`
+- Check logs in the app's Electron user data directory
+
+</details>
+
+<details>
+<summary><strong>Widget says NO BOARD DETECTED</strong></summary>
+
+- The vision model reported `<raw_board>NO_BOARD</raw_board>` for several consecutive frames
+- Bring the chess tab or board window back into focus
+- Close modals, popups, or overlays that cover the board
+- The warning clears after a fresh valid board position is detected
 
 </details>
 
 <details>
 <summary><strong>FEN extraction always null</strong></summary>
 
-- The board must be clearly visible and at least ~400 px wide
+- The board must be clearly visible and large enough to read
 - No overlays or modals should cover the board during capture
 - Run `npm run tools:check-model` to verify the vision model is reachable
 
@@ -187,12 +198,12 @@ npm run rebuild
 <p align="center">Made with ❤️ by the <a href="https://videodb.io">VideoDB</a> team</p>
 
 <!-- MARKDOWN LINKS & IMAGES -->
-[electron-shield]: https://img.shields.io/badge/Electron-34-47848F?style=for-the-badge&logo=electron&logoColor=white
+[electron-shield]: https://img.shields.io/badge/Electron-39-47848F?style=for-the-badge&logo=electron&logoColor=white
 [electron-url]: https://www.electronjs.org/
 [typescript-shield]: https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white
 [typescript-url]: https://www.typescriptlang.org/
 [react-shield]: https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black
-[react-url]: https://reactjs.org/
+[react-url]: https://react.dev/
 [stars-shield]: https://img.shields.io/github/stars/video-db/chess-lens.svg?style=for-the-badge
 [stars-url]: https://github.com/video-db/chess-lens/stargazers
 [issues-shield]: https://img.shields.io/github/issues/video-db/chess-lens.svg?style=for-the-badge
