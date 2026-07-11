@@ -8,7 +8,7 @@
 import { Tray, Menu, nativeImage, app, BrowserWindow } from 'electron';
 import path from 'path';
 import { logger } from '../lib/logger';
-import { getCalendarPoller } from './calendar-poller.service';
+import { getCalendarPoller } from './calendar/calendar-poller.service';
 import { setAppQuitting } from '../index';
 import type { UpcomingMeeting } from '../../shared/types/calendar.types';
 

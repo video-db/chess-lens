@@ -19,10 +19,10 @@ const log = logger.child({ module: 'mcp-result-handler' });
 
 // Content type detection patterns
 const CONTENT_PATTERNS = {
-  markdown: /^#|^\*\*|^\-\s|^```|^\|/m,
+  markdown: /^#|^\*\*|^-\s|^```|^\|/m,
   table: /^\|.*\|$/m,
   json: /^\{[\s\S]*\}$|^\[[\s\S]*\]$/,
-  list: /^[\-\*]\s+/m,
+  list: /^[-*]\s+/m,
 };
 
 export class ResultHandlerService {

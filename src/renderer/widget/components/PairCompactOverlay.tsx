@@ -5,241 +5,11 @@ import type {
   WidgetSessionState as SessionState,
   WidgetNudge as Nudge,
 } from '../../../types/widget';
-import { ChessLensWordmark } from '../../components/ui/ChessLensWordmark';
-
-// ---------------------------------------------------------------------------
-// Inline chess board renderer — no external dependencies
-// ---------------------------------------------------------------------------
-
-const PIECE_UNICODE: Record<string, string> = {
-  K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙',
-  k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟',
-};
-
-/** Parse the board part of a FEN string into an 8×8 array of piece chars or ''. */
-function parseFenBoard(fenBoard: string): string[][] {
-  const rows = fenBoard.split('/');
-  return rows.map((rank) => {
-    const cells: string[] = [];
-    for (const ch of rank) {
-      if (/\d/.test(ch)) {
-        for (let i = 0; i < parseInt(ch, 10); i++) cells.push('');
-      } else {
-        cells.push(ch);
-      }
-    }
-    return cells;
-  });
-}
-
-/**
- * Convert an algebraic square string (e.g. "b7") to a {col, row} SVG grid index.
- * col: 0 = file a … 7 = file h
- * row: 0 = rank 8 (top of board in white perspective) … 7 = rank 1
- * Returns null when the input is malformed.
- */
-function squareToGrid(sq: string): { col: number; row: number } | null {
-  if (!sq || sq.length < 2) return null;
-  const col = sq.charCodeAt(0) - 97; // 'a'=0 … 'h'=7
-  const row = 8 - parseInt(sq[1], 10); // '8'→0, '1'→7
-  if (col < 0 || col > 7 || row < 0 || row > 7) return null;
-  return { col, row };
-}
-
-function ChessBoard({
-  fen,
-  moveFrom,
-  moveTo,
-  flipped,
-}: {
-  fen: string;
-  /** Source square of the best move, e.g. "b7" (white-perspective algebraic). */
-  moveFrom?: string;
-  /** Destination square of the best move, e.g. "b8" (white-perspective algebraic). */
-  moveTo?: string;
-  /** True when the board is rendered from Black's point of view (rotated 180°). */
-  flipped?: boolean;
-}) {
-  const boardPart = fen.split(' ')[0];
-  const board = useMemo(() => parseFenBoard(boardPart), [boardPart]);
-  const size = 368; // match Figma board width
-  const sq = size / 8;
-
-  // Convert the API's algebraic from/to squares into SVG grid coords,
-  // mirroring for the black-perspective board when needed.
-  const arrow = useMemo(() => {
-    const from = squareToGrid(moveFrom ?? '');
-    const to   = squareToGrid(moveTo ?? '');
-    if (!from || !to) return null;
-
-    return {
-      fromCol: flipped ? 7 - from.col : from.col,
-      fromRow: flipped ? 7 - from.row : from.row,
-      toCol:   flipped ? 7 - to.col   : to.col,
-      toRow:   flipped ? 7 - to.row   : to.row,
-    };
-  }, [moveFrom, moveTo, flipped]);
-
-  // Arrow geometry helpers
-  const arrowColor = 'rgba(0, 145, 6, 0.82)';
-  const arrowWidth = sq * 0.22;
-  const arrowHeadLen = sq * 0.42;
-  const arrowHeadWidth = sq * 0.44;
-
-  let arrowElem: React.ReactNode = null;
-  if (arrow) {
-    const x1 = arrow.fromCol * sq + sq / 2;
-    const y1 = arrow.fromRow * sq + sq / 2;
-    const x2 = arrow.toCol * sq + sq / 2;
-    const y2 = arrow.toRow * sq + sq / 2;
-
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len > 1) {
-      const ux = dx / len;
-      const uy = dy / len;
-
-      // Shorten the shaft so it doesn't overlap the arrowhead
-      const shaftEndX = x2 - ux * arrowHeadLen;
-      const shaftEndY = y2 - uy * arrowHeadLen;
-
-      // Push shaft start back slightly from origin centre
-      const shaftStartX = x1 + ux * sq * 0.28;
-      const shaftStartY = y1 + uy * sq * 0.28;
-
-      // Perpendicular unit for arrowhead wings
-      const px = -uy;
-      const py = ux;
-
-      const tipX = x2 - ux * (sq * 0.08); // slight inset at tip
-      const tipY = y2 - uy * (sq * 0.08);
-      const wing1X = shaftEndX + px * arrowHeadWidth / 2;
-      const wing1Y = shaftEndY + py * arrowHeadWidth / 2;
-      const wing2X = shaftEndX - px * arrowHeadWidth / 2;
-      const wing2Y = shaftEndY - py * arrowHeadWidth / 2;
-
-      arrowElem = (
-        <g style={{ pointerEvents: 'none' }}>
-          {/* Shaft */}
-          <line
-            x1={shaftStartX} y1={shaftStartY}
-            x2={shaftEndX}   y2={shaftEndY}
-            stroke={arrowColor}
-            strokeWidth={arrowWidth}
-            strokeLinecap="round"
-          />
-          {/* Arrowhead triangle */}
-          <polygon
-            points={`${tipX},${tipY} ${wing1X},${wing1Y} ${wing2X},${wing2Y}`}
-            fill={arrowColor}
-          />
-        </g>
-      );
-    }
-  }
-
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
-      style={{ display: 'block', borderRadius: 14, border: '0.5px solid rgba(255,255,255,0.2)' }}
-    >
-      {board.map((rank, ri) =>
-        rank.map((piece, ci) => {
-          const light = (ri + ci) % 2 === 0;
-          const x = ci * sq;
-          const y = ri * sq;
-
-          // Highlight from/to squares
-          const isFromSq = arrow && ri === arrow.fromRow && ci === arrow.fromCol;
-          const isToSq   = arrow && ri === arrow.toRow   && ci === arrow.toCol;
-
-          return (
-            <g key={`${ri}-${ci}`}>
-              <rect
-                x={x} y={y} width={sq} height={sq}
-                fill={light ? '#f0d9b5' : '#b58863'}
-              />
-              {/* Square highlight overlay */}
-              {(isFromSq || isToSq) && (
-                <rect
-                  x={x} y={y} width={sq} height={sq}
-                  fill="rgba(0, 200, 10, 0.35)"
-                />
-              )}
-              {piece && (
-                piece === piece.toUpperCase() ? (
-                  /* White piece: white fill with dark stroke outline, painted stroke-first */
-                  <text
-                    x={x + sq / 2}
-                    y={y + sq / 2 + 1}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fontSize={sq * 0.72}
-                    style={{ userSelect: 'none' }}
-                    fill="#ffffff"
-                    stroke="#444444"
-                    strokeWidth={2.2}
-                    paintOrder="stroke fill"
-                  >
-                    {PIECE_UNICODE[piece] ?? piece}
-                  </text>
-                ) : (
-                  /* Black piece: solid dark fill with a light outline */
-                  <text
-                    x={x + sq / 2}
-                    y={y + sq / 2 + 1}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fontSize={sq * 0.72}
-                    style={{ userSelect: 'none' }}
-                    fill="#111111"
-                    stroke="#dddddd"
-                    strokeWidth={0.4}
-                    paintOrder="stroke fill"
-                  >
-                    {PIECE_UNICODE[piece] ?? piece}
-                  </text>
-                )
-              )}
-            </g>
-          );
-        })
-      )}
-      {/* Arrow drawn on top of all squares and pieces */}
-      {arrowElem}
-      {/* File labels */}
-      {(flipped ? 'hgfedcba' : 'abcdefgh').split('').map((f, i) => (
-        <text
-          key={f}
-          x={i * sq + sq / 2}
-          y={size - 1}
-          textAnchor="middle"
-          fontSize={9}
-          fill="rgba(0,0,0,0.45)"
-          style={{ userSelect: 'none' }}
-        >{f}</text>
-      ))}
-      {/* Rank labels */}
-      {(flipped ? [1,2,3,4,5,6,7,8] : [8,7,6,5,4,3,2,1]).map((r, i) => (
-        <text
-          key={r}
-          x={3}
-          y={i * sq + sq / 2}
-          dominantBaseline="middle"
-          fontSize={9}
-          fill="rgba(0,0,0,0.45)"
-          style={{ userSelect: 'none' }}
-        >{r}</text>
-      ))}
-    </svg>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
+import { ChessBoard } from './ChessBoard';
+import { CoachingChatView } from './CoachingChatView';
+import { CollapsedOverlayBar } from './CollapsedOverlayBar';
+import { OverlayHeader } from './OverlayHeader';
+import { StartupOverlayPanel } from './StartupOverlayPanel';
 interface PairCompactOverlayProps {
   sessionState: SessionState;
   sayThis: InsightCard[];
@@ -299,531 +69,6 @@ function fmtElapsed(startTime?: number | null, endTime: number = Date.now()): st
 const NON_ACTIONABLE = 'No actionable gameplay moment in this frame.';
 const NON_ACTIONABLE_REGEX = /no actionable gameplay moment(?: in this frame)?\.?/i;
 
-// ---------------------------------------------------------------------------
-// Send arrow icon for chat submit
-// ---------------------------------------------------------------------------
-function SendIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M2 8H14M14 8L9 3M14 8L9 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// CoachingChatView — full overlay panel shown when user clicks the Chat button.
-// Layout (top → bottom):
-//   1. Header      40px   — shared OverlayHeader (consistent with main overlay)
-//   2. Window      fixed  — board + best-move + suggestion
-//   3. Chat area   grows  — greeting + messages, scrollable once panel hits maxHeight
-//   4. Input bar   56px   — pinned above footer
-//   5. Footer    50.82px  — pinned at bottom
-// The outer container has no fixed height — it expands with content up to
-// maxHeight: 820px, at which point the chat area becomes scrollable.
-// ---------------------------------------------------------------------------
-
-interface CoachingChatViewProps {
-  /** Best-move SAN (e.g. "Nf6"). Shown in the BEST MOVE block. */
-  engineSan?: string;
-  /** Source square of the best move, e.g. "g8". From chess-api.com directly. */
-  engineFrom?: string;
-  /** Destination square of the best move, e.g. "f6". From chess-api.com directly. */
-  engineTo?: string;
-  /** Centipawn eval label already formatted (e.g. "+0.42") or null. */
-  engineEvalLabel?: string | null;
-  /** FEN string for the board. Null → board is hidden. */
-  displayFen?: string | null;
-  /** Whether the board is shown from black's perspective (used to orient the arrow). */
-  boardFlipped?: boolean;
-  /** Coaching-tip / visual-analysis text shown above the chat thread. */
-  suggestionText?: string;
-  /** Initial coach message shown in the chat thread (green-tinted bubble). */
-  coachGreeting?: string;
-  /** Live chat messages (user + assistant turns). */
-  chatMessages?: { role: 'user' | 'assistant'; text: string }[];
-  /** Whether the chat is waiting for a reply. */
-  chatLoading?: boolean;
-  /** Current value of the chat input field. */
-  chatInputValue?: string;
-  onChatInputChange?: (v: string) => void;
-  onChatSubmit?: (e?: React.FormEvent) => void;
-  /** Collapse the whole overlay to the mini-bar (header collapse button). */
-  onCollapse?: () => void;
-  /** Close just the chat panel and return to the expanded overlay (footer "Close chat" button). */
-  onCloseChat?: () => void;
-  onStop?: () => void;
-  stopDisabled?: boolean;
-  elapsed?: string;
-  /** Current side to move ('w' = White, 'b' = Black). Shown next to BEST MOVE. */
-  currentTurn?: 'w' | 'b' | null;
-  /** Called when user clicks the flip-turn button. */
-  onFlipTurn?: () => void;
-}
-
-export function CoachingChatView({
-  engineSan,
-  engineFrom,
-  engineTo,
-  engineEvalLabel,
-  displayFen,
-  boardFlipped,
-  suggestionText,
-  coachGreeting = 'Position loaded. What do you want to know about c7c5?',
-  chatMessages = [],
-  chatLoading = false,
-  chatInputValue = '',
-  onChatInputChange,
-  onChatSubmit,
-  onCollapse,
-  onCloseChat,
-  onStop,
-  stopDisabled = false,
-  elapsed = '00:00',
-  currentTurn,
-  onFlipTurn,
-}: CoachingChatViewProps) {
-  const chatEndRef = React.useRef<HTMLDivElement>(null);
-  React.useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, chatLoading]);
-
-  return (
-    <div style={{
-      width: 400,
-      /* Grow naturally — no fixed height. Cap dynamically so the overlay never
-         exceeds the available screen height on small/low-res displays.
-         window.screen.availHeight excludes the OS taskbar/dock; subtracting 60px
-         accounts for WIDGET_MARGIN (20 top + 20 bottom) and WIDGET_HEIGHT_PADDING
-         (40px) that the main-process window-sizing already reserves, keeping
-         content cleanly inside the clamped BrowserWindow on any screen size.
-         On large screens (≥ 880 px tall) the original 820 px cap wins unchanged. */
-      maxHeight: Math.min(820, window.screen.availHeight - 60),
-      display: 'flex',
-      flexDirection: 'column',
-      background: '#FFFFFF',
-      borderRadius: 16,
-      overflow: 'hidden',
-      boxShadow: '0px 4px 24px rgba(0,0,0,0.08)',
-      fontFamily: 'Inter, sans-serif',
-    }}>
-
-      {/* ── 1. Header — identical to main overlay (OverlayHeader) ── */}
-      <OverlayHeader onCollapse={onCollapse ?? (() => {})} />
-
-      {/* ── 2. Window — board + best-move + suggestion (fixed, no scroll) ── */}
-      <div style={{
-        width: '100%',
-        flexShrink: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '16.82px 16px',
-        gap: 20.18,
-        background: '#FFFFFF',
-        borderTop: '1px solid rgba(0,0,0,0.05)',
-        borderBottom: '1px solid rgba(0,0,0,0.05)',
-        boxSizing: 'border-box',
-        overflow: 'hidden',
-      }}>
-
-        {/* Chess board — 368×368 */}
-        {displayFen && <ChessBoard fen={displayFen} moveFrom={engineFrom} moveTo={engineTo} flipped={boardFlipped} />}
-
-        {/* Best move + suggestion */}
-        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 16.82 }}>
-
-          {/* Best move block */}
-          {engineSan && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10.09 }}>
-              <span style={{ fontSize: 12, fontWeight: 500, color: '#969696', lineHeight: '13px' }}>
-                BEST MOVE
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10.09 }}>
-                <span style={{ fontSize: 26, fontWeight: 600, color: '#009106', lineHeight: '18px' }}>
-                  {engineSan}
-                </span>
-                {engineEvalLabel && (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '1px 6px',
-                    gap: 3.36,
-                    background: 'rgba(0,145,6,0.1)',
-                    border: '0.84px solid rgba(0,145,6,0.1)',
-                    borderRadius: 30.27,
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color: '#009106',
-                    lineHeight: '18px',
-                  }}>
-                    {engineEvalLabel}
-                  </div>
-                )}
-                {onFlipTurn && currentTurn && (
-                  <button
-                    onClick={onFlipTurn}
-                    title={`Switch turn to ${currentTurn === 'w' ? 'Black' : 'White'}`}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '3px 8px',
-                      background: 'rgba(0,145,6,0.08)',
-                      border: '1px solid rgba(0,145,6,0.35)',
-                      borderRadius: 20,
-                      cursor: 'pointer',
-                      fontSize: 11,
-                      fontWeight: 500,
-                      color: '#007a05',
-                      lineHeight: '14px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {/* swap icon */}
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M1 5h10M1 5l3-3M1 5l3 3M15 11H5M15 11l-3-3M15 11l-3 3" stroke="#007a05" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    {currentTurn === 'w' ? 'White' : 'Black'} to move
-                  </button>
-                )}
-              </div>
-              {onFlipTurn && currentTurn && (
-                <span style={{ fontSize: 10, color: '#888', lineHeight: '13px', marginTop: -4 }}>
-                  Wrong turn detected? Switch side to recalculate.
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Visual-analysis / suggestion card */}
-          {suggestionText && (
-            <div style={{
-              width: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              padding: 12,
-              gap: 10,
-              background: '#F5F5F8',
-              border: '1px solid rgba(0,0,0,0.1)',
-              borderRadius: 12,
-              boxSizing: 'border-box',
-            }}>
-              <p style={{ width: '100%', margin: 0, fontSize: 13, fontWeight: 400, lineHeight: '18px', color: '#464646' }}>
-                {suggestionText}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── 3. Chat area — grows freely, scrolls when panel hits maxHeight ── */}
-      <div
-        className="chess-chat-scroll"
-        style={{
-          width: '100%',
-          /* flex: 1 makes it fill remaining space once at maxHeight */
-          flex: '1 1 auto',
-          overflowY: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '16px 16px 0 16px',
-          gap: 10,
-          boxSizing: 'border-box',
-          scrollbarWidth: 'thin',
-          scrollbarColor: 'rgba(217,217,217,0.8) transparent',
-        } as React.CSSProperties}
-      >
-        {/* "CHAT WITH COACH" label */}
-        <span style={{ fontSize: 12, fontWeight: 500, color: '#969696', lineHeight: '13px', flexShrink: 0 }}>
-          CHAT WITH COACH
-        </span>
-
-        {/* Coach greeting bubble */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignSelf: 'flex-start',
-          padding: 12,
-          gap: 10,
-          background: '#F8F8ED',
-          border: '1px solid #779556',
-          borderRadius: '12px 12px 12px 2px',
-          maxWidth: 324,
-          boxSizing: 'border-box',
-          flexShrink: 0,
-        }}>
-          <p style={{ margin: 0, fontSize: 13, fontWeight: 400, lineHeight: '18px', color: '#464646', maxWidth: 300 }}>
-            {coachGreeting}
-          </p>
-        </div>
-
-        {/* Dynamic chat messages */}
-        {chatMessages.map((msg, idx) => {
-          const isUser = msg.role === 'user';
-          return (
-            <div key={idx} style={{
-              display: 'flex',
-              justifyContent: isUser ? 'flex-end' : 'flex-start',
-              width: '100%',
-              flexShrink: 0,
-            }}>
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                padding: 12,
-                gap: 10,
-                background: isUser ? '#FFF5EC' : '#F8F8ED',
-                border: isUser ? '1px solid #FFAD6D' : '1px solid #779556',
-                borderRadius: isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                maxWidth: 300,
-                boxSizing: 'border-box',
-              }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: isUser ? 500 : 400, lineHeight: '18px', color: '#464646', width: '100%' }}>
-                  {msg.text}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Loading dots */}
-        {chatLoading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#969696', animation: 'chatpulse 1s infinite 0s' }} />
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#969696', animation: 'chatpulse 1s infinite 0.2s' }} />
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#969696', animation: 'chatpulse 1s infinite 0.4s' }} />
-          </div>
-        )}
-
-        {/* Scroll anchor + bottom padding */}
-        <div ref={chatEndRef} style={{ height: 16, flexShrink: 0 }} />
-      </div>
-
-      {/* ── 4. Input bar (fixed, pinned above footer) ── */}
-      <div style={{
-        width: '100%',
-        flexShrink: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '0 10px 12px',
-        gap: 10,
-        boxSizing: 'border-box',
-      }}>
-        <form
-          onSubmit={onChatSubmit}
-          style={{
-            width: '100%',
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            padding: '2px 6px 2px 12px',
-            gap: 4,
-            background: '#F7F7F7',
-            border: '1px solid rgba(13,13,13,0.1)',
-            borderRadius: 9999,
-            boxSizing: 'border-box',
-            height: 44,
-          }}
-        >
-          <input
-            value={chatInputValue}
-            onChange={(e) => onChatInputChange?.(e.target.value)}
-            placeholder="Ask your coach..."
-            style={{
-              flex: 1,
-              border: 'none',
-              background: 'transparent',
-              outline: 'none',
-              fontSize: 13,
-              fontWeight: 500,
-              color: '#1E1E1E',
-              fontFamily: 'Inter, sans-serif',
-              lineHeight: '20px',
-            }}
-          />
-          {/* Send button */}
-          <button
-            type="submit"
-            disabled={!chatInputValue.trim() || chatLoading}
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              cursor: chatInputValue.trim() && !chatLoading ? 'pointer' : 'default',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: chatInputValue.trim() && !chatLoading ? 1 : 0.4,
-              transition: 'opacity 0.15s',
-            }}
-          >
-            <svg width="32" height="32" viewBox="12.8379 11.7683 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="12.8379" y="11.7683" width="32" height="32" rx="16" fill="black"/>
-              <rect x="13.3728" y="12.3032" width="30.9302" height="30.9302" rx="15.4651" stroke="#EFEFEF" strokeWidth="1.06984"/>
-              <path d="M35.3304 26.8934L24.8304 20.9003C24.6532 20.8006 24.45 20.7572 24.2476 20.776C24.0452 20.7947 23.8533 20.8747 23.6976 21.0052C23.5418 21.1358 23.4295 21.3107 23.3756 21.5067C23.3217 21.7026 23.3288 21.9104 23.396 22.1022L25.3104 27.7684L23.396 33.4353C23.3427 33.5861 23.3264 33.7475 23.3484 33.9059C23.3703 34.0643 23.43 34.2151 23.5223 34.3457C23.6146 34.4763 23.7369 34.5829 23.879 34.6564C24.021 34.73 24.1786 34.7684 24.3385 34.7684C24.5122 34.7681 24.683 34.7229 24.8341 34.6372L35.3291 28.6341C35.4839 28.5474 35.6129 28.421 35.7027 28.268C35.7926 28.115 35.8401 27.9409 35.8404 27.7634C35.8407 27.586 35.7938 27.4117 35.7045 27.2583C35.6152 27.105 35.4867 26.9782 35.3322 26.8909L35.3304 26.8934ZM24.3385 33.7684C24.3388 33.766 24.3388 33.7634 24.3385 33.7609L26.1972 28.2684H29.8385C29.9711 28.2684 30.0983 28.2158 30.192 28.122C30.2858 28.0282 30.3385 27.9011 30.3385 27.7684C30.3385 27.6358 30.2858 27.5087 30.192 27.4149C30.0983 27.3211 29.9711 27.2684 29.8385 27.2684H26.1972L24.3422 21.7784C24.3416 21.7749 24.3403 21.7715 24.3385 21.7684L34.8385 27.7578L24.3385 33.7684Z" fill="white"/>
-            </svg>
-          </button>
-        </form>
-      </div>
-
-      {/* ── 5. Footer (fixed, pinned at bottom) ── */}
-      <div style={{
-        width: '100%',
-        height: 50.82,
-        flexShrink: 0,
-        display: 'flex',
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 8,
-        gap: 6.73,
-        background: '#F7F7F7',
-        borderTop: '1px solid #EFEFEF',
-        boxSizing: 'border-box',
-      }}>
-        {/* Timer */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6.73, flexShrink: 0 }}>
-          <div style={{ width: 8.41, height: 8.41, borderRadius: '50%', background: '#FB4425', animation: 'pulse 1s infinite', flexShrink: 0 }} />
-          <span style={{ fontSize: 15.136, fontWeight: 500, color: '#FB4425', letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif' }}>
-            {elapsed}
-          </span>
-        </div>
-
-        {/* CTAs */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6.73, flex: 1 }}>
-          {/* Close chat button — returns to expanded overlay, does NOT collapse */}
-          <button
-            onClick={onCloseChat}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 3.36,
-              padding: 8,
-              height: 34.82,
-              background: '#FFFFFF',
-              border: '1.07px solid #EFEFEF',
-              borderRadius: 10.09,
-              boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
-              cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#1E1E1E',
-              letterSpacing: '-0.02em',
-              fontFamily: 'Inter, sans-serif',
-              flexShrink: 0,
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M1 1L13 13M13 1L1 13" stroke="#1E1E1E" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-            Close chat
-          </button>
-          {/* Stop button */}
-          <button
-            onClick={onStop}
-            disabled={stopDisabled}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 3.36,
-              padding: 8,
-              height: 34.82,
-              background: '#1C1C1C',
-              border: 'none',
-              borderRadius: 10.09,
-              boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
-              cursor: stopDisabled ? 'not-allowed' : 'pointer',
-              opacity: stopDisabled ? 0.5 : 1,
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#FFFFFF',
-              letterSpacing: '-0.02em',
-              fontFamily: 'Inter, sans-serif',
-            }}
-          >
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-              <rect x="2.5" y="2.5" width="10" height="10" rx="1.5" fill="white"/>
-            </svg>
-            Stop
-          </button>
-        </div>
-      </div>
-
-      <style>{`
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @keyframes chatpulse { 0%,100%{opacity:0.3} 50%{opacity:1} }
-        .chess-chat-scroll::-webkit-scrollbar { width: 4px; }
-        .chess-chat-scroll::-webkit-scrollbar-track { background: transparent; }
-        .chess-chat-scroll::-webkit-scrollbar-thumb { background: rgba(217,217,217,0.8); border-radius: 21px; }
-      `}</style>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Overlay header — exact Figma SVG spec
-// Left: 6-dot drag-grid + wordmark (left-aligned, draggable)
-// Right: collapse arrow icon — collapses overlay to footer-only
-// ---------------------------------------------------------------------------
-function OverlayHeader({ onCollapse }: { onCollapse: () => void }) {
-  return (
-    <div style={{
-      background: '#F7F7F7',
-      height: 40,
-      padding: '8px 12px',
-      display: 'flex',
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      boxSizing: 'border-box',
-      WebkitAppRegion: 'drag',
-    } as React.CSSProperties}>
-
-      {/* Left: drag-grid icon + wordmark */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-        {/* 6-dot drag grid — 2 columns × 3 rows */}
-        <svg width="12" height="20" viewBox="0 0 12 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-          <circle cx="3" cy="3"   r="1.5" fill="#242424"/>
-          <circle cx="9" cy="3"   r="1.5" fill="#242424"/>
-          <circle cx="3" cy="10"  r="1.5" fill="#242424"/>
-          <circle cx="9" cy="10"  r="1.5" fill="#242424"/>
-          <circle cx="3" cy="17"  r="1.5" fill="#242424"/>
-          <circle cx="9" cy="17"  r="1.5" fill="#242424"/>
-        </svg>
-        {/* Wordmark — left-aligned */}
-        <div>
-          <ChessLensWordmark size={13} variant="default" />
-        </div>
-      </div>
-
-      {/* Right: collapse button — collapses to footer bar */}
-      <button
-        onClick={onCollapse}
-        style={{
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          padding: 0,
-          display: 'flex',
-          alignItems: 'center',
-          flexShrink: 0,
-          WebkitAppRegion: 'no-drag',
-        } as React.CSSProperties}
-        title="Collapse"
-      >
-        <svg width="12" height="12" viewBox="370 12 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M375.807 22.1022H373.074C372.895 22.1022 372.746 22.0417 372.625 21.9208C372.504 21.7998 372.443 21.65 372.443 21.4713C372.443 21.2925 372.504 21.1427 372.625 21.0221C372.746 20.9013 372.895 20.8409 373.074 20.8409H376.308C376.524 20.8409 376.704 20.9137 376.85 21.0593C376.996 21.205 377.068 21.3855 377.068 21.6008V24.8351C377.068 25.0138 377.008 25.1635 376.887 25.2843C376.766 25.4053 376.616 25.4658 376.438 25.4658C376.259 25.4658 376.109 25.4053 375.988 25.2843C375.867 25.1635 375.807 25.0138 375.807 24.8351V22.1022ZM380.011 17.8977H382.744C382.923 17.8977 383.073 17.9582 383.194 18.0792C383.315 18.2001 383.375 18.3499 383.375 18.5286C383.375 18.7075 383.315 18.8572 383.194 18.9779C383.073 19.0987 382.923 19.1591 382.744 19.1591H379.51C379.295 19.1591 379.114 19.0863 378.969 18.9407C378.823 18.7949 378.75 18.6144 378.75 18.3991V15.1648C378.75 14.9862 378.811 14.8364 378.932 14.7156C379.053 14.5947 379.202 14.5342 379.381 14.5342C379.56 14.5342 379.71 14.5947 379.83 14.7156C379.951 14.8364 380.011 14.9862 380.011 15.1648V17.8977Z" fill="#1E1E1E"/>
-        </svg>
-      </button>
-    </div>
-  );
-}
-
 export function PairCompactOverlay({
   sessionState,
   sayThis,
@@ -841,10 +86,10 @@ export function PairCompactOverlay({
   engineEval,
   engineMate,
   onStop,
-  onPause,
-  onResume,
-  onMuteMic,
-  onUnmuteMic,
+  onPause: _onPause,
+  onResume: _onResume,
+  onMuteMic: _onMuteMic,
+  onUnmuteMic: _onUnmuteMic,
   stopDisabled = false,
   statusText,
   connectingError,
@@ -853,7 +98,6 @@ export function PairCompactOverlay({
   forceStartupUi = false,
 }: PairCompactOverlayProps) {
   const [now, setNow] = useState(Date.now());
-  const [isExpanded, setIsExpanded] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   // Track when the latest FEN arrived so we can show a fallback after a long wait.
   const [lastFenAt, setLastFenAt] = useState<number | null>(null);
@@ -874,21 +118,21 @@ export function PairCompactOverlay({
 
   // Track when the board position last changed so we can show a fallback
   // message if the engine/LLM hasn't responded after a reasonable wait.
-  const activeFen = displayFen ?? currentFen;
+  const activeFen = currentFen ?? displayFen;
+  const activeFenBoard = activeFen?.split(' ')[0] ?? null;
   useEffect(() => {
-    const fenBoard = activeFen ? activeFen.split(' ')[0] : null;
-    if (fenBoard && fenBoard !== prevFenRef.current) {
-      prevFenRef.current = fenBoard;
+    if (activeFenBoard && activeFenBoard !== prevFenRef.current) {
+      prevFenRef.current = activeFenBoard;
       setLastFenAt(Date.now());
     }
-  }, [activeFen]);
+  }, [activeFenBoard]);
 
   // ── Chat state ──
   const {
     messages: chatMessages,
     isOpen: chatOpen,
     isLoading: chatLoading,
-    error: chatError,
+    error: _chatError,
     open: openChat,
     toggle: toggleChat,
     addMessage: chatAddMessage,
@@ -898,12 +142,6 @@ export function PairCompactOverlay({
 
   const [chatInput, setChatInput] = useState('');
   const [chatPrefillCtx, setChatPrefillCtx] = useState<string | null>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const chatInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
 
   const submitChatQuestion = useCallback(async (question: string, tipCtx?: string) => {
     if (!question.trim() || chatLoading) return;
@@ -921,16 +159,6 @@ export function PairCompactOverlay({
       setChatLoading(false);
     }
   }, [chatLoading, openChat, chatAddMessage, setChatLoading, setChatError]);
-
-  const handleChatAskTip = useCallback((tipText: string, autoQuestion?: string) => {
-    openChat();
-    setChatPrefillCtx(autoQuestion ? null : tipText);
-    if (autoQuestion) {
-      void submitChatQuestion(autoQuestion, tipText);
-    } else {
-      setTimeout(() => chatInputRef.current?.focus(), 60);
-    }
-  }, [openChat, submitChatQuestion]);
 
   const handleChatSubmit = useCallback(async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -1082,17 +310,6 @@ export function PairCompactOverlay({
   const combinedText = [primaryText, compactLatestTip, compactLatestAnalysis, nudge?.message || '']
     .filter(Boolean).join(' ').toLowerCase();
   void combinedText;
-  const isCritical = false;
-  const inBuyPhase = false;
-  void inBuyPhase;
-  const mapLocation: string | undefined = undefined;
-  void mapLocation;
-  const hasActionableContent = isChess
-    ? !!(chessHasAnyContent || nudge)
-    : !!(primaryText || compactLatestTip || compactLatestAnalysis || nudge);
-  const urgencyTone: 'danger' | 'info' | 'neutral' = 'neutral';
-  void urgencyTone;
-
   const splitActionAndWhy = (text: string): { action: string; why: string } => {
     if (!text) return { action: '', why: '' };
     const normalized = text.replace(/\s+/g, ' ').trim();
@@ -1110,21 +327,6 @@ export function PairCompactOverlay({
   const { action: actionHeaderRaw } = splitActionAndWhy(primaryText || compactLatestTip || compactLatestAnalysis);
   const actionHeader = actionHeaderRaw ? actionHeaderRaw.toUpperCase() : '';
   void actionHeader;
-
-  const inAreaCooldown = false;
-  const showContent = isChess
-    ? hasActionableContent
-    : (hasActionableContent && !inAreaCooldown);
-
-  const showExpanded = isChess || isExpanded || isCritical;
-
-  useEffect(() => {
-    if (isCritical) setIsExpanded(true);
-  }, [isCritical]);
-
-  useEffect(() => {
-    if (isChess) setIsExpanded(true);
-  }, [isChess]);
 
   // Notify the main process whenever collapsed state changes so it can resize
   // the window to bar-height (collapsed) or let content-height drive it (expanded).
@@ -1161,6 +363,32 @@ export function PairCompactOverlay({
   const isPreRecording = !sessionState.isRecording && !!statusText;
   const shouldShowStartupUi = isPreRecording || forceStartupUi;
 
+  // ── Diagnostic: log key render-decision state whenever it changes ──
+  const prevDiagRef = useRef<string>('');
+  useEffect(() => {
+    const hasFen = !!(displayFen ?? currentFen);
+    const diagKey = `${sessionState.isRecording}|${shouldShowStartupUi}|${isCollapsed}|${chatOpen}|${hasFen}|${isScanning}|${chessHasAnyContent}|${!!statusText}`;
+    if (diagKey !== prevDiagRef.current) {
+      prevDiagRef.current = diagKey;
+      window.widgetAPI?.log('info', 'PairCompactOverlay', 'Render state', {
+        isRecording: sessionState.isRecording,
+        isPaused: sessionState.isPaused,
+        shouldShowStartupUi,
+        isPreRecording,
+        forceStartupUi,
+        isCollapsed,
+        chatOpen,
+        hasFen,
+        displayFen: (displayFen ?? 'null').slice(0, 40),
+        currentFen: (currentFen ?? 'null').slice(0, 40),
+        isScanning,
+        chessHasAnyContent,
+        chessHasCoachContent,
+        statusText: statusText || '(none)',
+      });
+    }
+  }, [sessionState.isRecording, sessionState.isPaused, shouldShowStartupUi, isPreRecording, forceStartupUi, isCollapsed, chatOpen, displayFen, currentFen, isScanning, chessHasAnyContent, chessHasCoachContent, statusText]);
+
   // ── Derive coach greeting from current live position data ──
   const coachGreeting = chessParagraphText
     ? chessParagraphText
@@ -1177,7 +405,7 @@ export function PairCompactOverlay({
           engineFrom={engineFrom}
           engineTo={engineTo}
           engineEvalLabel={engineEvalLabel}
-          displayFen={displayFen ?? currentFen}
+          displayFen={currentFen ?? displayFen}
           boardFlipped={boardFlipped}
           suggestionText={chessParagraphText || (compactTopTip ?? undefined) || undefined}
           coachGreeting={coachGreeting}
@@ -1202,336 +430,28 @@ export function PairCompactOverlay({
 
   if (shouldShowStartupUi) {
     return (
-      <div style={{ width: '100%', height: 'auto', display: 'flex', flexDirection: 'column', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
-        <div style={{
-          background: '#FFFFFF',
-          borderRadius: 16,
-          overflow: 'hidden',
-          boxShadow: '0px 4px 24px rgba(0,0,0,0.08)',
-        }}>
-
-          {/* Header */}
-          <OverlayHeader onCollapse={() => setIsCollapsed(true)} />
-
-          {/* ── Body ── */}
-          <div style={{
-            background: '#FFFFFF',
-            padding: '16.82px 16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 20.18,
-            borderTop: '1px solid rgba(0,0,0,0.05)',
-            borderBottom: '1px solid rgba(0,0,0,0.05)',
-            boxSizing: 'border-box',
-          }}>
-            {connectingError ? (
-              /* ── Error state ── */
-              <>
-                {/* Row 1: warning icon + "FAILED TO START" */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                    <circle cx="7" cy="7" r="6.3" stroke="#E53935" strokeWidth="1.4"/>
-                    <line x1="7" y1="4" x2="7" y2="8" stroke="#E53935" strokeWidth="1.4" strokeLinecap="round"/>
-                    <circle cx="7" cy="10" r="0.7" fill="#E53935"/>
-                  </svg>
-                  <span style={{
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color: '#E53935',
-                    lineHeight: '13px',
-                    fontFamily: 'Inter, sans-serif',
-                  }}>
-                    FAILED TO START
-                  </span>
-                </div>
-
-                {/* Row 2: error message pill */}
-                <div style={{
-                  background: '#FFF3F3',
-                  borderRadius: 12.84,
-                  padding: '6.73px 10.09px',
-                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
-                  border: '1px solid rgba(229,57,53,0.15)',
-                }}>
-                  <span style={{
-                    fontSize: 13,
-                    fontWeight: 400,
-                    color: '#E53935',
-                    lineHeight: '18px',
-                    fontFamily: 'Inter, sans-serif',
-                    display: 'block',
-                    wordBreak: 'break-word',
-                  }}>
-                    {connectingError}
-                  </span>
-                </div>
-              </>
-            ) : forceStartupUi ? (
-              /* ── No-board detected state ── */
-              <>
-                {/* Row 1: eye-off icon + "NO BOARD DETECTED" */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                    <path d="M1 1L13 13M5.5 5.56A2 2 0 0 0 8.44 8.5M2.5 2.76C1.5 3.6 0.75 4.72 0.5 7c.67 3 3.5 5 6.5 5 1.3 0 2.5-.38 3.5-1.02M4 2.27A6.7 6.7 0 0 1 7 2c3 0 5.83 2 6.5 5-.3 1.35-.97 2.52-1.9 3.44" stroke="#464646" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  <span style={{
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color: '#464646',
-                    lineHeight: '13px',
-                    fontFamily: 'Inter, sans-serif',
-                  }}>
-                    NO BOARD DETECTED
-                  </span>
-                </div>
-
-                {/* Row 2: hint pill */}
-                <div style={{
-                  background: '#EFEFEF',
-                  borderRadius: 12.84,
-                  padding: '6.73px 10.09px',
-                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
-                }}>
-                  <span style={{
-                    fontSize: 13,
-                    fontWeight: 400,
-                    color: '#464646',
-                    lineHeight: '18px',
-                    fontFamily: 'Inter, sans-serif',
-                    display: 'block',
-                  }}>
-                    {statusText}
-                  </span>
-                </div>
-              </>
-            ) : (
-              /* ── Connecting (normal) state ── */
-              <>
-                {/* Row 1: spinner + "STARTING RECORDING..." */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <div style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: '50%',
-                    background: 'conic-gradient(from 180deg at 50% 50%, #FF4000 0deg, rgba(196,196,196,0) 360deg)',
-                    animation: 'spin 1s linear infinite',
-                    flexShrink: 0,
-                  }} />
-                  <span style={{
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color: '#464646',
-                    lineHeight: '13px',
-                    fontFamily: 'Inter, sans-serif',
-                  }}>
-                    STARTING RECORDING...
-                  </span>
-                </div>
-
-                {/* Row 2: status pill */}
-                <div style={{
-                  background: '#EFEFEF',
-                  borderRadius: 12.84,
-                  padding: '6.73px 10.09px',
-                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
-                }}>
-                  <span style={{
-                    fontSize: 13,
-                    fontWeight: 400,
-                    color: '#464646',
-                    lineHeight: '18px',
-                    fontFamily: 'Inter, sans-serif',
-                    display: 'block',
-                  }}>
-                    {statusText}
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* ── Footer ── */}
-          <div style={{
-            background: '#F7F7F7',
-            height: 50.82,
-            padding: 8,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            boxSizing: 'border-box',
-            gap: 6.73,
-          }}>
-            {/* Timer: red dot + elapsed */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6.73, flexShrink: 0 }}>
-              <div style={{
-                width: 8.41,
-                height: 8.41,
-                borderRadius: '50%',
-                background: '#FB4425',
-                animation: 'pulse 1s infinite',
-                flexShrink: 0,
-              }} />
-              <span style={{
-                fontSize: 15.136,
-                fontWeight: 500,
-                color: '#FB4425',
-                letterSpacing: '-0.02em',
-                fontFamily: 'Inter, sans-serif',
-              }}>
-                {elapsed}
-              </span>
-            </div>
-
-            {/* CTAs: Chat + Stop */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6.73, flex: 1 }}>
-              {/* Chat button — white bg, #EFEFEF border */}
-              <button
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 3.36,
-                  padding: 8,
-                  height: 34.82,
-                  background: '#FFFFFF',
-                  border: '1px solid #EFEFEF',
-                  borderRadius: 10.09,
-                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
-                  cursor: 'default',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: '#1E1E1E',
-                  letterSpacing: '-0.02em',
-                  fontFamily: 'Inter, sans-serif',
-                }}
-              >
-                {/* Chat bubble icon */}
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6A1.5 1.5 0 0 1 12.5 11H9l-3 3v-3H3.5A1.5 1.5 0 0 1 2 9.5v-6Z" stroke="#1E1E1E" strokeWidth="1.2" strokeLinejoin="round"/>
-                </svg>
-                Chat
-              </button>
-
-              {/* Stop button — enabled, dark bg */}
-              <button
-                onClick={onStop}
-                disabled={stopDisabled}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 3.36,
-                  padding: 8,
-                  height: 34.82,
-                  background: '#1C1C1C',
-                  border: 'none',
-                  borderRadius: 10.09,
-                  boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)',
-                  cursor: stopDisabled ? 'not-allowed' : 'pointer',
-                  opacity: stopDisabled ? 0.5 : 1,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: '#FFFFFF',
-                  letterSpacing: '-0.02em',
-                  fontFamily: 'Inter, sans-serif',
-                }}
-              >
-                <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-                  <rect x="2.5" y="2.5" width="10" height="10" rx="1.5" fill="white"/>
-                </svg>
-                Stop
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <style>{`
-          @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-          @keyframes spin { to { transform: rotate(360deg); } }
-        `}</style>
-      </div>
+      <StartupOverlayPanel
+        connectingError={connectingError}
+        forceStartupUi={forceStartupUi}
+        statusText={statusText}
+        elapsed={elapsed}
+        onCollapse={() => setIsCollapsed(true)}
+        onStop={onStop}
+        stopDisabled={stopDisabled}
+      />
     );
   }
 
-  // ── COLLAPSED state ──
-  // Just the footer bar — logo mark + timer + Chat + Stop + expand icon
+  // Collapsed state: footer bar only.
   if (isCollapsed) {
     return (
-      <div style={{ width: '100%', padding: '0 0 10px 0', boxSizing: 'border-box' }}>
-        <div
-          style={{
-            background: '#F7F7F7',
-            borderRadius: 16,
-            height: 50.82,
-            padding: 8,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6.73,
-            boxSizing: 'border-box',
-            boxShadow: '0px 4px 24px rgba(0,0,0,0.08)',
-            WebkitAppRegion: 'drag',
-          } as React.CSSProperties}>
-
-          {/* 6-dot drag grid — same symbol as expanded OverlayHeader */}
-          <svg width="12" height="20" viewBox="0 0 12 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-            <circle cx="3" cy="3"   r="1.5" fill="#242424"/>
-            <circle cx="9" cy="3"   r="1.5" fill="#242424"/>
-            <circle cx="3" cy="10"  r="1.5" fill="#242424"/>
-            <circle cx="9" cy="10"  r="1.5" fill="#242424"/>
-            <circle cx="3" cy="17"  r="1.5" fill="#242424"/>
-            <circle cx="9" cy="17"  r="1.5" fill="#242424"/>
-          </svg>
-
-          {/* Wordmark + timer */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6.73, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-            {/* Wordmark — matches Figma collapsed bar icon (26×29 wordmark image) */}
-            <ChessLensWordmark size={13} variant="default" />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6.73 }}>
-              <div style={{ width: 8.41, height: 8.41, borderRadius: '50%', background: '#FB4425', animation: 'pulse 1s infinite', flexShrink: 0 }} />
-              <span style={{ fontSize: 15.136, fontWeight: 500, color: '#FB4425', letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif' }}>
-                {elapsed}
-              </span>
-            </div>
-          </div>
-
-          {/* CTAs + expand — right side */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6.73, flex: 1, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-            {/* Chat button */}
-            <button
-              onClick={() => { setIsCollapsed(false); openChat(); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 3.36, padding: 8, height: 34.82, background: '#FFFFFF', border: '1px solid #EFEFEF', borderRadius: 10.09, boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#1E1E1E', letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif' }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6A1.5 1.5 0 0 1 12.5 11H9l-3 3v-3H3.5A1.5 1.5 0 0 1 2 9.5v-6Z" stroke="#1E1E1E" strokeWidth="1.2" strokeLinejoin="round"/>
-              </svg>
-              Chat
-            </button>
-            {/* Stop button */}
-            <button
-              onClick={onStop}
-              disabled={stopDisabled}
-              style={{ display: 'flex', alignItems: 'center', gap: 3.36, padding: 8, height: 34.82, background: '#1C1C1C', border: 'none', borderRadius: 10.09, boxShadow: '0px 1.07px 12.84px rgba(0,0,0,0.05)', cursor: stopDisabled ? 'not-allowed' : 'pointer', opacity: stopDisabled ? 0.5 : 1, fontSize: 13, fontWeight: 600, color: '#FFFFFF', letterSpacing: '-0.02em', fontFamily: 'Inter, sans-serif' }}
-            >
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2.5" y="2.5" width="10" height="10" rx="1.5" fill="white"/></svg>
-              Stop
-            </button>
-            {/* Expand icon — expand_content_24dp, Vector at 22.92% inset in 20×20 = #1F1F1F */}
-            <button
-              onClick={() => setIsCollapsed(false)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-              title="Expand"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                {/* 22.92% of 20 = 4.58px inset each side → path occupies 4.58→15.42 */}
-                <path d="M4.58 7.5V4.58H7.5M4.58 12.5V15.42H7.5M15.42 7.5V4.58H12.5M15.42 12.5V15.42H12.5" stroke="#1F1F1F" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        <style>{`
-          @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-          @keyframes spin { to { transform: rotate(360deg); } }
-        `}</style>
-      </div>
+      <CollapsedOverlayBar
+        elapsed={elapsed}
+        stopDisabled={stopDisabled}
+        onExpand={() => setIsCollapsed(false)}
+        onOpenChat={() => { setIsCollapsed(false); openChat(); }}
+        onStop={onStop}
+      />
     );
   }
 
@@ -1568,8 +488,8 @@ export function PairCompactOverlay({
         }}>
 
           {/* Chess board � only when FEN is present */}
-          {(displayFen ?? currentFen) && (
-            <ChessBoard fen={displayFen ?? currentFen ?? ''} moveFrom={engineFrom} moveTo={engineTo} flipped={boardFlipped} />
+          {(currentFen ?? displayFen) && (
+            <ChessBoard key={activeFenBoard} fen={activeFen ?? ''} moveFrom={engineFrom} moveTo={engineTo} flipped={boardFlipped} />
           )}
 
           {/* Suggestions */}

@@ -7,8 +7,8 @@
  * - Pause/Stop buttons
  */
 
-import React, { useState, useEffect } from 'react';
-import { Square, Loader2, Calendar, ArrowLeft } from 'lucide-react';
+import React, { useState } from 'react';
+import { Loader2, Calendar, ArrowLeft } from 'lucide-react';
 import { useSession } from '../../hooks/useSession';
 import { useGameSetupStore } from '../../stores/meeting-setup.store';
 

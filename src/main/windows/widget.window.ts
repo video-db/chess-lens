@@ -1,4 +1,5 @@
 import { BrowserWindow, screen, app } from 'electron';
+import http from 'http';
 import path from 'path';
 import { createChildLogger } from '../lib/logger';
 import { loadAppConfig, saveAppConfig } from '../lib/config';
@@ -8,6 +9,9 @@ const logger = createChildLogger('widget-window');
 
 let widgetWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
+const DEV_SERVER_HOST = process.env.VITE_DEV_SERVER_HOST ?? 'localhost';
+const DEV_SERVER_START_PORT = Number(process.env.VITE_DEV_SERVER_PORT ?? 5173);
+const DEV_SERVER_PORT_RANGE = Number(process.env.VITE_DEV_SERVER_PORT_RANGE ?? 10);
 
 const WIDGET_WIDTH = 400;
 const WIDGET_DEFAULT_HEIGHT = 800;
@@ -138,14 +142,7 @@ export function createWidgetWindow(): BrowserWindow {
   // Keep overlay above fullscreen/borderless windows where possible
   widgetWindow.setAlwaysOnTop(true, 'screen-saver', 1);
 
-  // Load the widget HTML
-  if (isDev) {
-    const VITE_DEV_PORT = 51730;
-    widgetWindow.loadURL(`http://localhost:${VITE_DEV_PORT}/widget.html`);
-  } else {
-    // __dirname is dist/main/windows, renderer is at dist/renderer
-    widgetWindow.loadFile(path.join(__dirname, '..', '..', 'renderer', 'widget.html'));
-  }
+  void loadWidgetHtml(widgetWindow);
 
     widgetWindow.webContents.once('did-finish-load', () => {
       syncWidgetState();
@@ -183,6 +180,75 @@ export function createWidgetWindow(): BrowserWindow {
   });
 
   return widgetWindow;
+}
+
+async function loadWidgetHtml(window: BrowserWindow): Promise<void> {
+  const builtWidget = path.join(__dirname, '..', '..', 'renderer', 'widget.html');
+
+  if (isDev) {
+    const devServerUrl = await resolveWidgetDevServerUrl();
+    if (devServerUrl) {
+      await window.loadURL(devServerUrl);
+      return;
+    }
+
+    logger.info({ builtWidget }, 'Dev widget renderer not found; loading built widget');
+  }
+
+  await window.loadFile(builtWidget);
+}
+
+async function resolveWidgetDevServerUrl(): Promise<string | null> {
+  const explicitUrl = process.env.VITE_DEV_SERVER_URL;
+  if (explicitUrl) {
+    const widgetUrl = new URL('/widget.html', explicitUrl).toString();
+    if (await isDevServerPageAvailable(widgetUrl)) {
+      logger.info({ widgetUrl }, 'Using explicit widget dev server URL');
+      return widgetUrl;
+    }
+  }
+
+  for (let offset = 0; offset <= DEV_SERVER_PORT_RANGE; offset += 1) {
+    const port = DEV_SERVER_START_PORT + offset;
+    const candidateUrl = `http://${DEV_SERVER_HOST}:${port}/widget.html`;
+    if (await isDevServerPageAvailable(candidateUrl)) {
+      logger.info({ candidateUrl }, 'Resolved widget dev server URL');
+      return candidateUrl;
+    }
+  }
+
+  logger.warn('Widget dev server URL not detected');
+  return null;
+}
+
+function isDevServerPageAvailable(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const request = http.get(url, (response) => {
+      const status = response.statusCode ?? 0;
+      const contentType = String(response.headers['content-type'] ?? '');
+      if (status < 200 || status >= 300 || !contentType.includes('text/html')) {
+        response.resume();
+        resolve(false);
+        return;
+      }
+
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => {
+        body += chunk;
+        if (body.length > 4096) request.destroy();
+      });
+      response.on('end', () => {
+        resolve(body.includes('id="root"') && body.includes('/widget/index.tsx'));
+      });
+    });
+
+    request.on('error', () => resolve(false));
+    request.setTimeout(750, () => {
+      request.destroy();
+      resolve(false);
+    });
+  });
 }
 
 export function showWidgetWindow(): void {
@@ -225,10 +291,15 @@ export function getWidgetWindow(): BrowserWindow | null {
 
 export function sendToWidget(channel: string, data: unknown): void {
   if (widgetWindow && !widgetWindow.isDestroyed()) {
-    logger.debug({ channel }, 'Sending to widget');
+    if (channel === 'widget:fen') {
+      const fenData = data as { fen?: string; turn?: string };
+      logger.info({ channel, fen: fenData?.fen?.slice(0, 40), turn: fenData?.turn }, '[widget-window] sendToWidget — sending to widget');
+    } else {
+      logger.debug({ channel }, 'Sending to widget');
+    }
     widgetWindow.webContents.send(channel, data);
   } else {
-    logger.warn({ channel }, 'Widget window not available, cannot send');
+    logger.warn({ channel }, '[widget-window] Widget window not available, cannot send');
   }
 }
 

@@ -1,19 +1,22 @@
 import { ipcMain, BrowserWindow, app } from 'electron';
 import { CaptureClient } from 'videodb/capture';
 import { connect } from 'videodb';
-import type { WebSocketConnection, WebSocketMessage } from 'videodb';
 import type { Channel } from '../../shared/schemas/capture.schema';
-import type { RecorderEvent, TranscriptEvent, VisualIndexEvent, StartRecordingParams } from '../../shared/types/ipc.types';
+import type { RecorderEvent, StartRecordingParams } from '../../shared/types/ipc.types';
 import { setupSessionWebSocket, cleanupSessionWebSocket } from '../services/session-events.service';
-import { startExportPoller, stopExportPoller, stopAllExportPollers } from '../services/export-poller.service';
+import { startExportPoller, stopAllExportPollers } from '../services/recording/export-poller.service';
 import { createChildLogger } from '../lib/logger';
 import { applyVideoDBPatches } from '../lib/videodb-patch';
-import { loadAppConfig, loadRuntimeConfig } from '../lib/config';
 import { getUserByAccessToken, updateRecordingBySessionId } from '../db';
 import { getLiveAssistService } from '../services/live-assist.service';
-import { getMCPInferenceService } from '../services/mcp-inference.service';
-import { getChessScreenshotService } from '../services/chess-screenshot.service';
-import { getGameIndexingPrompt } from '../../shared/config/game-coaching';
+import { getMCPInferenceService } from '../services/mcp/mcp-inference.service';
+import { getChessScreenshotService } from '../services/chess/chess-screenshot.service';
+import { CaptureWebSocketManager } from './capture-websockets';
+import {
+  buildCaptureChannelsFromListed,
+  buildFallbackCaptureChannels,
+  type CaptureChannelConfig,
+} from './capture-channels';
 import {
   showWidgetWindow,
   closeWidgetWindow,
@@ -21,7 +24,6 @@ import {
 import {
   setWidgetRecordingControls,
   updateWidgetSessionState,
-  updateWidgetVisualAnalysis,
   sendWidgetStartError,
   clearWidgetState,
 } from './widget';
@@ -42,12 +44,6 @@ const captureEventHandlers: {
   'upload:complete'?: (data: unknown) => void;
   'error'?: (error: unknown) => void;
 } = {};
-
-let micWebSocket: WebSocketConnection | null = null;
-let sysAudioWebSocket: WebSocketConnection | null = null;
-let screenWebSocket: WebSocketConnection | null = null;
-let transcriptListenerActive = false;
-let visualIndexListenerActive = false;
 
 // Track current session for export polling
 let currentSessionId: string | null = null;
@@ -83,465 +79,6 @@ function ensureVideoDBPatched(): void {
   }
 }
 
-async function setupTranscriptWebSockets(
-  sessionToken: string,
-  apiUrl?: string
-): Promise<{ micWsId: string | null; sysAudioWsId: string | null } | null> {
-  try {
-    if (!sessionToken) {
-      logger.warn('[WS] No session token');
-      return null;
-    }
-
-    const connectOptions: { sessionToken: string; baseUrl?: string } = { sessionToken };
-    if (apiUrl) {
-      connectOptions.baseUrl = apiUrl;
-    }
-    const videodbConnection = connect(connectOptions);
-
-    const [micWsResult, sysWsResult] = await Promise.all([
-      (async () => {
-        try {
-          const wsConnection = await videodbConnection.connectWebsocket();
-          micWebSocket = await wsConnection.connect();
-          logger.info({ connectionId: micWebSocket.connectionId }, '[WS] Mic WebSocket connected');
-          return { ws: micWebSocket, id: micWebSocket.connectionId || null };
-        } catch (err) {
-          logger.error({ error: err }, '[WS] Failed to create mic WebSocket');
-          return { ws: null, id: null };
-        }
-      })(),
-      (async () => {
-        try {
-          const wsConnection = await videodbConnection.connectWebsocket();
-          sysAudioWebSocket = await wsConnection.connect();
-          logger.info({ connectionId: sysAudioWebSocket.connectionId }, '[WS] SysAudio WebSocket connected');
-          return { ws: sysAudioWebSocket, id: sysAudioWebSocket.connectionId || null };
-        } catch (err) {
-          logger.error({ error: err }, '[WS] Failed to create sys_audio WebSocket');
-          return { ws: null, id: null };
-        }
-      })(),
-    ]);
-
-    if (!micWsResult.id && !sysWsResult.id) {
-      logger.error('[WS] Failed to create any WebSocket connections');
-      return null;
-    }
-
-    transcriptListenerActive = true;
-    if (micWsResult.ws) listenForMessages(micWsResult.ws, 'mic');
-    if (sysWsResult.ws) listenForMessages(sysWsResult.ws, 'system_audio');
-
-    return { micWsId: micWsResult.id, sysAudioWsId: sysWsResult.id };
-  } catch (err) {
-    logger.error({ error: err }, '[WS] Error setting up WebSockets');
-    return null;
-  }
-}
-
-async function listenForMessages(ws: WebSocketConnection, source: 'mic' | 'system_audio'): Promise<void> {
-  try {
-    for await (const msg of ws.receive()) {
-      if (!transcriptListenerActive) break;
-
-      const channel = (msg.channel || msg.type || msg.event_type || 'event') as string;
-
-      if (channel === 'transcript' || msg.text) {
-        const msgData = msg.data as Record<string, unknown>;
-        const text = (msgData.text || msg.text || '') as string;
-        const isFinal = (msgData.is_final ?? msg.is_final ?? msg.isFinal ?? false) as boolean;
-      const start = (msgData.start ?? msg.start) as number;
-      const end = (msgData.end ?? msg.end) as number;
-
-      if (isFinal) {
-        }
-
-        const transcriptEvent: TranscriptEvent = {
-          text,
-          isFinal,
-          source,
-          start,
-          end,
-        };
-
-        sendRecorderEvent({
-          event: 'transcript',
-          data: transcriptEvent,
-        });
-      }
-    }
-  } catch (err) {
-    if (transcriptListenerActive) {
-      logger.error({ error: err, source }, '[WS] Error in listener');
-    }
-  }
-}
-
-async function cleanupTranscriptWebSockets(): Promise<void> {
-  transcriptListenerActive = false;
-
-  if (micWebSocket) {
-    try {
-      await micWebSocket.close();
-    } catch (e) {
-      // Ignore close errors
-    }
-    micWebSocket = null;
-  }
-
-  if (sysAudioWebSocket) {
-    try {
-      await sysAudioWebSocket.close();
-    } catch (e) {
-      // Ignore close errors
-    }
-    sysAudioWebSocket = null;
-  }
-}
-
-async function setupVisualIndexWebSocket(
-  sessionToken: string,
-  apiUrl?: string
-): Promise<string | null> {
-  try {
-    if (!sessionToken) {
-      logger.warn('[WS] No session token for visual index');
-      return null;
-    }
-
-    const connectOptions: { sessionToken: string; baseUrl?: string } = { sessionToken };
-    if (apiUrl) {
-      connectOptions.baseUrl = apiUrl;
-    }
-    const videodbConnection = connect(connectOptions);
-
-    try {
-      const wsConnection = await videodbConnection.connectWebsocket();
-      screenWebSocket = await wsConnection.connect();
-      logger.info({ connectionId: screenWebSocket.connectionId }, '[WS] Screen WebSocket connected for visual indexing');
-
-      visualIndexListenerActive = true;
-      listenForVisualIndexMessages(screenWebSocket);
-
-      return screenWebSocket.connectionId || null;
-    } catch (err) {
-      logger.error({ error: err }, '[WS] Failed to create screen WebSocket');
-      return null;
-    }
-  } catch (err) {
-    logger.error({ error: err }, '[WS] Error setting up visual index WebSocket');
-    return null;
-  }
-}
-
-async function listenForVisualIndexMessages(ws: WebSocketConnection): Promise<void> {
-  const normalizeVisualIndexText = (raw: string): string => {
-    const sanitized = (value: string) => value
-      .replace(/\*\*/g, '')
-      .replace(/__+/g, '')
-      .replace(/`+/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    const fromJson = (value: string): string | null => {
-      const tryParse = (input: string): string | null => {
-        try {
-          const parsed = JSON.parse(input) as unknown;
-
-          if (typeof parsed === 'string') {
-            // If the string itself contains chess board tags, return it as-is
-            // so the FEN parser can work on the structured content.
-            if (/<raw_board>|<board_mapping>|<perspective>/i.test(parsed)) {
-              return sanitized(parsed);
-            }
-            return sanitized(parsed);
-          }
-
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const first = parsed[0] as Record<string, unknown>;
-
-            // If any field contains chess XML tags, return raw field content
-            // so the FEN parser can extract <raw_board> / <board_mapping>.
-            for (const key of ['tip', 'analysis', 'heading_tip']) {
-              const val = typeof first[key] === 'string' ? (first[key] as string) : '';
-              if (/<raw_board>|<board_mapping>|<perspective>/i.test(val)) {
-                return sanitized(val);
-              }
-            }
-
-            const headingTip = typeof first?.heading_tip === 'string' ? first.heading_tip : '';
-            const tip = typeof first?.tip === 'string' ? first.tip : '';
-            const analysis = typeof first?.analysis === 'string' ? first.analysis : '';
-            const fen = typeof first?.fen === 'string' ? `FEN: ${first.fen}` : '';
-            const san = typeof first?.san === 'string' ? `SAN: ${first.san}` : '';
-            const move = typeof first?.move === 'string' ? `Move: ${first.move}` : '';
-            const evalScore = typeof first?.eval === 'number' ? `Eval: ${first.eval}` : '';
-            const continuation = Array.isArray(first?.continuationArr)
-              ? `Continuation: ${(first.continuationArr as unknown[]).filter((m) => typeof m === 'string').join(' ')}`
-              : '';
-            const combined = [headingTip, tip, analysis, fen, san, move, evalScore, continuation].filter(Boolean).join(' ||| ');
-            return combined ? sanitized(combined) : null;
-          }
-
-          if (parsed && typeof parsed === 'object') {
-            const data = parsed as Record<string, unknown>;
-
-            // If any field contains chess XML tags, return raw field content
-            for (const key of ['tip', 'analysis', 'heading_tip']) {
-              const val = typeof data[key] === 'string' ? (data[key] as string) : '';
-              if (/<raw_board>|<board_mapping>|<perspective>/i.test(val)) {
-                return sanitized(val);
-              }
-            }
-
-            const headingTip = typeof data.heading_tip === 'string' ? data.heading_tip : '';
-            const tip = typeof data.tip === 'string' ? data.tip : '';
-            const analysis = typeof data.analysis === 'string' ? data.analysis : '';
-            const fen = typeof data.fen === 'string' ? `FEN: ${data.fen}` : '';
-            const san = typeof data.san === 'string' ? `SAN: ${data.san}` : '';
-            const move = typeof data.move === 'string' ? `Move: ${data.move}` : '';
-            const evalScore = typeof data.eval === 'number' ? `Eval: ${data.eval}` : '';
-            const continuation = Array.isArray(data.continuationArr)
-              ? `Continuation: ${(data.continuationArr as unknown[]).filter((m) => typeof m === 'string').join(' ')}`
-              : '';
-            const combined = [headingTip, tip, analysis, fen, san, move, evalScore, continuation].filter(Boolean).join(' ||| ');
-            return combined ? sanitized(combined) : null;
-          }
-        } catch {
-          return null;
-        }
-
-        return null;
-      };
-
-      const direct = tryParse(value);
-      if (direct) return direct;
-
-      const start = value.indexOf('{');
-      const end = value.lastIndexOf('}');
-      if (start >= 0 && end > start) {
-        const sliced = value.slice(start, end + 1);
-        return tryParse(sliced);
-      }
-
-      return null;
-    };
-
-    let text = (raw || '').trim();
-    if (!text) return '';
-
-    // If the raw text contains chess board XML tags, preserve them as-is —
-    // do NOT attempt JSON parsing which would strip <raw_board> / <board_mapping>.
-    if (/<raw_board>|<board_mapping>|<perspective>/i.test(text)) {
-      return sanitized(text);
-    }
-
-    const parsedText = fromJson(text);
-    if (parsedText) return parsedText;
-
-    return sanitized(text);
-  };
-
-  const extractEventDetectionMarker = (
-    msg: WebSocketMessage,
-    msgData: Record<string, unknown>,
-    normalizedText: string,
-    channel: string
-  ): string | null => {
-    const channelLower = channel.toLowerCase();
-    const isDedicatedEventChannel = /^(event_detection|game_event|hud_event)$/.test(channelLower);
-    const hasStructuredDetections = Array.isArray(msgData.events) || Array.isArray(msgData.detections);
-
-    // Avoid deriving event markers from normal scene/visual narration text.
-    if (!isDedicatedEventChannel && !hasStructuredDetections) {
-      return null;
-    }
-
-    const tokens: string[] = [];
-
-    const addToken = (value: unknown): void => {
-      if (typeof value === 'string' && value.trim()) {
-        tokens.push(value.trim().toLowerCase());
-      }
-    };
-
-    addToken(channel);
-    addToken(msg.event);
-    addToken(msg.type);
-    addToken(msg.event_type);
-    addToken(msgData.event);
-    addToken(msgData.type);
-    addToken(msgData.event_type);
-    addToken(msgData.label);
-    addToken(msgData.name);
-    if (isDedicatedEventChannel) {
-      addToken(normalizedText);
-    }
-
-    const collectFromArray = (items: unknown): void => {
-      if (!Array.isArray(items)) return;
-      for (const item of items) {
-        if (typeof item === 'string') {
-          addToken(item);
-          continue;
-        }
-        if (item && typeof item === 'object') {
-          const obj = item as Record<string, unknown>;
-          addToken(obj.event);
-          addToken(obj.event_type);
-          addToken(obj.type);
-          addToken(obj.label);
-          addToken(obj.name);
-          addToken(obj.class);
-        }
-      }
-    };
-
-    collectFromArray(msgData.events);
-    collectFromArray(msgData.detections);
-
-    const joined = tokens.join(' | ');
-
-    return null;
-  };
-
-  try {
-    for await (const msg of ws.receive()) {
-      if (!visualIndexListenerActive) break;
-
-      const channel = (msg.channel || msg.type || msg.event_type || 'event') as string;
-      const msgData = (msg.data || {}) as Record<string, unknown>;
-      const rawText = (msgData.text || msg.text || '') as string;
-      const normalizedText = normalizeVisualIndexText(rawText);
-
-      logger.debug(
-        {
-          channel,
-          hasRawText: !!rawText,
-          hasNormalizedText: !!normalizedText,
-          rawPreview: rawText ? rawText.substring(0, 120) : '',
-          normalizedPreview: normalizedText ? normalizedText.substring(0, 120) : '',
-        },
-        '[WS] Visual websocket message received'
-      );
-
-      const marker = extractEventDetectionMarker(msg, msgData, normalizedText, channel);
-
-      if (marker) {
-        const now = Date.now();
-        const markerEvent: VisualIndexEvent = {
-          text: marker,
-          start: (msgData.start ?? msg.start ?? now) as number,
-          end: (msgData.end ?? msg.end ?? now) as number,
-          rtstreamId: (msg.rtstream_id || msg.rtstreamId) as string | undefined,
-          rtstreamName: (msg.rtstream_name || msg.rtstreamName) as string | undefined,
-        };
-
-        logger.info({ channel, marker }, '[WS] VideoDB event detection marker received');
-        sendRecorderEvent({ event: 'visual_index', data: markerEvent });
-
-        try {
-          getLiveAssistService().addVisualIndex(marker);
-          logger.debug({ marker }, '[WS] Forwarded event marker to live assist service');
-        } catch (error) {
-          logger.warn({ error, marker }, '[WS] Failed to forward event marker to live assist service');
-        }
-
-        // For dedicated event-detection channels, marker is sufficient and avoids duplicate noise.
-        if (channel === 'event_detection' || channel === 'game_event' || channel === 'hud_event') {
-          continue;
-        }
-      }
-
-      // Listen for scene/visual index events (SDK channel names can vary by version)
-      const normalizedChannel = channel.toLowerCase();
-      const isVisualIndexChannel =
-        normalizedChannel === 'scene_index' ||
-        normalizedChannel === 'visual_index' ||
-        normalizedChannel.includes('scene_index') ||
-        normalizedChannel.includes('visual_index') ||
-        (normalizedChannel.includes('scene') && normalizedChannel.includes('index')) ||
-        (normalizedChannel.includes('visual') && normalizedChannel.includes('index'));
-      const isDedicatedEventChannel =
-        normalizedChannel === 'event_detection' ||
-        normalizedChannel === 'game_event' ||
-        normalizedChannel === 'hud_event';
-      const hasNarrativeVisualPayload = normalizedText.length >= 16;
-      const shouldForwardVisualText =
-        hasNarrativeVisualPayload && (isVisualIndexChannel || !isDedicatedEventChannel);
-
-      if (shouldForwardVisualText) {
-        const text = normalizedText;
-        const now = Date.now();
-        const start = (msgData.start ?? msg.start ?? now) as number;
-        const end = (msgData.end ?? msg.end ?? start) as number;
-
-        const visualIndexEvent: VisualIndexEvent = {
-          text,
-          start,
-          end,
-          rtstreamId: (msg.rtstream_id || msg.rtstreamId) as string | undefined,
-          rtstreamName: (msg.rtstream_name || msg.rtstreamName) as string | undefined,
-        };
-
-        logger.info(
-          {
-            channel,
-            forwardedVia: isVisualIndexChannel ? 'channel-match' : 'payload-fallback',
-            text: text.substring(0, 50),
-          },
-          '[WS] Visual index event received'
-        );
-
-        sendRecorderEvent({
-          event: 'visual_index',
-          data: visualIndexEvent,
-        });
-
-        try {
-          getLiveAssistService().addVisualIndex(text);
-          logger.debug({ preview: text.substring(0, 120) }, '[WS] Forwarded visual index text to live assist service');
-        } catch (error) {
-          logger.warn({ error, preview: text.substring(0, 120) }, '[WS] Failed to forward visual index text to live assist service');
-        }
-
-        // Also send to floating widget
-        const compactText = text.replace(/\s+/g, ' ').trim();
-        updateWidgetVisualAnalysis(compactText);
-      } else {
-        logger.debug(
-          {
-            channel,
-            isVisualIndexChannel,
-            isDedicatedEventChannel,
-            hasNarrativeVisualPayload,
-            hasNormalizedText: !!normalizedText,
-            normalizedPreview: normalizedText ? normalizedText.substring(0, 120) : '',
-          },
-          '[WS] Visual message not forwarded'
-        );
-      }
-    }
-  } catch (err) {
-    if (visualIndexListenerActive) {
-      logger.error({ error: err }, '[WS] Error in visual index listener');
-    }
-  }
-}
-
-async function cleanupVisualIndexWebSocket(): Promise<void> {
-  visualIndexListenerActive = false;
-
-  if (screenWebSocket) {
-    try {
-      await screenWebSocket.close();
-    } catch (e) {
-      // Ignore close errors
-    }
-    screenWebSocket = null;
-  }
-}
 
 export function setMainWindow(window: BrowserWindow): void {
   mainWindow = window;
@@ -560,6 +97,8 @@ export function sendToRenderer(channel: string, data: unknown): void {
 function sendRecorderEvent(event: RecorderEvent): void {
   sendToRenderer('recorder-event', event);
 }
+
+const captureWebSockets = new CaptureWebSocketManager(sendRecorderEvent);
 
 // Set up event listeners with stored references to prevent memory leaks
 function setupCaptureEventListeners(): void {
@@ -719,8 +258,8 @@ async function stopRecordingInternal(): Promise<{ success: boolean; error?: stri
       closeWidgetWindow();
     }
 
-    await cleanupTranscriptWebSockets();
-    await cleanupVisualIndexWebSocket();
+    await captureWebSockets.cleanupTranscriptWebSockets();
+    await captureWebSockets.cleanupVisualIndexWebSocket();
     await cleanupSessionWebSocket();
 
     // Start export poller to detect when video is ready
@@ -758,8 +297,8 @@ async function stopRecordingInternal(): Promise<{ success: boolean; error?: stri
     clearWidgetState();
     closeWidgetWindow();
 
-    await cleanupTranscriptWebSockets();
-    await cleanupVisualIndexWebSocket();
+    await captureWebSockets.cleanupTranscriptWebSockets();
+    await captureWebSockets.cleanupVisualIndexWebSocket();
     await cleanupSessionWebSocket();
     cleanupCapture();
 
@@ -891,7 +430,7 @@ export function setupCaptureHandlers(): void {
 
         let wsConnectionIds: { micWsId: string | null; sysAudioWsId: string | null } | null = null;
         if (enableTranscription) {
-          wsConnectionIds = await setupTranscriptWebSockets(sessionToken, apiUrl);
+          wsConnectionIds = await captureWebSockets.setupTranscriptWebSockets(sessionToken, apiUrl);
           if (wsConnectionIds) {
             logger.info(
               { micWsId: wsConnectionIds.micWsId, sysAudioWsId: wsConnectionIds.sysAudioWsId },
@@ -903,7 +442,7 @@ export function setupCaptureHandlers(): void {
         // Set up visual index WebSocket for screen capture
         let screenWsConnectionId: string | null = null;
         if (enableVisualIndex && config.streams?.screen !== false) {
-          screenWsConnectionId = await setupVisualIndexWebSocket(sessionToken, apiUrl);
+          screenWsConnectionId = await captureWebSockets.setupVisualIndexWebSocket(sessionToken, apiUrl);
           if (screenWsConnectionId) {
             logger.info({ screenWsId: screenWsConnectionId }, '[WS] Visual index WebSocket established');
           }
@@ -928,160 +467,16 @@ export function setupCaptureHandlers(): void {
         removeCaptureEventListeners();
         setupCaptureEventListeners();
 
-        let captureChannels: Array<{
-          channelId: string;
-          type: 'audio' | 'video';
-          record: boolean;
-          store?: boolean;
-          transcript?: boolean;
-        }> = [];
+        let captureChannels: CaptureChannelConfig[] = [];
         
         try {
           logger.info('Listing available channels');
           const channels = await captureClient.listChannels();
           logger.info({ channelCount: channels.all().length }, 'Channels listed successfully');
-
-          const allChannels = channels.all();
-          logger.info(
-            {
-              audioChannels: allChannels
-                .filter((ch) => ch.type === 'audio')
-                .map((ch) => ({ id: ch.id, name: ch.name })),
-              systemAudioChannels: channels.systemAudio.map((ch) => ({ id: ch.id, name: ch.name })),
-              micChannels: channels.mics.map((ch) => ({ id: ch.id, name: ch.name })),
-              displayChannels: channels.displays.map((ch) => ({ id: ch.id, name: ch.name })),
-            },
-            'Capture channel inventory'
-          );
-
-          const micChannel = channels.mics.default || channels.mics[0];
-          if (micChannel && config.streams?.microphone !== false) {
-            captureChannels.push({
-              channelId: micChannel.id,
-              type: 'audio',
-              record: true,
-              store: true,
-              transcript: enableTranscription,
-            });
-          } else if (config.streams?.microphone !== false) {
-            logger.warn({ micCount: channels.mics.length }, 'Microphone stream enabled but no mic channel available');
-          }
-
-          if (config.streams?.systemAudio !== false) {
-            const systemAudioCandidates: Array<{ id: string; name: string }> = [];
-
-            const pushCandidate = (id: string, name: string) => {
-              if (!id || id === micChannel?.id) return;
-              if (systemAudioCandidates.some((c) => c.id === id)) return;
-              systemAudioCandidates.push({ id, name });
-            };
-
-            // Prefer SDK system-audio list first.
-            for (const ch of channels.systemAudio) {
-              pushCandidate(ch.id, ch.name);
-            }
-
-            // On Windows, capture can surface loopback on generic audio channels.
-            if (process.platform === 'win32') {
-              for (const ch of allChannels) {
-                if (ch.type !== 'audio') continue;
-                if (/system|loopback|speaker|output|desktop|headphone|what\s*u\s*hear|stereo\s*mix|virtual\s*audio/i.test(`${ch.id} ${ch.name}`)) {
-                  pushCandidate(ch.id, ch.name);
-                }
-              }
-            }
-
-            if (systemAudioCandidates.length > 0) {
-              systemAudioCandidates.forEach((candidate, index) => {
-                captureChannels.push({
-                  channelId: candidate.id,
-                  type: 'audio',
-                  record: true,
-                  store: true,
-                  transcript: enableTranscription && index === 0,
-                });
-              });
-
-              logger.info(
-                { selectedSystemAudioChannels: systemAudioCandidates },
-                'Selected system-audio capture candidates'
-              );
-            } else {
-            logger.warn(
-              {
-                systemAudioCount: channels.systemAudio.length,
-                audioChannels: allChannels
-                  .filter((ch) => ch.type === 'audio')
-                  .map((ch) => ({ id: ch.id, name: ch.name })),
-              },
-              'System audio stream enabled but no system-audio channel available; using explicit system_audio fallback'
-            );
-
-            captureChannels.push({
-              channelId: 'system_audio',
-              type: 'audio',
-              record: true,
-              store: true,
-              transcript: enableTranscription,
-            });
-            }
-          }
-
-          const displayChannel = channels.displays.default || channels.displays[0];
-          if (displayChannel && config.streams?.screen !== false) {
-            captureChannels.push({
-              channelId: displayChannel.id,
-              type: 'video',
-              record: true,
-              store: true,
-            });
-          } else if (config.streams?.screen !== false) {
-            logger.warn({ displayCount: channels.displays.length }, 'Screen stream enabled but no display channel available');
-          }
-
-          // Windows loopback audio can require an active display capture channel.
-          // If user enabled system audio but disabled screen, attach a display channel anyway.
-          const hasSystemAudioChannel = captureChannels.some(
-            (ch) => ch.type === 'audio' && /system[_-]?audio|loopback|speaker|output|desktop/i.test(ch.channelId)
-          );
-          const hasDisplayChannel = captureChannels.some((ch) => ch.type === 'video');
-          const wantsSystemAudio = config.streams?.systemAudio !== false;
-          const screenDisabled = config.streams?.screen === false;
-
-          if (
-            process.platform === 'win32' &&
-            wantsSystemAudio &&
-            screenDisabled &&
-            hasSystemAudioChannel &&
-            !hasDisplayChannel &&
-            displayChannel
-          ) {
-            captureChannels.push({
-              channelId: displayChannel.id,
-              type: 'video',
-              record: true,
-              store: true,
-            });
-            logger.info(
-              { displayChannelId: displayChannel.id },
-              'Added display channel automatically on Windows to support system audio loopback'
-            );
-          }
-
-          logger.info({ captureChannels }, 'Channel configs prepared from listed channels');
+          captureChannels = buildCaptureChannelsFromListed(channels, config, enableTranscription, logger);
         } catch (listError) {
           logger.warn({ error: listError }, 'listChannels failed, using fallback channel IDs');
-          
-          if (config.streams?.microphone !== false) {
-            captureChannels.push({ channelId: 'mic', type: 'audio', record: true, store: true, transcript: enableTranscription });
-          }
-          if (config.streams?.systemAudio !== false) {
-            captureChannels.push({ channelId: 'system_audio', type: 'audio', record: true, store: true, transcript: enableTranscription });
-          }
-          if (config.streams?.screen !== false) {
-            captureChannels.push({ channelId: 'screen', type: 'video', record: true, store: true });
-          }
-          
+          captureChannels = buildFallbackCaptureChannels(config, enableTranscription);
           logger.info({ captureChannels }, 'Using fallback channel IDs');
         }
 
@@ -1121,13 +516,10 @@ export function setupCaptureHandlers(): void {
         showWidgetWindow();
 
         // Start the direct screenshot→LiteLLM FEN extraction loop.
-        // This is the benchmark-proven path (98.61% accuracy) that calls
-        // gpt-5.4 directly with a base64 screenshot, bypassing the VideoDB
-        // text pipeline which strips the <raw_board> XML tags.
-        // TO SWITCH TO VIDEODB: comment out these two lines and change
-        // modelName in visual-index.ts to 'gpt-5.4' when supported.
-        const chessFenPrompt = getGameIndexingPrompt(params.gameId || 'chess');
-        getChessScreenshotService().start(chessFenPrompt);
+        // LiveAssist prefers RTStream FEN when indexVisuals emits validated
+        // <raw_board> tags. Keep the screenshot loop as a fallback during
+        // RTStream warmup or outages.
+        getChessScreenshotService().start();
 
         // Store session info for export polling when recording stops
         currentSessionId = config.sessionId;
@@ -1150,8 +542,8 @@ export function setupCaptureHandlers(): void {
         const errorStack = error instanceof Error ? error.stack : undefined;
         logger.error({ err: error, errorMessage, errorStack }, 'Failed to start recording');
         sendWidgetStartError(errorMessage);
-        await cleanupTranscriptWebSockets();
-        await cleanupVisualIndexWebSocket();
+        await captureWebSockets.cleanupTranscriptWebSockets();
+        await captureWebSockets.cleanupVisualIndexWebSocket();
         await cleanupSessionWebSocket();
         await cleanupCaptureAsync();
         return {
@@ -1245,7 +637,7 @@ export function setupCaptureHandlers(): void {
         if (captureClient) {
           try {
             await captureClient.shutdown();
-          } catch (e) {
+          } catch {
             // Ignore shutdown errors during cleanup
           }
           captureClient = null;
@@ -1293,8 +685,8 @@ export async function cleanupCaptureAsync(): Promise<void> {
 }
 
 export async function shutdownCaptureClient(): Promise<void> {
-  await cleanupTranscriptWebSockets();
-  await cleanupVisualIndexWebSocket();
+  await captureWebSockets.cleanupTranscriptWebSockets();
+  await captureWebSockets.cleanupVisualIndexWebSocket();
   await cleanupSessionWebSocket();
 
   // Stop all export pollers
@@ -1332,3 +724,4 @@ export async function shutdownCaptureClient(): Promise<void> {
 export function isCaptureActive(): boolean {
   return captureClient !== null;
 }
+

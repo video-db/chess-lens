@@ -1,4 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+ 
 const videodb = require('videodb');
 const { connect } = videodb;
 type Connection = ReturnType<typeof connect>;
@@ -7,7 +7,7 @@ import { createChildLogger } from '../lib/logger';
 
 const logger = createChildLogger('videodb-service');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type Collection = any;
 
 interface CachedConnection {
@@ -473,9 +473,9 @@ export function createVideoDBService(apiKey: string, baseUrl?: string, collectio
  * Returns null if no API key is configured.
  */
 export function getVideoDBServiceFromConfig(): VideoDBService | null {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+   
   const { loadAppConfig, loadRuntimeConfig } = require('../lib/config');
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+   
   const { getUserByAccessToken } = require('../db');
 
   const appConfig = loadAppConfig();

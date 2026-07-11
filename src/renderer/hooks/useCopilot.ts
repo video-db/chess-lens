@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useCallback, useRef } from 'react';
+import { rendererLog } from '../lib/utils';
 import { useCopilotStore } from '../stores/copilot.store';
 import { useConfigStore } from '../stores/config.store';
 
@@ -48,10 +49,10 @@ export function useCopilot() {
       if (result.success) {
         setInitialized(true);
       } else {
-        console.error('Failed to initialize copilot:', result.error);
+        rendererLog('error', 'use-copilot', 'Failed to initialize copilot', { error: result.error });
       }
     } catch (error) {
-      console.error('Error initializing copilot:', error);
+      rendererLog('error', 'use-copilot', 'Error initializing copilot', { error });
     }
   }, [apiKey, isInitialized, setInitialized]);
 
@@ -68,10 +69,10 @@ export function useCopilot() {
       if (result.success) {
         startCall(recId);
       } else {
-        console.error('Failed to start copilot:', result.error);
+        rendererLog('error', 'use-copilot', 'Failed to start copilot', { error: result.error, recordingId: recId, sessionId });
       }
     } catch (error) {
-      console.error('Error starting copilot:', error);
+      rendererLog('error', 'use-copilot', 'Error starting copilot', { error, recordingId: recId, sessionId });
     }
   }, [isInitialized, initialize, startCall]);
 
@@ -86,7 +87,7 @@ export function useCopilot() {
       }
       endCall();
     } catch (error) {
-      console.error('Error stopping copilot:', error);
+      rendererLog('error', 'use-copilot', 'Error stopping copilot', { error });
       endCall();
     }
   }, [endCall]);
@@ -99,7 +100,7 @@ export function useCopilot() {
     try {
       await window.electronAPI.copilot.updateConfig(newConfig);
     } catch (error) {
-      console.error('Error updating copilot config:', error);
+      rendererLog('error', 'use-copilot', 'Error updating copilot config', { error });
     }
   }, [setConfig]);
 
@@ -112,7 +113,7 @@ export function useCopilot() {
       try {
         await window.electronAPI.copilot.dismissNudge(activeNudge.id);
       } catch (error) {
-        console.error('Error dismissing nudge:', error);
+        rendererLog('error', 'use-copilot', 'Error dismissing nudge', { error, nudgeId: activeNudge.id });
       }
     }
   }, [activeNudge, dismissNudge]);
@@ -144,7 +145,7 @@ export function useCopilot() {
     });
 
     const unsubError = window.electronAPI.copilotOn.onError(({ error, context }) => {
-      console.error('Copilot error:', error, context);
+      rendererLog('error', 'use-copilot', 'Copilot error event', { error, context });
     });
 
     unsubscribersRef.current = [

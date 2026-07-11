@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useCallback, useRef } from 'react';
+import { rendererLog } from '../lib/utils';
 import { useMCPStore } from '../stores/mcp.store';
 
 // Hook
@@ -81,7 +82,7 @@ export function useMCP() {
 
       setInitialized(true);
     } catch (error) {
-      console.error('Error loading MCP data:', error);
+      rendererLog('error', 'use-mcp', 'Error loading MCP data', { error });
       setError(error instanceof Error ? error.message : 'Failed to load MCP data');
     }
   }, [setServers, setConnectionStates, setTemplates, setAvailableTools, setCustomTriggerKeywords, setInitialized, setError]);
@@ -100,7 +101,7 @@ export function useMCP() {
         return null;
       }
     } catch (error) {
-      console.error('Error creating server:', error);
+      rendererLog('error', 'use-mcp', 'Error creating server', { error });
       setError(error instanceof Error ? error.message : 'Failed to create server');
       return null;
     }
@@ -123,7 +124,7 @@ export function useMCP() {
         return false;
       }
     } catch (error) {
-      console.error('Error updating server:', error);
+      rendererLog('error', 'use-mcp', 'Error updating server', { error, serverId });
       setError(error instanceof Error ? error.message : 'Failed to update server');
       return false;
     }
@@ -143,7 +144,7 @@ export function useMCP() {
         return false;
       }
     } catch (error) {
-      console.error('Error deleting server:', error);
+      rendererLog('error', 'use-mcp', 'Error deleting server', { error, serverId });
       setError(error instanceof Error ? error.message : 'Failed to delete server');
       return false;
     }
@@ -167,7 +168,7 @@ export function useMCP() {
         return null;
       }
     } catch (error) {
-      console.error('Error connecting to server:', error);
+      rendererLog('error', 'use-mcp', 'Error connecting to server', { error, serverId });
       const errorMessage = error instanceof Error ? error.message : 'Failed to connect';
       updateConnectionState(serverId, 'error', errorMessage);
       setError(errorMessage);
@@ -190,7 +191,7 @@ export function useMCP() {
         return false;
       }
     } catch (error) {
-      console.error('Error disconnecting from server:', error);
+      rendererLog('error', 'use-mcp', 'Error disconnecting from server', { error, serverId });
       setError(error instanceof Error ? error.message : 'Failed to disconnect');
       return false;
     }
@@ -204,7 +205,7 @@ export function useMCP() {
       const result = await window.electronAPI.mcp.testConnection(serverId);
       return result.success ? result.result : null;
     } catch (error) {
-      console.error('Error testing connection:', error);
+      rendererLog('error', 'use-mcp', 'Error testing connection', { error, serverId });
       return null;
     }
   }, []);
@@ -233,7 +234,7 @@ export function useMCP() {
         return null;
       }
     } catch (error) {
-      console.error('Error executing tool:', error);
+      rendererLog('error', 'use-mcp', 'Error executing tool', { error, serverId, toolName });
       removePendingCall(callId);
       setError(error instanceof Error ? error.message : 'Failed to execute tool');
       return null;
@@ -248,7 +249,7 @@ export function useMCP() {
     try {
       await window.electronAPI.mcp.dismissResult(resultId);
     } catch (error) {
-      console.error('Error dismissing result:', error);
+      rendererLog('error', 'use-mcp', 'Error dismissing result', { error, resultId });
     }
   }, [dismissResult]);
 
@@ -260,7 +261,7 @@ export function useMCP() {
     try {
       await window.electronAPI.mcp.pinResult(resultId);
     } catch (error) {
-      console.error('Error pinning result:', error);
+      rendererLog('error', 'use-mcp', 'Error pinning result', { error, resultId });
     }
   }, [pinResult]);
 
@@ -278,7 +279,7 @@ export function useMCP() {
         return false;
       }
     } catch (error) {
-      console.error('Error updating trigger keywords:', error);
+      rendererLog('error', 'use-mcp', 'Error updating trigger keywords', { error });
       setError(error instanceof Error ? error.message : 'Failed to update trigger keywords');
       return false;
     }
@@ -294,7 +295,7 @@ export function useMCP() {
 
     // Subscribe to MCP events
     const unsubResult = window.electronAPI.mcpOn.onResult(({ result }) => {
-      console.log('[MCP] Received result from main process:', {
+      rendererLog('debug', 'use-mcp', 'Received result from main process', {
         id: result.id,
         toolName: result.toolName,
         displayType: result.displayType,
@@ -304,7 +305,7 @@ export function useMCP() {
     });
 
     const unsubError = window.electronAPI.mcpOn.onError(({ serverId, toolName, error }) => {
-      console.error('MCP error:', serverId, toolName, error);
+      rendererLog('error', 'use-mcp', 'MCP error event', { serverId, toolName, error });
       setError(`${toolName}: ${error}`);
     });
 
@@ -316,7 +317,7 @@ export function useMCP() {
     const unsubDisconnected = window.electronAPI.mcpOn.onServerDisconnected(({ serverId, reason }) => {
       updateConnectionState(serverId, 'disconnected');
       removeToolsFromServer(serverId);
-      console.log('Server disconnected:', serverId, reason);
+      rendererLog('info', 'use-mcp', 'Server disconnected', { serverId, reason });
     });
 
     const unsubServerError = window.electronAPI.mcpOn.onServerError(({ serverId, error }) => {

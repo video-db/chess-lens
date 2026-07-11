@@ -7,7 +7,7 @@
  */
 
 import { logger } from '../../lib/logger';
-import { getLLMService, type ChatMessage, type Tool, type ToolCall } from '../llm.service';
+import { getLLMService, type ChatMessage, type Tool, type ToolCall } from '../llm/llm.service';
 import { getToolAggregator } from './tool-aggregator.service';
 import { getConnectionOrchestrator } from './connection-orchestrator.service';
 import type { MCPTool } from '../../../shared/types/mcp.types';
@@ -152,7 +152,7 @@ export class MCPAgentService {
 
     try {
       input = JSON.parse(toolCall.function.arguments || '{}');
-    } catch (e) {
+    } catch {
       log.warn({ arguments: toolCall.function.arguments }, 'Failed to parse tool arguments');
     }
 
@@ -366,9 +366,7 @@ Based on the conversation above, determine if any tools should be called to fetc
         for (let i = 0; i < response.tool_calls.length; i++) {
           const toolCall = response.tool_calls[i];
 
-          const toolStartTime = Date.now();
           const result = await this.executeToolCall(toolCall);
-          const toolElapsedMs = Date.now() - toolStartTime;
 
           toolsCalled.push(result);
 
@@ -422,7 +420,7 @@ Based on the conversation above, determine if any tools should be called to fetc
    * Determine if a transcript segment should trigger the agent
    * Uses simple heuristics to avoid calling the agent on every segment
    */
-  shouldTrigger(segment: TranscriptSegmentData, conversationContext: string): boolean {
+  shouldTrigger(segment: TranscriptSegmentData, _conversationContext: string): boolean {
     const text = segment.text.toLowerCase();
 
     // Get combined default + custom keywords

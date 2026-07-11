@@ -4,7 +4,7 @@ import type { AppRouter } from '../../main/server/trpc/router';
 
 export const trpc = createTRPCReact<AppRouter>();
 
-const DEFAULT_API_PORT = 51731;
+const DEFAULT_API_PORT = 5174;
 let cachedPort: number | null = null;
 
 async function getApiPort(): Promise<number> {

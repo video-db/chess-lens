@@ -34,5 +34,9 @@ export function setupVisualIndexIPC(): void {
       logger.error({ error: err.message }, 'Failed to save visual index item');
       return { success: false, error: err.message };
     }
-  });
+    });
+}
+
+export function removeVisualIndexIPC(): void {
+  ipcMain.removeHandler('visual-index:save-item');
 }

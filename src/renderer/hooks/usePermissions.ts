@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getElectronAPI } from '../api/ipc';
+import { rendererLog } from '../lib/utils';
 import type { PermissionStatus } from '../../shared/types/ipc.types';
 
 export function usePermissions() {
@@ -21,7 +22,9 @@ export function usePermissions() {
       const permStatus = await api.permissions.getStatus();
       setStatus(permStatus);
     } catch (error) {
-      console.error('Failed to check permissions:', error);
+      rendererLog('error', 'permissions-hook', 'Failed to check permissions', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setLoading(false);
     }

@@ -11,7 +11,6 @@ import { logger } from '../../lib/logger';
 import { getConnectionRegistry, ConnectionRegistryService } from './connection-registry.service';
 import { getHealthMonitor, HealthMonitorService } from './health-monitor.service';
 import { getMCPAuthService, MCPAuthService, type MCPOAuthConfig } from './mcp-auth.service';
-import { MCPClientService } from './mcp-client.service';
 import {
   getAllMCPServers,
   getAutoConnectMCPServers,
@@ -26,7 +25,6 @@ import type {
   MCPServerConfig,
   MCPTool,
   MCPToolResult,
-  MCPEvents,
   CreateMCPServerRequest,
   UpdateMCPServerRequest,
   MCPTestConnectionResult,
@@ -409,7 +407,7 @@ export class ConnectionOrchestratorService extends EventEmitter {
     log.info({ serverId }, 'Starting OAuth flow for server');
 
     try {
-      const tokens = await this.authService.authorize(oauthConfig);
+      await this.authService.authorize(oauthConfig);
 
       // After successful auth, reconnect with the new tokens
       const client = this.registry.getClient(serverId);
@@ -474,7 +472,7 @@ export class ConnectionOrchestratorService extends EventEmitter {
    * Create a default auth provider for HTTP servers
    * This works with SDK-discovered OAuth (server provides OAuth metadata)
    */
-  private createDefaultAuthProvider(serverId: string, serverName: string) {
+  private createDefaultAuthProvider(serverId: string, _serverName: string) {
     const authService = this.authService;
     const redirectUri = 'chess-lens://oauth/callback';
 

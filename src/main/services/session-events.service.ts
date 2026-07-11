@@ -128,7 +128,7 @@ export async function cleanupSessionWebSocket(): Promise<void> {
     try {
       await sessionWebSocket.close();
       logger.info('[SessionWS] Session WebSocket closed');
-    } catch (e) {
+    } catch {
       // Ignore close errors
     }
     sessionWebSocket = null;

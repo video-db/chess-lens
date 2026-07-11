@@ -3,7 +3,7 @@ import { router, protectedProcedure } from '../trpc';
 import { createChildLogger } from '../../../lib/logger';
 import { loadRuntimeConfig } from '../../../lib/config';
 import { getGameVisualIndexTiming, getGameIndexingPrompt, SUPPORTED_GAME_IDS } from '../../../../shared/config/game-coaching';
-import { RTSTREAM_VISION_MODEL } from '../../../services/llm.service';
+import { RTSTREAM_VISION_MODEL } from '../../../services/llm/llm.service';
 import { connect } from 'videodb';
 import type { CaptureSessionFull, RTStream } from 'videodb';
 

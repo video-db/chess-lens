@@ -5,11 +5,8 @@
  * namespaced access to prevent naming conflicts. Format: serverId:toolName
  */
 
-import { logger } from '../../lib/logger';
 import { getConnectionRegistry, ConnectionRegistryService } from './connection-registry.service';
 import type { MCPTool, MCPToolResult } from '../../../shared/types/mcp.types';
-
-const log = logger.child({ module: 'mcp-tool-aggregator' });
 
 export interface NamespacedTool extends MCPTool {
   namespacedName: string;

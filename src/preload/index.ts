@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IpcApi, LiveAssistMeetingContext, RecorderEvent, PermissionStatus, StartRecordingParams } from '../shared/types/ipc.types';
-import type { Channel } from '../shared/schemas/capture.schema';
 import type {
   CalendarApi,
   CalendarEvents,
@@ -17,6 +16,18 @@ type NotificationGlobalShim = {
 
 function getNotificationGlobal(): NotificationGlobalShim | undefined {
   return (globalThis as unknown as { Notification?: NotificationGlobalShim }).Notification;
+}
+
+function subscribeIpc<T>(channel: string, callback: (data: T) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, data: T) => callback(data);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
+function subscribeIpcSignal(channel: string, callback: () => void): () => void {
+  const listener = () => callback();
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
 }
 
 // Copilot event types
@@ -356,9 +367,7 @@ const api: IpcApi = {
       moveSan?: string;
       playedMoveSan?: string;
     }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('live-assist:update', listener);
-      return () => ipcRenderer.removeListener('live-assist:update', listener);
+      return subscribeIpc('live-assist:update', callback);
     },
     onFen: (callback: (data: {
       fen: string;
@@ -375,9 +384,7 @@ const api: IpcApi = {
       /** Canonical win-probability snapshot — replaces any previously held chart data. */
       winProbabilitySnapshot?: Array<{ winChance: number; turn: 'w' | 'b'; moveIndex: number; moveSan?: string }>;
     }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('live-assist:fen', listener);
-      return () => ipcRenderer.removeListener('live-assist:fen', listener);
+      return subscribeIpc('live-assist:fen', callback);
     },
   },
 
@@ -424,23 +431,11 @@ const api: IpcApi = {
 
   on: {
     recorderEvent: (callback: (event: RecorderEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: RecorderEvent) => {
-        callback(data);
-      };
-      ipcRenderer.on('recorder-event', listener);
-      return () => {
-        ipcRenderer.removeListener('recorder-event', listener);
-      };
+      return subscribeIpc('recorder-event', callback);
     },
 
     authRequired: (callback: () => void) => {
-      const listener = () => {
-        callback();
-      };
-      ipcRenderer.on('auth-required', listener);
-      return () => {
-        ipcRenderer.removeListener('auth-required', listener);
-      };
+      return subscribeIpcSignal('auth-required', callback);
     },
   },
 
@@ -468,44 +463,28 @@ const api: IpcApi = {
   // Copilot event listeners
   copilotOn: {
     onTranscript: (callback: (segment: CopilotTranscriptSegment) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: CopilotTranscriptSegment) => callback(data);
-      ipcRenderer.on('copilot:transcript', listener);
-      return () => ipcRenderer.removeListener('copilot:transcript', listener);
+      return subscribeIpc('copilot:transcript', callback);
     },
     onMetrics: (callback: (data: { metrics: CopilotMetrics; health: number }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('copilot:metrics', listener);
-      return () => ipcRenderer.removeListener('copilot:metrics', listener);
+      return subscribeIpc('copilot:metrics', callback);
     },
     onSentiment: (callback: (data: { sentiment: CopilotSentiment }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('copilot:sentiment', listener);
-      return () => ipcRenderer.removeListener('copilot:sentiment', listener);
+      return subscribeIpc('copilot:sentiment', callback);
     },
     onNudge: (callback: (data: { nudge: CopilotNudge }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('copilot:nudge', listener);
-      return () => ipcRenderer.removeListener('copilot:nudge', listener);
+      return subscribeIpc('copilot:nudge', callback);
     },
     onCueCard: (callback: (data: { cueCard: CopilotCueCard }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('copilot:cue-card', listener);
-      return () => ipcRenderer.removeListener('copilot:cue-card', listener);
+      return subscribeIpc('copilot:cue-card', callback);
     },
     onPlaybook: (callback: (data: { item: CopilotPlaybookItem; snapshot: CopilotPlaybookSnapshot }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('copilot:playbook', listener);
-      return () => ipcRenderer.removeListener('copilot:playbook', listener);
+      return subscribeIpc('copilot:playbook', callback);
     },
     onCallEnded: (callback: (data: { summary: CopilotCallSummary; playbook?: CopilotPlaybookSnapshot; metrics: CopilotMetrics; duration: number }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('copilot:call-ended', listener);
-      return () => ipcRenderer.removeListener('copilot:call-ended', listener);
+      return subscribeIpc('copilot:call-ended', callback);
     },
     onError: (callback: (data: { error: string; context?: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('copilot:error', listener);
-      return () => ipcRenderer.removeListener('copilot:error', listener);
+      return subscribeIpc('copilot:error', callback);
     },
   } as CopilotEvents,
 
@@ -569,45 +548,29 @@ const api: IpcApi = {
   // MCP event listeners
   mcpOn: {
     onResult: (callback: (data: { result: MCPDisplayResult }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('mcp:result', listener);
-      return () => ipcRenderer.removeListener('mcp:result', listener);
+      return subscribeIpc('mcp:result', callback);
     },
     onError: (callback: (data: { serverId: string; toolName: string; error: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('mcp:error', listener);
-      return () => ipcRenderer.removeListener('mcp:error', listener);
+      return subscribeIpc('mcp:error', callback);
     },
     onServerConnected: (callback: (data: { serverId: string; tools: MCPTool[] }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('mcp:server-connected', listener);
-      return () => ipcRenderer.removeListener('mcp:server-connected', listener);
+      return subscribeIpc('mcp:server-connected', callback);
     },
     onServerDisconnected: (callback: (data: { serverId: string; reason: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('mcp:server-disconnected', listener);
-      return () => ipcRenderer.removeListener('mcp:server-disconnected', listener);
+      return subscribeIpc('mcp:server-disconnected', callback);
     },
     onServerError: (callback: (data: { serverId: string; error: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('mcp:server-error', listener);
-      return () => ipcRenderer.removeListener('mcp:server-error', listener);
+      return subscribeIpc('mcp:server-error', callback);
     },
     // OAuth events
     onAuthRequired: (callback: (data: { serverId: string; serverName: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('mcp:auth-required', listener);
-      return () => ipcRenderer.removeListener('mcp:auth-required', listener);
+      return subscribeIpc('mcp:auth-required', callback);
     },
     onAuthSuccess: (callback: (data: { serverId: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('mcp:auth-success', listener);
-      return () => ipcRenderer.removeListener('mcp:auth-success', listener);
+      return subscribeIpc('mcp:auth-success', callback);
     },
     onAuthError: (callback: (data: { serverId: string; error: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
-      ipcRenderer.on('mcp:auth-error', listener);
-      return () => ipcRenderer.removeListener('mcp:auth-error', listener);
+      return subscribeIpc('mcp:auth-error', callback);
     },
   } as MCPEvents,
 
@@ -625,29 +588,19 @@ const api: IpcApi = {
   // Calendar event listeners
   calendarOn: {
     onAuthRequired: (callback: () => void) => {
-      const listener = () => callback();
-      ipcRenderer.on('calendar:auth-required', listener);
-      return () => ipcRenderer.removeListener('calendar:auth-required', listener);
+      return subscribeIpcSignal('calendar:auth-required', callback);
     },
     onEventsUpdated: (callback: (events: UpcomingMeeting[]) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: UpcomingMeeting[]) => callback(data);
-      ipcRenderer.on('calendar:events-updated', listener);
-      return () => ipcRenderer.removeListener('calendar:events-updated', listener);
+      return subscribeIpc('calendar:events-updated', callback);
     },
     onOpenMeetingSetup: (callback: (meeting: UpcomingMeeting) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: UpcomingMeeting) => callback(data);
-      ipcRenderer.on('calendar:open-meeting-setup', listener);
-      return () => ipcRenderer.removeListener('calendar:open-meeting-setup', listener);
+      return subscribeIpc('calendar:open-meeting-setup', callback);
     },
     onAutoStartRecording: (callback: (meeting: UpcomingMeeting) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: UpcomingMeeting) => callback(data);
-      ipcRenderer.on('calendar:auto-start-recording', listener);
-      return () => ipcRenderer.removeListener('calendar:auto-start-recording', listener);
+      return subscribeIpc('calendar:auto-start-recording', callback);
     },
     onOverlappingMeeting: (callback: (data: { currentMeeting?: UpcomingMeeting; nextMeeting: UpcomingMeeting }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: { currentMeeting?: UpcomingMeeting; nextMeeting: UpcomingMeeting }) => callback(data);
-      ipcRenderer.on('calendar:overlapping-meeting', listener);
-      return () => ipcRenderer.removeListener('calendar:overlapping-meeting', listener);
+      return subscribeIpc('calendar:overlapping-meeting', callback);
     },
   } as CalendarEvents,
 
@@ -664,7 +617,7 @@ const api: IpcApi = {
     ipcRenderer.invoke('renderer:log', level, module, message, data).catch(() => {
       // If the IPC channel is not yet available (e.g. very early startup),
       // fall back to the DevTools console so the message is not lost entirely.
-      // eslint-disable-next-line no-console
+       
       console[level](`[renderer:${module}]`, message, data ?? '');
     });
   },

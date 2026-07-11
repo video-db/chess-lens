@@ -37,12 +37,18 @@ const config = {
       to: 'resources/',
       filter: ['**/*', '!.gitkeep'],
     },
+    {
+      from: 'assets/models/',
+      to: 'assets/models/',
+      filter: ['*.onnx'],
+    },
   ],
   asar: true,
   // Only unpack binary directories - simpler and more reliable
   asarUnpack: [
     'node_modules/videodb/bin/**',
     'node_modules/better-sqlite3/build/**',
+    'node_modules/onnxruntime-node/**',
   ],
   npmRebuild: true,
   nodeGypRebuild: false,

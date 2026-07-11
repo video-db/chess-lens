@@ -8,7 +8,7 @@
 import { EventEmitter } from 'events';
 import { v4 as uuid } from 'uuid';
 import { logger } from '../../lib/logger';
-import { initLLMService } from '../llm.service';
+import { initLLMService } from '../llm/llm.service';
 import {
   updateRecording,
   getRecordingById,
@@ -51,7 +51,7 @@ import {
   type MeetingContext,
 } from './summary-generator.service';
 
-import { exportMeetingToMarkdown } from '../markdown-export.service';
+import { exportMeetingToMarkdown } from '../recording/markdown-export.service';
 import { computeAccuracy } from '../../../shared/lib/moveClassification';
 
 
@@ -398,11 +398,13 @@ export class MeetingCopilotService extends EventEmitter {
     const recording = getRecordingById(recordingId);
     const firstFen = getLiveAssistService().getFirstFen();
     const earlyMoveSequence = getLiveAssistService().getEarlyMoveSequence();
+    const moveHistory = getLiveAssistService().getCanonicalMoveHistorySnapshot();
     log.info(
       {
         recordingId,
         firstFen: firstFen ? firstFen.slice(0, 60) : null,
         earlyMoveCount: earlyMoveSequence.length,
+        moveHistoryCount: moveHistory.length,
         earlyMoves: earlyMoveSequence.map(e => ({ san: e.san ?? '?', fen: e.fen.slice(0, 40) })),
       },
       'endCall: opening detection inputs from live-assist'
@@ -419,6 +421,7 @@ export class MeetingCopilotService extends EventEmitter {
         : undefined,
       firstFen: firstFen ?? undefined,
       earlyMoveSequence: earlyMoveSequence.length > 0 ? earlyMoveSequence : undefined,
+      moveHistory: moveHistory.length > 0 ? moveHistory : undefined,
     };
 
     // Persist accumulated coaching tips so the summary generator can use them.

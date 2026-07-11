@@ -6,6 +6,7 @@ import { useCopilotStore } from '../stores/copilot.store';
 import { useLiveAssistStore } from '../stores/live-assist.store';
 import { getElectronAPI } from '../api/ipc';
 import { trpc } from '../api/trpc';
+import { rendererLog } from '../lib/utils';
 import type { RecorderEvent, TranscriptEvent, VisualIndexEvent } from '../../shared/types/ipc.types';
 
 function normalizeVisualIndexText(raw: string): string {
@@ -155,7 +156,9 @@ export function useGlobalRecorderEvents() {
                 }
               })
               .catch((err: Error) => {
-                console.warn('[GlobalRecorderEvents] Error finalizing copilot on stop:', err);
+                rendererLog('warn', 'global-recorder-events', 'Error finalizing copilot on stop', {
+                  error: err.message,
+                });
                 useCopilotStore.getState().reset();
               })
               .finally(() => {
@@ -190,7 +193,9 @@ export function useGlobalRecorderEvents() {
                   start: transcript.start,
                   end: transcript.end,
                 }).catch((err: Error) => {
-                  console.warn('[GlobalRecorderEvents] Error forwarding transcript to copilot:', err);
+                  rendererLog('warn', 'global-recorder-events', 'Error forwarding transcript to copilot', {
+                    error: err.message,
+                  });
                 });
               }
             }
@@ -230,7 +235,9 @@ export function useGlobalRecorderEvents() {
                   rtstreamId: visualData.rtstreamId,
                   rtstreamName: visualData.rtstreamName,
                 }).catch((err: Error) => {
-                  console.warn('[GlobalRecorderEvents] Error saving visual index item:', err);
+                  rendererLog('warn', 'global-recorder-events', 'Error saving visual index item', {
+                    error: err.message,
+                  });
                 });
               }
             }
@@ -238,7 +245,9 @@ export function useGlobalRecorderEvents() {
           break;
 
         case 'upload:progress':
-          console.log('[GlobalRecorderEvents] Upload progress:', event.data);
+          rendererLog('debug', 'global-recorder-events', 'Upload progress', {
+            data: event.data as Record<string, unknown>,
+          });
           break;
 
         case 'upload:complete':
@@ -246,11 +255,13 @@ export function useGlobalRecorderEvents() {
           if (session.status === 'processing' && !useCopilotStore.getState().isCallActive) {
             session.setStatus('idle');
           }
-          console.log('[GlobalRecorderEvents] Upload complete received');
+          rendererLog('info', 'global-recorder-events', 'Upload complete received');
           break;
 
         case 'error':
-          console.error('[GlobalRecorderEvents] Error:', event.data);
+          rendererLog('error', 'global-recorder-events', 'Recorder event error', {
+            data: event.data as Record<string, unknown>,
+          });
           session.setError(String(event.data));
           break;
       }
@@ -258,7 +269,7 @@ export function useGlobalRecorderEvents() {
 
     // Only unsubscribe when the entire app unmounts (which shouldn't happen during normal use)
     return () => {
-      console.log('[Global] Cleaning up recorder event listener');
+      rendererLog('debug', 'global-recorder-events', 'Cleaning up recorder event listener');
       unsubscribe();
     };
   }, []); // Empty deps - only run once on mount

@@ -3,7 +3,6 @@ import { FileText, MessageSquareText, CheckSquare, ChevronDown, ChevronUp } from
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { useGameSetupStore } from '../../stores/meeting-setup.store';
-import { cn } from '../../lib/utils';
 
 export function MeetingInfoPanel() {
   const { name, description, questions, checklist } = useGameSetupStore();

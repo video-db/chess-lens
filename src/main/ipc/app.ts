@@ -59,7 +59,7 @@ export function setupAppHandlers(): void {
 
   ipcMain.handle('get-server-port', async (): Promise<number> => {
     const status = getServerStatus();
-    return status.port || 51731; // fallback to default
+    return status.port || 5174; // fallback to default
   });
 
   ipcMain.handle('logout', async (): Promise<void> => {

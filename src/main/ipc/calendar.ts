@@ -11,14 +11,13 @@ import {
   signOut,
   isAuthenticated,
   hasTokens,
-} from '../services/google-auth.service';
-import { fetchUpcomingEvents } from '../services/google-calendar.service';
-import { getCalendarPoller } from '../services/calendar-poller.service';
+} from '../services/calendar/google-auth.service';
+import { fetchUpcomingEvents } from '../services/calendar/google-calendar.service';
+import { getCalendarPoller } from '../services/calendar/calendar-poller.service';
 import type {
   CalendarSignInResult,
   CalendarEventsResult,
   CalendarAuthStatusResult,
-  UpcomingMeeting,
 } from '../../shared/types/calendar.types';
 
 const logger = createChildLogger('ipc-calendar');

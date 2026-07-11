@@ -5,7 +5,7 @@
  * Auto-dismisses after a timeout or can be manually dismissed.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from './button';
 import { X, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -28,6 +28,14 @@ export function ErrorToast({
   const [isVisible, setIsVisible] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
 
+  const handleDismiss = useCallback(() => {
+    setIsVisible(false);
+    setTimeout(() => {
+      setIsAnimating(false);
+      onDismiss();
+    }, 300);
+  }, [onDismiss]);
+
   useEffect(() => {
     if (message) {
       setIsAnimating(true);
@@ -43,15 +51,7 @@ export function ErrorToast({
       setIsVisible(false);
       setTimeout(() => setIsAnimating(false), 300);
     }
-  }, [message, autoDismissMs]);
-
-  const handleDismiss = () => {
-    setIsVisible(false);
-    setTimeout(() => {
-      setIsAnimating(false);
-      onDismiss();
-    }, 300);
-  };
+  }, [message, autoDismissMs, handleDismiss]);
 
   if (!isAnimating || !message) {
     return null;

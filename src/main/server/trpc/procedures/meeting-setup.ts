@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { getMeetingSetupService } from '../../../services/meeting-setup.service';
+import { getMeetingSetupService } from '../../../services/meeting-setup/meeting-setup.service';
 
 const probingQuestionSchema = z.object({
   question: z.string(),

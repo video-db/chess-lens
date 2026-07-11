@@ -22,7 +22,7 @@ function getModuleRoot(moduleName: string): string {
   try {
     // Resolve from cwd to avoid relying on process.cwd() being the app root
     // This matches Node's normal module resolution behavior.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const resolved = require.resolve(`${moduleName}/package.json`, { paths: [process.cwd()] });
     return path.dirname(resolved);
   } catch {

@@ -209,6 +209,12 @@ export function setupWidgetIpcHandlers(): void {
     }
   });
 
+  // Widget renderer diagnostics — fire-and-forget log relay to main-process pino.
+  ipcMain.on('widget:log', (_event, { level, module, message, data }: { level: 'debug' | 'info' | 'warn' | 'error'; module: string; message: string; data?: Record<string, unknown> }) => {
+    const child = logger.child({ module: `widget-ui:${module}` });
+    child[level](data ?? {}, message);
+  });
+
   ipcMain.handle('widget:show-main-window', async () => {
     if (mainWindowRef && !mainWindowRef.isDestroyed()) {
       mainWindowRef.show();
@@ -351,8 +357,8 @@ export function sendWidgetNoBoard(): void {
 
 export function updateWidgetFen(data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }): void {
   widgetFen = data;
+  logger.info({ fen: data.fen.slice(0, 40), displayFen: data.displayFen.slice(0, 40), turn: data.turn, boardOrientation: data.boardOrientation }, '[widget ipc] updateWidgetFen called');
   sendToWidget('widget:fen', widgetFen);
-  logger.debug({ fen: data.fen, turn: data.turn }, 'Sent FEN to widget for board verification');
 }
 
 export function clearWidgetState(): void {

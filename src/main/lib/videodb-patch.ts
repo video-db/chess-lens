@@ -73,7 +73,7 @@ export function applyVideoDBPatches(): void {
     }
 
     // Intercept child_process.spawn to redirect recorder binary to writable copy
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const cp = require('child_process');
     const origSpawn = cp.spawn;
     const binName = process.platform === 'win32' ? 'capture.exe' : 'capture';

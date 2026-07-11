@@ -8,11 +8,11 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { getLiveAssistService, resetLiveAssistService } from '../services/live-assist.service';
 import type { MeetingContext } from '../services/live-assist.service';
-import { getMCPInferenceService, resetMCPInferenceService } from '../services/mcp-inference.service';
+import { getMCPInferenceService, resetMCPInferenceService } from '../services/mcp/mcp-inference.service';
 import { getMeetingCopilot } from '../services/copilot/sales-copilot.service';
 import { createChildLogger } from '../lib/logger';
 import { updateWidgetLiveAssist, updateWidgetFen, sendWidgetNoBoard } from './widget';
-import { getChessScreenshotService } from '../services/chess-screenshot.service';
+import { getChessScreenshotService } from '../services/chess/chess-screenshot.service';
 import type { LiveInsightsEvent } from '../../shared/types/live-assist.types';
 import type { MCPDisplayResult } from '../../shared/types/mcp.types';
 
@@ -95,6 +95,7 @@ export function setupLiveAssistHandlers(): void {
       }
     });
     liveAssistService.on('fen', (data: { fen: string; displayFen: string; board: string | null; turn: 'w' | 'b' | null; boardOrientation?: 'white' | 'black'; engineSan?: string; engineLan?: string; engineFrom?: string; engineTo?: string; engineEval?: number; engineMate?: number | null; isFlipAck?: boolean }) => {
+      logger.info({ fen: data.fen.slice(0, 40), displayFen: data.displayFen.slice(0, 40), turn: data.turn, isFlipAck: !!data.isFlipAck }, '[live-assist ipc] fen listener fired — forwarding to widget');
       sendToRenderer('live-assist:fen', data);
       updateWidgetFen(data);
     });

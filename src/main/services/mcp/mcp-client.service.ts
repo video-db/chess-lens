@@ -138,7 +138,7 @@ export class MCPClientService extends EventEmitter {
           ? decryptCredentials(this.config.env)
           : this.config.env;
         Object.assign(env, configEnv);
-      } catch (error) {
+      } catch {
         log.warn({ serverId: this.config.id }, 'Failed to decrypt env, using as-is');
         if (typeof this.config.env === 'object') {
           Object.assign(env, this.config.env);
@@ -147,7 +147,7 @@ export class MCPClientService extends EventEmitter {
     }
 
     // Parse args
-    let args: string[] = [];
+    let args: string[];
     if (typeof this.config.args === 'string') {
       try {
         args = JSON.parse(this.config.args);
@@ -183,7 +183,7 @@ export class MCPClientService extends EventEmitter {
         headers = typeof this.config.headers === 'string'
           ? decryptCredentials(this.config.headers)
           : this.config.headers;
-      } catch (error) {
+      } catch {
         log.warn({ serverId: this.config.id }, 'Failed to decrypt headers, using as-is');
         if (typeof this.config.headers === 'object') {
           headers = this.config.headers;

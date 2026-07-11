@@ -5,7 +5,7 @@
  * Auto-dismisses after a timeout or can be manually dismissed.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '../ui/button';
 import {
   X,
@@ -20,7 +20,6 @@ import {
 import { useCopilotStore } from '../../stores/copilot.store';
 import { useCopilot } from '../../hooks/useCopilot';
 import { cn } from '../../lib/utils';
-import type { CopilotNudge } from '../../../shared/types/ipc.types';
 
 // Sub-components
 
@@ -72,6 +71,14 @@ export function NudgeToast({
   const [isVisible, setIsVisible] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
 
+  const handleDismiss = useCallback(() => {
+    setIsVisible(false);
+    setTimeout(() => {
+      setIsAnimating(false);
+      dismissNudge();
+    }, 300);
+  }, [dismissNudge]);
+
   useEffect(() => {
     if (activeNudge && isCallActive) {
       setIsAnimating(true);
@@ -87,15 +94,7 @@ export function NudgeToast({
       setIsVisible(false);
       setTimeout(() => setIsAnimating(false), 300);
     }
-  }, [activeNudge, isCallActive, autoDismissMs]);
-
-  const handleDismiss = () => {
-    setIsVisible(false);
-    setTimeout(() => {
-      setIsAnimating(false);
-      dismissNudge();
-    }, 300);
-  };
+  }, [activeNudge, isCallActive, autoDismissMs, handleDismiss]);
 
   if (!isAnimating || !activeNudge) {
     return null;

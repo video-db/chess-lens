@@ -29,6 +29,9 @@ export function useSession() {
   const sessionStore = useSessionStore();
   const transcriptionStore = useTranscriptionStore();
   const configStore = useConfigStore();
+  const recordingStatus = sessionStore.status;
+  const recordingStartTime = sessionStore.startTime;
+  const setElapsedTime = sessionStore.setElapsedTime;
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -42,10 +45,10 @@ export function useSession() {
   // Recorder events are global to prevent transcript loss on navigation.
 
   useEffect(() => {
-    if (sessionStore.status === 'recording' && sessionStore.startTime) {
+    if (recordingStatus === 'recording' && recordingStartTime) {
       timerRef.current = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - sessionStore.startTime!) / 1000);
-        sessionStore.setElapsedTime(elapsed);
+        const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+        setElapsedTime(elapsed);
       }, 1000);
     } else {
       if (timerRef.current) {
@@ -59,7 +62,7 @@ export function useSession() {
         clearInterval(timerRef.current);
       }
     };
-  }, [sessionStore.status, sessionStore.startTime]);
+  }, [recordingStatus, recordingStartTime, setElapsedTime]);
 
   const startRecording = useCallback(async (meetingSetup?: MeetingSetupData) => {
     rendererLog('info', 'use-session', 'startRecording called', { name: meetingSetup?.name ?? null });
@@ -274,7 +277,9 @@ export function useSession() {
     // This prevents the interval from continuing to log "No new gameplay
     // action feed to process" during the (potentially slow) capture shutdown.
     api.liveAssist.stop().catch((err: Error) => {
-      console.warn('[useSession] Failed to stop live assist on recording stop:', err);
+      rendererLog('warn', 'use-session', 'Failed to stop live assist on recording stop', {
+        error: err.message,
+      });
     });
 
     try {
@@ -298,7 +303,7 @@ export function useSession() {
           const duration = useCopilotStore.getState().callDuration || 0;
           useCopilotStore.getState().setCallSummary(copilotResult.summary, duration);
         }
-      } catch (copilotError) {
+      } catch {
         // Ignore copilot errors
       }
 

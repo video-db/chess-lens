@@ -61,6 +61,9 @@ export interface WidgetApi {
 
   // Report rendered content height to the main process for auto-resize
   reportContentHeight: (height: number) => void;
+
+  // Relay renderer diagnostics to the main-process log file
+  log: (level: 'debug' | 'info' | 'warn' | 'error', module: string, message: string, data?: Record<string, unknown>) => void;
 }
 
 const widgetApi: WidgetApi = {
@@ -131,6 +134,10 @@ const widgetApi: WidgetApi = {
   // Notify the main process of the current rendered content height so it can
   // resize the BrowserWindow to fit without clipping.
   reportContentHeight: (height: number) => ipcRenderer.send('widget:content-height', height),
+
+  // Route renderer diagnostics to the main-process log file (devtools not available on overlay).
+  log: (level: 'debug' | 'info' | 'warn' | 'error', module: string, message: string, data?: Record<string, unknown>) =>
+    ipcRenderer.send('widget:log', { level, module, message, data }),
 };
 
 contextBridge.exposeInMainWorld('widgetAPI', widgetApi);

@@ -7,8 +7,6 @@ import { App } from './App';
 import './styles/globals.css';
 
 function TrpcProvider({ children, port }: { children: React.ReactNode; port: number }) {
-  const configStore = useConfigStore();
-
   const [queryClient] = useState(
     () =>
       new QueryClient({

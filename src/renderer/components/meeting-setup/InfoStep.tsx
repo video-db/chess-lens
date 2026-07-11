@@ -25,7 +25,7 @@ export function InfoStep({
   initialName,
   initialCoachPersonalityId = 'default',
   isGenerating,
-  onNext,
+  onNext: _onNext,
   onSkip,
 }: InfoStepProps) {
   const [name, setName] = useState(initialName);

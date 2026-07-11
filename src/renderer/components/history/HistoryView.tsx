@@ -42,7 +42,7 @@ export function HistoryView({ initialSelectedRecordingId, onClearInitialSelectio
       if (staleCount > 0) cleanupMutation.mutate({ maxAgeMinutes: 0, excludeSessionId: activeSessionId || undefined });
       setHasCleanedUp(true);
     }
-  }, [recordings, hasCleanedUp, activeSessionId]);
+  }, [recordings, hasCleanedUp, activeSessionId, cleanupMutation]);
 
   const allRecordings = useMemo(() =>
     [...(recordings || [])].sort(

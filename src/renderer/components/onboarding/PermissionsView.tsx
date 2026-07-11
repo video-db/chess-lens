@@ -10,7 +10,6 @@
 
 import React from 'react';
 import { usePermissions } from '../../hooks/usePermissions';
-import { useConfigStore } from '../../stores/config.store';
 import { useNotificationPermission } from '../../hooks/useNotificationPermission';
 import { StepIndicators } from '../auth/AuthView';
 import { ChessLensIconOrange } from '../ui/ChessLensIcon';
@@ -142,7 +141,6 @@ export interface PermissionsViewProps {
 
 export function PermissionsView({ onContinue }: PermissionsViewProps) {
   const { status, requestMicPermission, openSettings, checkPermissions } = usePermissions();
-  const configStore = useConfigStore();
   const { enabled: notificationsEnabled, openSettings: openNotificationSettings } =
     useNotificationPermission();
 

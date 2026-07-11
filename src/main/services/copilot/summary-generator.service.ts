@@ -60,6 +60,7 @@ export interface MeetingContext {
    * Preferred over firstFen when available.
    */
   earlyMoveSequence?: Array<{ fen: string; san?: string }>;
+  moveHistory?: Array<{ no: number; white?: string; black?: string }>;
 }
 
 // ─── System Prompts ─────────────────────────────────────────────────────────────
@@ -88,6 +89,7 @@ Return only the summary paragraph.`;
 Rules:
 - Always return at least 3 topics. If the game was short, dig deeper into the engine evaluations and infer patterns from the moves and positions mentioned.
 - Each topic must contain 2-3 specific, concrete observations — not generic advice. Bad: "Improve piece activity." Good: "The bishop remained passive on c8 for most of the middlegame while White's knights dominated the centre."
+- Engine evaluation data (centipawn loss, win chance trends) is provided per move alongside the coaching text. Analyse this data to identify objective turning points, accuracy patterns, and critical moments.
 - Every point should be directly traceable to something that actually happened in this game — a specific move, tactical idea, structural decision, or turning point.
 - Group by chess themes such as: Opening Choices, Tactical Opportunities, Piece Activity, Pawn Structure, King Safety, Critical Moments, Endgame Technique, Critical Decisions.
 - Do NOT return an empty array. Always produce at least 3 topics.
@@ -142,6 +144,10 @@ export class SummaryGeneratorService {
     const dbSegments = getTranscriptSegmentsByRecording(recordingId);
     const gameId: SupportedGameId = context.gameId || 'chess';
 
+    if (gameId === 'chess') {
+      return this.generateFromVisualData(recordingId, context, gameId, dbSegments);
+    }
+
     // If there's a real spoken transcript, use it (non-chess sessions).
     if (dbSegments && dbSegments.length > 0) {
       log.info({ recordingId, segmentCount: dbSegments.length }, 'Generating summary from transcript');
@@ -178,7 +184,8 @@ export class SummaryGeneratorService {
   private async generateFromVisualData(
     recordingId: number,
     context: MeetingContext,
-    gameId: SupportedGameId
+    gameId: SupportedGameId,
+    transcriptSegments: { channel: string; text: string; startTime: number }[] = []
   ): Promise<PostMeetingSummary> {
     const gameName = getGameCoachingProfile(gameId).name;
 
@@ -187,7 +194,10 @@ export class SummaryGeneratorService {
 
     log.info({ recordingId, savedTipCount: savedTips.length }, 'Coaching tips loaded from DB for summary generation');
 
-    if (savedTips.length === 0) {
+    const hasMoveHistory = (context.moveHistory?.length ?? 0) > 0;
+    const hasOpeningData = (context.earlyMoveSequence?.length ?? 0) > 0 || !!context.firstFen;
+
+    if (savedTips.length === 0 && !hasMoveHistory && !hasOpeningData) {
       log.warn({ recordingId }, 'No coaching tips found in DB — returning generic fallback');
       return this.emptyChessFallback(gameName);
     }
@@ -201,21 +211,36 @@ export class SummaryGeneratorService {
 
     log.info({ recordingId, totalTips: savedTips.length, tipsWithText: tipsWithText.length }, 'Tips with LLM text filtered');
 
-    if (tipsWithText.length === 0) {
+    if (tipsWithText.length === 0 && !hasMoveHistory && !hasOpeningData) {
       log.warn({ recordingId, totalTips: savedTips.length }, 'No LLM coaching tips found — returning generic fallback');
       return this.emptyChessFallback(gameName);
     }
 
     const gameLog = tipsWithText
-      .map((tip, i) => `[Move ${i + 1}] Coach: ${tip.sayThis}\n  Drill: ${tip.askThis}`)
+      .map((tip, i) => {
+        const turn = tip.turn === 'w' ? 'White' : tip.turn === 'b' ? 'Black' : '';
+        const parts: string[] = [];
+        if (turn) parts.push(turn);
+        if (tip.centipawnLoss !== undefined) parts.push(`CPL: ${tip.centipawnLoss.toFixed(2)}`);
+        if (tip.winChanceBefore !== undefined && tip.winChance !== undefined)
+          parts.push(`WC: ${tip.winChanceBefore.toFixed(0)}% → ${tip.winChance.toFixed(0)}%`);
+        const stats = parts.length > 0 ? `(${parts.join(', ')})` : '';
+        return `[Move ${i + 1}] ${stats}\n  Coach: ${tip.sayThis}\n  Drill: ${tip.askThis}`;
+      })
       .join('\n\n');
 
-    const userPrompt = this.buildChessUserPrompt(gameLog, context, gameName);
+    const moveList = context.moveHistory?.length
+      ? context.moveHistory
+        .map((move) => `${move.no}. ${move.white ?? '...'}${move.black ? ` ${move.black}` : ''}`)
+        .join('\n')
+      : '';
+    const transcript = transcriptSegments.length > 0 ? this.formatTranscript(transcriptSegments) : '';
+    const userPrompt = this.buildChessUserPrompt(gameLog, context, gameName, moveList, transcript);
 
-    const hasOpeningData = (context.earlyMoveSequence?.length ?? 0) > 0 || !!context.firstFen;
     log.info(
       {
         recordingId,
+        moveHistoryCount: context.moveHistory?.length ?? 0,
         earlyMoveCount: context.earlyMoveSequence?.length ?? 0,
         firstFen: context.firstFen ? context.firstFen.slice(0, 60) : null,
       },
@@ -254,7 +279,13 @@ export class SummaryGeneratorService {
   /**
    * Build the user prompt for the LLM using a log of chess coaching tips.
    */
-  private buildChessUserPrompt(gameLog: string, context: MeetingContext, gameName: string): string {
+  private buildChessUserPrompt(
+    gameLog: string,
+    context: MeetingContext,
+    gameName: string,
+    moveList = '',
+    transcript = ''
+  ): string {
     const title = context.meetingName || `${gameName} Game`;
     const description = context.meetingDescription?.trim();
 
@@ -267,10 +298,14 @@ export class SummaryGeneratorService {
 
     const descriptionBlock = description ? `Game Description: ${description}\n\n` : '';
     const preContext = probingQA ? `Pre-Match Context:\n${probingQA}\n\n` : '';
+    const moveBlock = moveList ? `Move List (captured from board state):\n${moveList}\n\n` : '';
+    const coachingBlock = gameLog ? `Live Coaching Tips (captured during the game):\n${gameLog}\n\n` : '';
+    const transcriptBlock = transcript
+      ? `Voice Transcript (supplemental, do not treat as the only game data):\n${transcript}\n\n`
+      : '';
 
     return `${gameName} Game: ${title}
-${descriptionBlock}${preContext}Live Coaching Tips (captured during the game):
-${gameLog}`;
+${descriptionBlock}${preContext}${moveBlock}${coachingBlock}${transcriptBlock}Analyse the chess game using the move list and coaching data above.`;
   }
 
   /**

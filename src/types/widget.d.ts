@@ -48,6 +48,8 @@ export interface WidgetApi {
   onNoBoard: (callback: () => void) => () => void;
   requestInitialState: () => Promise<void>;
   reportContentHeight: (height: number) => void;
+  /** Relay a diagnostic log from the widget renderer to the main-process log file. */
+  log: (level: 'debug' | 'info' | 'warn' | 'error', module: string, message: string, data?: Record<string, unknown>) => void;
 }
 
 // Extend the Window interface

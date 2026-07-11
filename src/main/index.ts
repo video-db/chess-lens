@@ -27,8 +27,8 @@ import {
   shutdownCaptureClient,
 } from './ipc';
 import { getTrayService, resetTrayService } from './services/tray.service';
-import { getCalendarPoller, resetCalendarPoller } from './services/calendar-poller.service';
-import { hasTokens } from './services/google-auth.service';
+import { getCalendarPoller, resetCalendarPoller } from './services/calendar/calendar-poller.service';
+import { hasTokens } from './services/calendar/google-auth.service';
 import {
   getConnectionOrchestrator,
   resetConnectionOrchestrator,
@@ -44,7 +44,7 @@ import {
 import { logger } from './lib/logger';
 import { applyVideoDBPatches } from './lib/videodb-patch';
 import { getLockFilePath } from './lib/paths';
-import { createSessionRecoveryService, cleanupStuckRecordingSessions } from './services/session-recovery.service';
+import { createSessionRecoveryService, cleanupStuckRecordingSessions } from './services/recording/session-recovery.service';
 import { createVideoDBService } from './services/videodb.service';
 
 let mainWindow: BrowserWindow | null = null;
@@ -52,7 +52,7 @@ const isDev = !app.isPackaged;
 const PROTOCOL_NAME = 'chess-lens';
 
 const DEV_SERVER_HOST = process.env.VITE_DEV_SERVER_HOST ?? 'localhost';
-const DEV_SERVER_START_PORT = Number(process.env.VITE_DEV_SERVER_PORT ?? 51730);
+const DEV_SERVER_START_PORT = Number(process.env.VITE_DEV_SERVER_PORT ?? 5173);
 const DEV_SERVER_PORT_RANGE = Number(process.env.VITE_DEV_SERVER_PORT_RANGE ?? 10);
 
 // Track if app is quitting (for hide-to-tray behavior)
@@ -165,7 +165,13 @@ async function createWindow(): Promise<void> {
 
   if (isDev) {
     const devServerUrl = await resolveDevServerUrl();
-    await mainWindow.loadURL(devServerUrl);
+    if (devServerUrl) {
+      await mainWindow.loadURL(devServerUrl);
+    } else {
+      const rendererIndex = path.join(__dirname, '..', 'renderer', 'index.html');
+      logger.info({ rendererIndex }, 'Dev renderer server not found; loading built renderer');
+      await mainWindow.loadFile(rendererIndex);
+    }
   } else {
     await mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   }
@@ -187,34 +193,49 @@ async function createWindow(): Promise<void> {
   });
 }
 
-async function resolveDevServerUrl(): Promise<string> {
+async function resolveDevServerUrl(): Promise<string | null> {
   const explicitUrl = process.env.VITE_DEV_SERVER_URL;
   if (explicitUrl) {
-    logger.info({ explicitUrl }, 'Using explicit dev server URL');
-    return explicitUrl;
+    if (await isDevServerAvailable(explicitUrl)) {
+      logger.info({ explicitUrl }, 'Using explicit dev server URL');
+      return explicitUrl;
+    }
+    logger.warn({ explicitUrl }, 'Explicit dev server URL did not serve the main renderer');
   }
 
   for (let offset = 0; offset <= DEV_SERVER_PORT_RANGE; offset += 1) {
     const port = DEV_SERVER_START_PORT + offset;
     const candidateUrl = `http://${DEV_SERVER_HOST}:${port}`;
-    // eslint-disable-next-line no-await-in-loop
     if (await isDevServerAvailable(candidateUrl)) {
       logger.info({ candidateUrl }, 'Resolved dev server URL');
       return candidateUrl;
     }
   }
 
-  const fallbackUrl = `http://${DEV_SERVER_HOST}:${DEV_SERVER_START_PORT}`;
-  logger.warn({ fallbackUrl }, 'Dev server URL not detected; falling back');
-  return fallbackUrl;
+  logger.warn('Dev server URL not detected');
+  return null;
 }
 
 function isDevServerAvailable(url: string): Promise<boolean> {
   return new Promise((resolve) => {
     const request = http.get(url, (response) => {
-      response.resume();
       const status = response.statusCode ?? 0;
-      resolve(status >= 200 && status < 500);
+      const contentType = String(response.headers['content-type'] ?? '');
+      if (status < 200 || status >= 300 || !contentType.includes('text/html')) {
+        response.resume();
+        resolve(false);
+        return;
+      }
+
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => {
+        body += chunk;
+        if (body.length > 4096) request.destroy();
+      });
+      response.on('end', () => {
+        resolve(body.includes('id="root"') && body.includes('main.tsx'));
+      });
     });
 
     request.on('error', () => resolve(false));
@@ -611,10 +632,25 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
+function serializeProcessError(value: unknown): Record<string, unknown> {
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    };
+  }
+
+  return {
+    type: typeof value,
+    value: String(value),
+  };
+}
+
 process.on('uncaughtException', (error) => {
-  logger.error({ error }, 'Uncaught exception');
+  logger.error({ error: serializeProcessError(error) }, 'Uncaught exception');
 });
 
 process.on('unhandledRejection', (reason) => {
-  logger.error({ reason }, 'Unhandled rejection');
+  logger.error({ reason: serializeProcessError(reason) }, 'Unhandled rejection');
 });

@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { StepIndicators } from './AuthView';
 import { trpc } from '../../api/trpc';
+import { rendererLog } from '../../lib/utils';
 
 type RecordingBehavior = 'always_ask' | 'default_record' | 'no_notification';
 
@@ -64,7 +65,9 @@ export function RecordingPreferencesView({ onComplete }: RecordingPreferencesVie
       });
       onComplete();
     } catch (err) {
-      console.error('Failed to save preferences:', err);
+      rendererLog('warn', 'recording-preferences', 'Failed to save preferences', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       // Still proceed even if save fails - user can change in settings later
       onComplete();
     }

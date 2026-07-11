@@ -96,7 +96,7 @@ export function App() {
   const cancelDiscardMeetingSetup = () => {
     setPendingTabChange(null);
   };
-  const { status: sessionStatus, startRecording } = useSession();
+  const { status: sessionStatus } = useSession();
   const { allGranted, loading: permissionsLoading, checkPermissions } = usePermissions();
   const { prepareNewSession } = useSessionLifecycle();
 
@@ -215,8 +215,6 @@ export function App() {
   }, [isActivelyRecording, sessionStatus, awaitingCallSummary, handleExitRecordingMode]);
 
   const renderContent = () => {
-    console.log('[App.renderContent] sessionStatus:', sessionStatus, 'isActivelyRecording:', isActivelyRecording, 'awaitingCallSummary:', awaitingCallSummary, 'activeTab:', activeTab);
-
     // Step 0: Auth
     if (!isAuthenticated) {
       return <AuthView />;

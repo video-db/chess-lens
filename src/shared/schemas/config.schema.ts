@@ -17,7 +17,7 @@ export type WidgetPosition = z.infer<typeof WidgetPositionSchema>;
 
 export const RuntimeConfigSchema = z.object({
   apiUrl: z.string().optional(),
-  apiPort: z.number().default(51731),
+  apiPort: z.number().default(5174),
   chessEngineApiUrl: z.string().optional(),
   litellmBaseUrl: z.string().optional(),
   litellmModel: z.string().optional(),

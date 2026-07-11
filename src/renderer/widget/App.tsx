@@ -45,6 +45,7 @@ export function WidgetApp() {
   // Counts consecutive NO_BOARD frames received from the main process.
   // Stored as a ref so the onNoBoard callback always sees the current value.
   const noBoardStreakRef = useRef(0);
+  const activeSessionStartRef = useRef<number | null>(null);
 
   // Ref for the root wrapper — observed by ResizeObserver to auto-resize the window
   const rootRef = useRef<HTMLDivElement>(null);
@@ -56,11 +57,19 @@ export function WidgetApp() {
     const el = rootRef.current;
     if (!el) return;
 
+    let rafId: number | null = null;
+
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (entry) {
-        api.reportContentHeight(entry.contentRect.height);
+      if (!entry) return;
+
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
       }
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        api.reportContentHeight(entry.contentRect.height);
+      });
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -98,13 +107,25 @@ export function WidgetApp() {
 
     const unsubSession = api.onSessionState((state) => {
       setSessionState((prev) => {
-        // Transitioning recording → not recording: clear all coaching state
+        const nextStartTime = state.startTime ?? null;
+        const isNewRecordingSession =
+          state.isRecording
+          && nextStartTime !== null
+          && nextStartTime !== activeSessionStartRef.current;
+
+        // Transitioning recording → not recording: clear all coaching state.
         if (prev.isRecording && !state.isRecording) {
           resetCoachingState();
+          activeSessionStartRef.current = null;
         }
-        // Transitioning not-recording → recording: also clear (fresh session)
-        if (!prev.isRecording && state.isRecording) {
+        // Clear only for a genuinely new capture session. requestInitialState
+        // syncs can briefly replay recording state after FEN has arrived; those
+        // should not blank the board and make the widget appear stuck/stale.
+        if (isNewRecordingSession && lastFenBoardRef.current === null) {
           resetCoachingState();
+        }
+        if (isNewRecordingSession) {
+          activeSessionStartRef.current = nextStartTime;
         }
         return state;
       });
@@ -142,6 +163,14 @@ export function WidgetApp() {
     });
 
     const unsubFen = api.onFen((data) => {
+      api.log?.('info', 'App', 'onFen received', {
+        fen: data.fen?.slice(0, 40) ?? null,
+        displayFen: data.displayFen?.slice(0, 40) ?? null,
+        turn: data.turn ?? null,
+        boardOrientation: data.boardOrientation ?? null,
+        isSync: !!data.isSync,
+        isFlipAck: !!data.isFlipAck,
+      });
       // Only reset the no-board streak when this is a fresh board detection
       // from the pipeline, not a syncWidgetState replay (isSync: true).
       // Replays fire every ~1 s and would otherwise keep resetting the streak,
@@ -159,11 +188,14 @@ export function WidgetApp() {
       }
       // Only reset the turn override when the board position itself changes.
       const incomingBoard = data.fen.split(' ')[0] ?? null;
-      if (incomingBoard !== lastFenBoardRef.current) {
+      const boardChanged = incomingBoard !== lastFenBoardRef.current;
+      if (boardChanged) {
         lastFenBoardRef.current = incomingBoard;
         setTurnOverride(null);
         flipPendingRef.current = false;
         setIsTurnFlipping(false);
+        setSayThis([]);
+        setAskThis([]);
       }
       // Do NOT clear isTurnFlipping here — wait for the coaching tip (onLiveAssist)
       // which signals the full regeneration is done. Clearing on fen events makes the

@@ -8,11 +8,8 @@
 import { EventEmitter } from 'events';
 import { v4 as uuid } from 'uuid';
 import { logger } from '../../lib/logger';
-import {
-  createTranscriptSegment,
-  getRecentTranscriptSegments,
-} from '../../db';
-import type { TranscriptSegment, NewTranscriptSegment } from '../../db/schema';
+import { createTranscriptSegment } from '../../db';
+import type { NewTranscriptSegment } from '../../db/schema';
 
 const log = logger.child({ module: 'transcript-buffer' });
 

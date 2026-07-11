@@ -10,6 +10,7 @@ import { useLiveAssistStore } from '../stores/live-assist.store';
 import { useSessionStore } from '../stores/session.store';
 import { useGameSetupStore } from '../stores/meeting-setup.store';
 import { getElectronAPI } from '../api/ipc';
+import { rendererLog } from '../lib/utils';
 
 export function useLiveAssist() {
   const store = useLiveAssistStore();
@@ -40,7 +41,7 @@ export function useLiveAssist() {
       // Only pass context if at least one field has content
       const hasContext = context.name || context.description || context.gameId || context.questions || context.checklist;
 
-      console.log('[LiveAssist] Starting live assist service', {
+      rendererLog('info', 'live-assist-hook', 'Starting live assist service', {
         hasContext,
         gameId: context.gameId,
         selectedGameId,
@@ -48,20 +49,26 @@ export function useLiveAssist() {
 
       if (wasRecordingRef.current) {
         api.liveAssist.stop().catch(err => {
-          console.error('[LiveAssist] Failed to restart before game change:', err);
+          rendererLog('error', 'live-assist-hook', 'Failed to restart before game change', {
+            error: err instanceof Error ? err.message : String(err),
+          });
         });
       }
 
       api.liveAssist.start(hasContext ? context : undefined).catch(err => {
-        console.error('[LiveAssist] Failed to start:', err);
+        rendererLog('error', 'live-assist-hook', 'Failed to start', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
       wasRecordingRef.current = true;
       startedGameIdRef.current = currentGameId;
     } else if (!isRecording && wasRecordingRef.current) {
       // Recording just stopped
-      console.log('[LiveAssist] Stopping live assist service');
+      rendererLog('info', 'live-assist-hook', 'Stopping live assist service');
       api.liveAssist.stop().catch(err => {
-        console.error('[LiveAssist] Failed to stop:', err);
+        rendererLog('error', 'live-assist-hook', 'Failed to stop', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
       store.clear();
       wasRecordingRef.current = false;
@@ -74,10 +81,10 @@ export function useLiveAssist() {
     const api = getElectronAPI();
     if (!api) return;
 
-    console.log('[LiveAssist] Setting up event listener');
+    rendererLog('debug', 'live-assist-hook', 'Setting up event listener');
 
     const unsubscribe = api.liveAssistOn.onUpdate((event) => {
-      console.log('[LiveAssist] Received insights:', {
+      rendererLog('debug', 'live-assist-hook', 'Received insights', {
         sayThis: event.insights.say_this.length,
         askThis: event.insights.ask_this.length,
         clearExisting: !!event.clearExisting,
@@ -117,7 +124,7 @@ export function useLiveAssist() {
     }
 
     return () => {
-      console.log('[LiveAssist] Cleaning up event listener');
+      rendererLog('debug', 'live-assist-hook', 'Cleaning up event listener');
       unsubscribe();
       unsubFen?.();
     };

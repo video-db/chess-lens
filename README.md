@@ -75,7 +75,6 @@ On first launch, enter your VideoDB API key. Get a free key at [console.videodb.
 | **Session history** | Browse past games and review coaching tips |
 | **Post-session summary** | AI-generated recap after each game |
 | **Local-first** | All data stored on your machine. Only API calls leave the device. |
-| **MCP support** | Connect external tools for additional context during sessions |
 
 ---
 
@@ -120,6 +119,21 @@ npm run dist        # all platforms
 
 ---
 
+## Repository Layout
+
+- `src/`: application source for Electron main, preload, renderer, shared types, and widget code
+- `test/`: unit tests, mirroring the source tree without the `src/` prefix
+- `test-data/`: smoke-test fixtures and sample frames
+- `tools/`: validation, diagnostics, maintenance, and asset-generation scripts
+- `scripts/`: install and local launch helper scripts
+- `assets/`: runtime model files packaged with the app
+- `resources/`: app icons and packaged resources
+- `docs/`: development notes that do not need to live at the root
+
+Generated folders such as `dist/`, `release/`, `drizzle/`, Storybook output, logs, and benchmark result files are ignored and can be regenerated.
+
+---
+
 ## Troubleshooting
 
 <details>
@@ -155,7 +169,7 @@ npm run rebuild
 
 - Ensure Node.js 18+ is installed
 - Delete `dist/` and re-run `npm run dev`
-- Check that port 51731 is not already in use
+- Check that port 5174 is not already in use
 
 </details>
 

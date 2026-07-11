@@ -7,7 +7,6 @@ import { createUser, getUserByAccessToken, updateUser } from '../../../db';
 import { createVideoDBService } from '../../../services/videodb.service';
 import { createChildLogger } from '../../../lib/logger';
 import { loadRuntimeConfig, loadAppConfig, saveAppConfig } from '../../../lib/config';
-import { getLLMService } from '../../../services/llm.service';
 
 const logger = createChildLogger('auth-procedure');
 

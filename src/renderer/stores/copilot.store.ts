@@ -88,7 +88,7 @@ const initialState = {
 
 // Store
 
-export const useCopilotStore = create<CopilotState>((set, get) => ({
+export const useCopilotStore = create<CopilotState>((set, _get) => ({
   ...initialState,
 
   // Configuration

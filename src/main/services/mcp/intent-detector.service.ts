@@ -6,7 +6,7 @@
  */
 
 import { logger } from '../../lib/logger';
-import { getLLMService } from '../llm.service';
+import { getLLMService } from '../llm/llm.service';
 import { getToolAggregator, ToolAggregatorService, NamespacedTool } from './tool-aggregator.service';
 import type { MCPIntentDetection, MCPTool } from '../../../shared/types/mcp.types';
 import type { TranscriptSegmentData } from '../copilot/transcript-buffer.service';
@@ -119,7 +119,7 @@ export class IntentDetectorService {
   /**
    * Fast pattern-based intent detection
    */
-  detectFast(segment: TranscriptSegmentData, context: string): MCPIntentDetection {
+  detectFast(segment: TranscriptSegmentData, _context: string): MCPIntentDetection {
     const text = segment.text;
 
     for (const intentPattern of INTENT_PATTERNS) {
@@ -277,7 +277,7 @@ Return JSON:
    */
   private extractSuggestedInput(
     text: string,
-    tool: NamespacedTool
+    _tool: NamespacedTool
   ): Record<string, unknown> | undefined {
     // Try to extract common parameters
     const input: Record<string, unknown> = {};

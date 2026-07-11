@@ -29,7 +29,7 @@ import {
   checkAndRecoverSession,
   checkSessionExport,
   recoverExportedRecording,
-} from '../../../services/recording-export.service';
+} from '../../../services/recording/recording-export.service';
 import { createVideoDBService } from '../../../services/videodb.service';
 
 const logger = createChildLogger('recordings-procedure');
@@ -75,7 +75,7 @@ function toGameplayTip(text: string): string {
     .replace(/\s*image\s*\d+\s*:\s*/gi, ' ')
     .replace(/^the screen\s+(shows|displays)\s*/i, '')
     .replace(/^this frame\s+(shows|displays)\s*/i, '')
-    .replace(/^visible content\s*[:\-]?\s*/i, '')
+    .replace(/^visible content\s*[:-]?\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -510,8 +510,6 @@ export const recordingsRouter = router({
       logger.info({ maxAgeMinutes: input.maxAgeMinutes, excludeSessionId: input.excludeSessionId }, 'Cleaning up stale recordings');
 
       const recordings = getAllRecordings();
-      const now = Date.now();
-      const maxAgeMs = input.maxAgeMinutes * 60 * 1000;
       let cleaned = 0;
       let recovered = 0;
 

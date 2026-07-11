@@ -71,7 +71,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
     logger.warn({ error, configPath }, 'Failed to load runtime config, using defaults');
   }
   return {
-    apiPort: 51731,
+    apiPort: 5174,
   };
 }
 

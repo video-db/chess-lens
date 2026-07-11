@@ -22,10 +22,8 @@ import type {
 
 const logger = createChildLogger('ipc-workflows');
 
-let mainWindow: BrowserWindow | null = null;
-
 export function setWorkflowsMainWindow(window: BrowserWindow): void {
-  mainWindow = window;
+  void window;
 }
 
 export function setupWorkflowHandlers(): void {
@@ -192,7 +190,7 @@ export function setupWorkflowHandlers(): void {
     responseTime?: number;
   }> => {
     try {
-      const { testWorkflowWebhook } = await import('../services/workflow-webhook.service');
+      const { testWorkflowWebhook } = await import('../services/workflow/workflow-webhook.service');
       const result = await testWorkflowWebhook(webhookUrl);
       return result;
     } catch (error) {

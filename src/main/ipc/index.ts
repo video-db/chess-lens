@@ -2,12 +2,12 @@ import { ipcMain } from 'electron';
 import { setupCaptureHandlers } from './capture';
 import { setupPermissionHandlers } from './permissions';
 import { setupAppHandlers, setupRendererLogHandler, removeRendererLogHandler } from './app';
-import { setupCopilotHandlers, removeCopilotHandlers, setCopilotMainWindow } from './copilot';
-import { setupMCPHandlers, removeMCPHandlers, setMCPMainWindow } from './mcp';
-import { setupCalendarHandlers, removeCalendarHandlers, setCalendarMainWindow } from './calendar';
-import { setupLiveAssistHandlers, setLiveAssistWindow, cleanupLiveAssist } from './live-assist';
-import { setupWorkflowHandlers, removeWorkflowHandlers, setWorkflowsMainWindow } from './workflows';
-import { setupVisualIndexIPC } from './visual-index';
+import { setupCopilotHandlers, removeCopilotHandlers } from './copilot';
+import { setupMCPHandlers, removeMCPHandlers } from './mcp';
+import { setupCalendarHandlers, removeCalendarHandlers } from './calendar';
+import { setupLiveAssistHandlers, cleanupLiveAssist } from './live-assist';
+import { setupWorkflowHandlers, removeWorkflowHandlers } from './workflows';
+import { setupVisualIndexIPC, removeVisualIndexIPC } from './visual-index';
 import { setupWidgetIpcHandlers, removeWidgetIpcHandlers } from './widget';
 import { createChildLogger } from '../lib/logger';
 
@@ -47,6 +47,8 @@ export function removeIpcHandlers(): void {
   ipcMain.removeHandler('request-screen-permission');
   ipcMain.removeHandler('open-system-settings');
   ipcMain.removeHandler('get-permission-status');
+  ipcMain.removeHandler('check-notification-permission');
+  ipcMain.removeHandler('request-notification-permission');
 
   // App handlers
   ipcMain.removeHandler('get-settings');
@@ -55,6 +57,7 @@ export function removeIpcHandlers(): void {
   ipcMain.removeHandler('open-external-link');
   ipcMain.removeHandler('show-notification');
   ipcMain.removeHandler('open-player-window');
+  ipcMain.removeHandler('open-chess-lens-folder');
   removeRendererLogHandler();
 
   // Meeting Co-Pilot handlers
@@ -73,10 +76,14 @@ export function removeIpcHandlers(): void {
   ipcMain.removeHandler('live-assist:add-visual-index');
   ipcMain.removeHandler('live-assist:clear');
   ipcMain.removeHandler('live-assist:chat');
+  ipcMain.removeHandler('live-assist:flip-turn');
   cleanupLiveAssist();
 
   // Workflow handlers
   removeWorkflowHandlers();
+
+  // Visual Index handlers
+  removeVisualIndexIPC();
 
   // Widget handlers
   removeWidgetIpcHandlers();

@@ -3,7 +3,6 @@ import type { CaptureConfig, Channel } from '../schemas/capture.schema';
 import type {
   CalendarApi,
   CalendarEvents,
-  UpcomingMeeting,
 } from './calendar.types';
 import type { Workflow } from './workflow.types';
 

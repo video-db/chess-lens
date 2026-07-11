@@ -9,18 +9,17 @@
  */
 
 import React from 'react';
-import { Loader2, ArrowLeft, Calendar, Clock, Swords } from 'lucide-react';
+import { ArrowLeft, Calendar } from 'lucide-react';
 import { useSession } from '../../hooks/useSession';
 import { useCopilot } from '../../hooks/useCopilot';
 import { useCopilotStore } from '../../stores/copilot.store';
-import { useGameSetupStore } from '../../stores/meeting-setup.store';
 import { useSessionLifecycle } from '../../hooks/useSessionLifecycle';
 import { RecordingHeader } from './RecordingHeader';
-import { LiveAssistPanel, ChatPanel } from './LiveAssistPanel';
+import { ChatPanel } from './LiveAssistChatPanel';
+import { LiveAssistPanel } from './LiveAssistPanel';
 import { CallSummaryView } from '../copilot';
 import { useSessionStore } from '../../stores/session.store';
 import { useState, useRef, useCallback } from 'react';
-import { ChessLensIconBlack } from '../ui/ChessLensIcon';
 
 // ─── Processing view — Figma "Generating Game Summary" ───────────────────────
 
@@ -185,7 +184,7 @@ function ActiveRecordingLayout({ onBack }: { onBack?: () => void }) {
       {/* Header with timer + controls */}
       <RecordingHeader onBack={onBack} />
 
-      {/* Main container — matches storybook: padding 16px, gap 20px, rounded top */}
+      {/* Main container: padding 16px, gap 20px, rounded top */}
       <div className="flex-1 bg-white border border-border-default rounded-t-[20px] mx-[10px] p-[16px] flex gap-[20px] overflow-hidden">
 
         {/* Left panel — Live Analysis + Coaching Tips + Move History */}

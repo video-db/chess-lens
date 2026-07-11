@@ -79,4 +79,18 @@ screenshot.png
 # package-lock (optional — remove this line if you want to track it)
 # package-lock.json
 
-/game2
+# Storybook build output
+storybook-static/
+
+# Test coverage and reports
+coverage/
+playwright-report/
+test-results/
+
+# Generated benchmark / experiment outputs
+phase*_results.json
+tools/benchmark-results.json
+tools/*-results.json
+tools/*_results.json
+tools/**/*-results.json
+tools/**/*_results.json

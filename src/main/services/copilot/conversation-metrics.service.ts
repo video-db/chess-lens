@@ -13,10 +13,7 @@
  * - Average response time
  */
 
-import { logger } from '../../lib/logger';
 import type { TranscriptSegmentData } from './transcript-buffer.service';
-
-const log = logger.child({ module: 'conversation-metrics' });
 
 export interface ConversationMetrics {
   talkRatio: {
@@ -65,11 +62,6 @@ export class ConversationMetricsService {
   calculate(segments: TranscriptSegmentData[], elapsedTimeSeconds?: number): ConversationMetrics {
     const meSegments = segments.filter(s => s.isFinal && s.channel === 'me');
     const themSegments = segments.filter(s => s.isFinal && s.channel === 'them');
-
-    if (meSegments.length > 0) {
-      const totalWords = meSegments.reduce((sum, s) => sum + s.text.trim().split(/\s+/).filter(w => w.length > 0).length, 0);
-      const totalDuration = meSegments.reduce((sum, s) => sum + (s.endTime - s.startTime), 0);
-    }
 
     const meDuration = this.calculateDuration(meSegments);
     const themDuration = this.calculateDuration(themSegments);

@@ -7,7 +7,7 @@
  */
 
 import { logger } from '../../lib/logger';
-import { getLLMService } from '../llm.service';
+import { getLLMService } from '../llm/llm.service';
 import type { TranscriptSegmentData } from './transcript-buffer.service';
 
 const log = logger.child({ module: 'context-manager' });

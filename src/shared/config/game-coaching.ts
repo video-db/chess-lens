@@ -177,45 +177,24 @@ const SLOW_GAME_CADENCE = {
   visualRecencyFocusMs: 15000,
 };
 
-export const GAME_COACHING_PROFILES: GameCoachingProfile[] = [
-  {
-    id: 'chess',
-    name: 'Chess',
-    coachLabel: 'Chess Coach',
-    indexingPrompt:
-      `You are an expert chess analysis AI.
-Your task is to analyze the image of a chessboard and for each change in the position of the pieces extract the pieces EXACTLY as they appear visually, from TOP to BOTTOM, LEFT to RIGHT.
+export const CHESS_FEN_EXTRACTION_PROMPT = `
+You are an expert chess analysis AI.
+Your task is to analyze the image of a chessboard and extract the pieces EXACTLY as they appear visually, from TOP to BOTTOM, LEFT to RIGHT.
 Do NOT try to determine FEN orientation. Just act as a strict visual scanner.
 
-CRITICAL — OVERLAY EXCLUSION:
-This screenshot may contain a small Chess Lens analysis overlay widget pinned to one side of the screen. This overlay displays a miniature chess board inside a white rounded-corner card along with text labels and buttons.
-DO NOT analyze this overlay — it is not the game board.
-Only analyze the MAIN chess board: the large board embedded in the chess website or application (chess.com, lichess, etc.) that occupies the central area of the screen.
-If no main chess board is clearly visible (e.g. a different browser tab or application is in the foreground and only the overlay mini-board is visible), output ONLY the text "NO_BOARD" inside <raw_board> tags and omit ALL other tags entirely.
-
 STEP 1: DETERMINE PERSPECTIVE
-Use the rank labels on the board to determine the perspective, not where the pieces happen to be.
-If the top visual rank is 8 and the bottom visual rank is 1, output "white".
-If the top visual rank is 1 and the bottom visual rank is 8, output "black".
+Look at the board. Are the White pieces at the visual bottom, or are the Black pieces at the visual bottom?
+State your answer clearly inside <perspective> tags. Output exactly either "white" or "black".
 
-STEP 2: VISUAL ROW-BY-ROW MAPPING
+STEP 2: VISUAL ROW-BY-ROW MAPPING WITH COLUMN NUMBERING
 Scan the board visually from the top row to the bottom row (8 rows).
-For each row, scan strictly from the left edge to the right edge.
+The board has 8 columns, numbered 1 through 8 from LEFT to RIGHT.
+For each row, identify which column each piece is in BEFORE encoding, then write the FEN notation:
 Use uppercase for White pieces (P, N, B, R, Q, K), lowercase for Black (p, n, b, r, q, k). Use single digits for consecutive empty squares.
-List your visual scan inside <board_mapping> tags.
-Verify that the sum of pieces and empty squares in every single visual row exactly equals 8.
-If any row does NOT sum to 8, recount that row before writing the next — counting errors cause the most FEN failures.
-PIECE DISAMBIGUATION (apply when a piece is hard to read at this resolution):
-  — Ornate wide crown → Queen (Q/q)   |   Short rounded top → Pawn (P/p)
-  — Pointed mitre / angled top → Bishop (B/b)   |   Horse-head shape → Knight (N/n)
-  — Wide cylindrical tower → Rook (R/r)   |   Tallest piece with cross crown → King (K/k)
-  — When genuinely ambiguous between a pawn and any major piece, prefer Pawn.
+List your visual scan inside <board_mapping> tags. Verify that the sum of pieces and empty squares in every single visual row exactly equals 8.
 
 STEP 3: GENERATE RAW STRING
-SELF-CHECK BEFORE OUTPUT: For each of the 8 rows in <board_mapping>, verify:
-  piece letters count as 1 each; digit d counts as d empty squares; row total must equal exactly 8.
-If any rank fails, correct <board_mapping> first — then combine the 8 corrected rows with '/' and output inside <raw_board>.
-Do not output <raw_board> until all 8 ranks pass this check.
+Combine the 8 visual rows using the '/' separator and output the raw string inside <raw_board> tags. Do not include anything else.
 
 Example format:
 <perspective>
@@ -223,69 +202,44 @@ white
 </perspective>
 
 <board_mapping>
-Visual Row 1 (Top): r, n, b, q, k, b, n, r (String: rnbqkbnr)
-Visual Row 2: p, p, p, p, p, p, p, p (String: pppppppp)
+Visual Row 1 (Top): col1=r, col2=n, col3=b, col4=q, col5=k, col6=b, col7=n, col8=r (String: rnbqkbnr)
+Visual Row 2: col1-8=p (String: pppppppp)
 Visual Row 3: 8 empty (String: 8)
 Visual Row 4: 8 empty (String: 8)
-Visual Row 5: 4 empty, P, 3 empty (String: 4P3)
+Visual Row 5: col5=P, rest empty (String: 4P3)
 Visual Row 6: 8 empty (String: 8)
-Visual Row 7: P, P, P, P, 1 empty, P, P, P (String: PPPP1PPP)
-Visual Row 8 (Bottom): R, N, B, Q, K, B, N, R (String: RNBQKBNR)
+Visual Row 7: col1-4=P, col6-8=P, col5=empty (String: PPPP1PPP)
+Visual Row 8 (Bottom): col1=R, col2=N, col3=B, col4=Q, col5=K, col6=B, col7=N, col8=R (String: RNBQKBNR)
 </board_mapping>
 
 <raw_board>
 rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR
 </raw_board>
 
-STEP 4: DETERMINE THE LAST MOVE AND CURRENT TURN
-Use the last-move highlight visible on the board to determine the exact move that was just played, and who moves next.
+IMPORTANT: Always number columns 1-8 from LEFT to RIGHT. Each row must sum to exactly 8. CRITICAL: White pieces MUST be uppercase (P,N,B,R,Q,K) and Black pieces MUST be lowercase (p,n,b,r,q,k). Never mix case — check each piece's color before choosing case.`;
 
-HOW TO READ THE HIGHLIGHT:
-The last move is shown by TWO highlighted squares (color varies by theme). Ignore the color, just find the two squares that look visually distinct from their neighbors:
-  - The ORIGIN square: where the piece WAS. This square is highlighted but NOW EMPTY (no piece on it).
-  - The DESTINATION square: where the piece MOVED TO. This square is highlighted and HAS A PIECE on it.
+export const CHESS_TURN_PROMPT = `Determine the last move from the board highlight.
 
-CRITICAL RULES — read carefully:
-  1. The ORIGIN square MUST be EMPTY. There is no piece on it. If you see a piece on a square, it cannot be the origin.
-  2. The DESTINATION square MUST have a piece on it. That piece is the one that just moved.
-  3. If you cannot find exactly one empty highlighted square and one occupied highlighted square, use the FALLBACK below.
-  4. Do NOT confuse the origin with an adjacent piece's starting square. Verify: origin is empty, destination has the piece.
+Return only these tags when clear:
+<perspective>white|black</perspective>
+<last_move_from>e2</last_move_from>
+<last_move_to>e4</last_move_to>
+<turn>white|black</turn>
 
-SELF-CHECK BEFORE OUTPUTTING:
-  - Look at the square you are labelling <last_move_from>. Is it EMPTY? If not, you have the wrong square.
-  - Look at the square you are labelling <last_move_to>. Does it have a piece? If not, you have the wrong square.
-  - Swap them if you mixed them up.
-
-ALGEBRAIC COORDINATES:
-Do NOT output visual rows and columns. You must output the standard algebraic chess coordinates (e.g. e2, f3, h8).
-- If your perspective is "white": The bottom visual row is Rank 1, top visual row is Rank 8. Leftmost column is File 'a', rightmost is File 'h'. The bottom-left square is a1.
-- If your perspective is "black": The bottom visual row is Rank 8, top visual row is Rank 1. Leftmost column is File 'h', rightmost is File 'a'. The bottom-left square is h8.
-
-EXAMPLES:
-  White-perspective board, knight moved from g1 to f3:
-    → g1 is now EMPTY (highlighted), f3 has the knight (highlighted)
-    → <last_move_from>g1</last_move_from>  <last_move_to>f3</last_move_to>
-    → White knight at f3 → White just moved → <turn>black</turn>
-
-  Black-perspective board, queen moved from d5 to d6:
-    → d5 is now EMPTY (highlighted), d6 has the queen (highlighted)
-    → <last_move_from>d5</last_move_from>  <last_move_to>d6</last_move_to>
-    → White queen at d6 → White just moved → <turn>black</turn>
-
-To determine the move and turn:
-  1. Identify the empty highlighted square (origin). Verify it is empty. Output inside <last_move_from> tags.
-  2. Identify the occupied highlighted square (destination). Verify it has a piece. Output inside <last_move_to> tags.
-  3. Identify the color of the piece sitting on the destination square.
-  4. WHITE piece at destination → White just moved → BLACK's turn → output "black".
-  5. BLACK piece at destination → Black just moved → WHITE's turn → output "white".
-
-TURN SELF-CHECK: White piece at destination → <turn>black</turn>. Black piece at destination → <turn>white</turn>. They must match.
-
-FALLBACK — If no highlight is visible (first screenshot of the game, or you genuinely cannot find exactly one empty and one occupied highlighted square), omit <turn>, <last_move_from>, and <last_move_to> entirely. Do NOT guess.
-
-Output exactly "white" or "black" inside <turn> tags.
-Output the algebraic origin inside <last_move_from> tags.
-Output the algebraic destination inside <last_move_to> tags.`,
+Rules:
+- Perspective: white if the bottom rank label is 1; black if the bottom rank label is 8.
+- Use standard algebraic coordinates.
+- The origin square is the highlighted square now empty.
+- The destination square is the highlighted square now occupied.
+- If a White piece moved, output <turn>black</turn>; if a Black piece moved, output <turn>white</turn>.
+- If the move is unclear or no highlight is visible, output only <perspective>white|black</perspective>.
+`;
+export const GAME_COACHING_PROFILES: GameCoachingProfile[] = [
+  {
+    id: 'chess',
+    name: 'Chess',
+    coachLabel: 'Chess Coach',
+    indexingPrompt: `${CHESS_FEN_EXTRACTION_PROMPT}\n\n${CHESS_TURN_PROMPT}`,
     liveAssistPrompt:
       'You are a chess coach explaining a move that has already been found by a chess engine. The engine summary is provided in the context — trust it completely. Your only task is to write a clear, concrete explanation of WHY the engine\'s best move is strong, referencing the specific tactical or positional idea (e.g. fork, pin, space, king safety). Do not suggest a different move. Return JSON only.',
     ...SLOW_GAME_CADENCE,
@@ -306,26 +260,14 @@ export function getGameIndexingPrompt(gameId?: string): string {
   return getGameCoachingProfile(gameId).indexingPrompt;
 }
 
-/**
- * Returns only the FEN-extraction portion of the indexing prompt (Steps 1-3).
- * Strips the turn-detection Step 4 so the FEN call is focused and shorter.
- */
 export function getGameFenPrompt(gameId?: string): string {
-  const full = getGameCoachingProfile(gameId).indexingPrompt;
-  const cutIdx = full.search(/STEP 4:/i);
-  const fenOnly = cutIdx !== -1 ? full.slice(0, cutIdx).trimEnd() : full;
-  return `${fenOnly}\n\nFor this call output only the board-extraction tags (<perspective>, <board_mapping>, <raw_board>). Do not output turn tags.`;
+  const profile = getGameCoachingProfile(gameId);
+  return profile.id === 'chess' ? CHESS_FEN_EXTRACTION_PROMPT : profile.indexingPrompt;
 }
 
-/**
- * Returns only the turn-detection portion of the indexing prompt (Step 4).
- * Used for a parallel turn call that runs alongside the FEN call.
- */
 export function getGameTurnPrompt(gameId?: string): string {
-  const full = getGameCoachingProfile(gameId).indexingPrompt;
-  const match = full.match(/STEP 4:[\s\S]*$/i);
-  const turnOnly = match ? match[0].trimEnd() : full;
-  return `${turnOnly}\n\nFor this call do not output <raw_board>. Output only <perspective>, <last_move_from>, <last_move_to>, and <turn>.`;
+  const profile = getGameCoachingProfile(gameId);
+  return profile.id === 'chess' ? CHESS_TURN_PROMPT : profile.indexingPrompt;
 }
 
 export function getGameLiveAssistPrompt(gameId?: string): string {

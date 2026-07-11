@@ -24,7 +24,6 @@ export function rendererLog(
   if (api?.log) {
     api.log(level, module, message, data);
   } else {
-    // eslint-disable-next-line no-console
     console[level](`[renderer:${module}]`, message, data ?? '');
   }
 }
