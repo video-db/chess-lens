@@ -130,8 +130,6 @@ npm run dist        # all platforms
 - `assets/`: runtime model files packaged with the app
 - `resources/`: app icons and packaged resources
 
-Generated folders such as `dist/`, `release/`, `drizzle/`, Storybook output, logs, benchmark result files, and local fixture data such as `test-data/` are ignored and can be regenerated.
-
 ---
 
 ## Troubleshooting
