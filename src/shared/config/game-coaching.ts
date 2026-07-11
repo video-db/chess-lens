@@ -182,6 +182,8 @@ You are an expert chess analysis AI.
 Your task is to analyze the image of a chessboard and extract the pieces EXACTLY as they appear visually, from TOP to BOTTOM, LEFT to RIGHT.
 Do NOT try to determine FEN orientation. Just act as a strict visual scanner.
 
+If no main chess board is clearly visible (e.g. a different browser tab or application is in the foreground), output ONLY the text "NO_BOARD" inside <raw_board> tags and omit ALL other tags entirely.
+
 STEP 1: DETERMINE PERSPECTIVE
 Look at the board. Are the White pieces at the visual bottom, or are the Black pieces at the visual bottom?
 State your answer clearly inside <perspective> tags. Output exactly either "white" or "black".
